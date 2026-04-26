@@ -54,6 +54,11 @@ ACTION_VISUALS: dict[str, ActionVisual] = {
         tool_tip="Масштаб 100%",
         status_tip="Вернуть отображение изображения к масштабу 100%.",
     ),
+    "default_view": ActionVisual(
+        icon_name="default-view",
+        tool_tip="Вид по умолчанию",
+        status_tip="Вернуть стандартные пропорции панелей и вписать изображение в область просмотра.",
+    ),
     "detect_contour": ActionVisual(
         icon_name="detect-contour",
         tool_tip="Определить контур",

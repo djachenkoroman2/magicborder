@@ -12,11 +12,16 @@ dependencies = [
   "numpy>=1.26",
   "opencv-python-headless>=4.10",
   "Pillow>=10.3",
-  "PyQt5>=5.15.10",
+  "PyQt5>=5.15.10,<5.16",
+  "PyQt5-Qt5==5.15.2; sys_platform == 'win32'",
+  "PyQt5-Qt5>=5.15.18,<5.16; sys_platform != 'win32'",
 ]
 
 [project.scripts]
 magicborder = "magicborder.main:main"
+
+[project.gui-scripts]
+magicborder-gui = "magicborder.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/magicborder"]

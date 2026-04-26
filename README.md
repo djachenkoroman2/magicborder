@@ -48,6 +48,15 @@ uv run magicborder
 uv run python -m magicborder.main
 ```
 
+На Windows используйте те же команды в PowerShell из корня проекта:
+
+```powershell
+uv sync
+uv run magicborder
+```
+
+После установки пакета доступен также GUI-entrypoint `magicborder-gui`, который на Windows создаётся как оконный launcher без привязки к Unix-пути `.venv/bin`.
+
 ## Как пользоваться
 
 1. Откройте фотографию листа через меню `Файл -> Открыть изображение`.

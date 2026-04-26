@@ -55,6 +55,7 @@ class ImageCanvas(QGraphicsView):
     message_changed = pyqtSignal(str)
     image_state_changed = pyqtSignal(bool)
     contour_state_changed = pyqtSignal(bool)
+    contour_geometry_changed = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -111,6 +112,14 @@ class ImageCanvas(QGraphicsView):
     def contour_points(self) -> list[Point]:
         return [Point(point.x(), point.y()) for point in self._contour_points]
 
+    def contour_rgb_pixels(self) -> np.ndarray:
+        if not self._loaded_image or len(self._contour_points) < 3:
+            return np.empty((0, 3), dtype=np.uint8)
+
+        mask = self._contour_mask()
+        pixels = self._loaded_image.rgb_array[mask > 0]
+        return np.ascontiguousarray(pixels.reshape((-1, 3)))
+
     def set_loaded_image(self, image: LoadedImage) -> None:
         self._loaded_image = image
         self._image_item.setPixmap(image.pixmap)
@@ -140,15 +149,7 @@ class ImageCanvas(QGraphicsView):
             raise ValueError("Сначала постройте или загрузите контур.")
 
         rgb_array = self.current_rgb_array()
-        mask = np.zeros(rgb_array.shape[:2], dtype=np.uint8)
-        polygon = np.array(
-            [
-                [int(round(point.x())), int(round(point.y()))]
-                for point in self._contour_points
-            ],
-            dtype=np.int32,
-        )
-        cv2.fillPoly(mask, [polygon], 255)
+        mask = self._contour_mask()
         rgb_array[mask == 0] = 255
         self.replace_current_rgb_array(rgb_array)
         self.message_changed.emit("Фон за пределами контура выровнен до белого.")
@@ -158,6 +159,7 @@ class ImageCanvas(QGraphicsView):
         self._path_item.setPath(QPainterPath())
         self._clear_handles()
         self.contour_state_changed.emit(False)
+        self.contour_geometry_changed.emit()
 
     def set_contour(self, points: Sequence[Point]) -> None:
         if not self._loaded_image:
@@ -172,6 +174,7 @@ class ImageCanvas(QGraphicsView):
         self._refresh_path()
         self._rebuild_handles()
         self.contour_state_changed.emit(True)
+        self.contour_geometry_changed.emit()
         self.message_changed.emit(f"Контур загружен: {len(self._contour_points)} узлов.")
 
     def constrain_point(self, point: QPointF) -> QPointF:
@@ -187,6 +190,7 @@ class ImageCanvas(QGraphicsView):
             return
         self._contour_points[index] = self.constrain_point(position)
         self._refresh_path()
+        self.contour_geometry_changed.emit()
 
     def remove_node(self, index: int) -> bool:
         if len(self._contour_points) <= 3:
@@ -199,6 +203,7 @@ class ImageCanvas(QGraphicsView):
         self._refresh_path()
         self._rebuild_handles()
         self.contour_state_changed.emit(True)
+        self.contour_geometry_changed.emit()
         self.message_changed.emit("Узел удалён.")
         return True
 
@@ -226,6 +231,7 @@ class ImageCanvas(QGraphicsView):
         self._refresh_path()
         self._rebuild_handles()
         self.contour_state_changed.emit(True)
+        self.contour_geometry_changed.emit()
         self.message_changed.emit(f"Удалено узлов: {removed}.")
         return True
 
@@ -256,6 +262,7 @@ class ImageCanvas(QGraphicsView):
         self._refresh_path()
         self._rebuild_handles()
         self.contour_state_changed.emit(True)
+        self.contour_geometry_changed.emit()
         self.message_changed.emit("Новый узел добавлен.")
         return True
 
@@ -386,6 +393,24 @@ class ImageCanvas(QGraphicsView):
                 self._handles.append(handle)
         finally:
             self._suppress_handle_events = False
+
+    def _contour_mask(self) -> np.ndarray:
+        if not self._loaded_image:
+            raise ValueError("Сначала откройте изображение.")
+
+        mask = np.zeros(self._loaded_image.rgb_array.shape[:2], dtype=np.uint8)
+        if len(self._contour_points) < 3:
+            return mask
+
+        polygon = np.array(
+            [
+                [int(round(point.x())), int(round(point.y()))]
+                for point in self._contour_points
+            ],
+            dtype=np.int32,
+        )
+        cv2.fillPoly(mask, [polygon], 255)
+        return mask
 
 
 def _distance_to_segment(point: QPointF, start: QPointF, end: QPointF) -> tuple[float, QPointF]:
