@@ -19,6 +19,41 @@ class ActionVisual:
 
 
 ACTION_VISUALS: dict[str, ActionVisual] = {
+    "new_project": ActionVisual(
+        icon_name="new-project",
+        tool_tip="Новый проект",
+        status_tip="Создать папку проекта и новый JSON-файл проекта.",
+    ),
+    "open_project": ActionVisual(
+        icon_name="open-project",
+        tool_tip="Открыть проект",
+        status_tip="Открыть JSON-файл проекта MagicBorder.",
+    ),
+    "save_project": ActionVisual(
+        icon_name="save-project",
+        tool_tip="Сохранить проект",
+        status_tip="Сохранить список изображений и аннотации текущего проекта.",
+    ),
+    "close_project": ActionVisual(
+        icon_name="close-project",
+        tool_tip="Закрыть проект",
+        status_tip="Сохранить и закрыть текущий проект.",
+    ),
+    "add_images": ActionVisual(
+        icon_name="add-images",
+        tool_tip="Добавить изображения",
+        status_tip="Добавить одно или несколько изображений в текущий проект.",
+    ),
+    "remove_image": ActionVisual(
+        icon_name="remove-project-image",
+        tool_tip="Удалить изображение из проекта",
+        status_tip="Удалить выбранное изображение из списка проекта.",
+    ),
+    "export_project_csv": ActionVisual(
+        icon_name="export-csv",
+        tool_tip="Экспорт CSV",
+        status_tip="Сохранить сводную таблицу изображений проекта в CSV.",
+    ),
     "open_image": ActionVisual(
         icon_name="open-image",
         tool_tip="Открыть изображение",
@@ -59,10 +94,20 @@ ACTION_VISUALS: dict[str, ActionVisual] = {
         tool_tip="Вид по умолчанию",
         status_tip="Вернуть стандартные пропорции панелей и вписать изображение в область просмотра.",
     ),
+    "new_contour": ActionVisual(
+        icon_name="new-contour",
+        tool_tip="Новый контур",
+        status_tip="Создать окружный контур в центре текущего изображения.",
+    ),
     "detect_contour": ActionVisual(
         icon_name="detect-contour",
         tool_tip="Определить контур",
         status_tip="Автоматически определить границу листа и построить контур.",
+    ),
+    "delete_contour": ActionVisual(
+        icon_name="delete-contour",
+        tool_tip="Удалить контур",
+        status_tip="Удалить контур текущего выбранного изображения.",
     ),
     "flatten_background": ActionVisual(
         icon_name="flatten-background",

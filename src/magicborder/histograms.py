@@ -139,7 +139,7 @@ class HistogramCanvas(QWidget):
 
     def save_png(self, path: Path) -> None:
         pixmap = QPixmap(self.size())
-        pixmap.fill(QColor("#171b20"))
+        pixmap.fill(QColor("#ffffff"))
         painter = QPainter(pixmap)
         try:
             self.render(painter)
@@ -155,7 +155,7 @@ class HistogramCanvas(QWidget):
         painter.setRenderHint(QPainter.TextAntialiasing, True)
 
         canvas_rect = self.rect()
-        painter.fillRect(canvas_rect, QColor("#171b20"))
+        painter.fillRect(canvas_rect, QColor("#ffffff"))
 
         if self._plot_data is None:
             self._draw_empty_state(painter, QRectF(canvas_rect))
@@ -180,7 +180,7 @@ class HistogramCanvas(QWidget):
         return 48, 24, 14, 46
 
     def _draw_empty_state(self, painter: QPainter, rect: QRectF) -> None:
-        painter.setPen(QColor("#9aa4b2"))
+        painter.setPen(QColor("#667085"))
         painter.setFont(_font(9))
         text_rect = rect.adjusted(16, 16, -16, -16)
         painter.drawText(text_rect, Qt.AlignCenter | Qt.TextWordWrap, self._empty_message)
@@ -191,7 +191,7 @@ class HistogramCanvas(QWidget):
         plot_rect: QRectF,
         data: HistogramPlotData,
     ) -> None:
-        painter.setPen(QPen(QColor("#2c333d"), 1.0))
+        painter.setPen(QPen(QColor("#e6ebf2"), 1.0))
         for step in range(6):
             y = plot_rect.top() + plot_rect.height() * step / 5
             painter.drawLine(QPointF(plot_rect.left(), y), QPointF(plot_rect.right(), y))
@@ -200,7 +200,7 @@ class HistogramCanvas(QWidget):
             x = _x_for_bin(plot_rect, tick)
             painter.drawLine(QPointF(x, plot_rect.top()), QPointF(x, plot_rect.bottom()))
 
-        painter.setPen(QPen(QColor("#6d7785"), 1.2))
+        painter.setPen(QPen(QColor("#9aa8ba"), 1.2))
         painter.drawRect(plot_rect)
 
     def _draw_series(
@@ -232,7 +232,7 @@ class HistogramCanvas(QWidget):
         data: HistogramPlotData,
     ) -> None:
         painter.setFont(_font(8))
-        painter.setPen(QColor("#b7c0cc"))
+        painter.setPen(QColor("#475467"))
         metrics = QFontMetrics(painter.font())
 
         max_value = max((int(item.values.max()) for item in data.series), default=0)
@@ -281,7 +281,7 @@ class HistogramCanvas(QWidget):
 
             painter.setPen(QPen(item.color, 2.4))
             painter.drawLine(QPointF(x, y + 7), QPointF(x + 14, y + 7))
-            painter.setPen(QColor("#d7dde6"))
+            painter.setPen(QColor("#1f2937"))
             painter.drawText(QRectF(x + 18, y, text_width + 2, 16), Qt.AlignLeft, item.name)
             x += text_width + 34
 
@@ -325,7 +325,7 @@ def build_lab_histogram(rgb_pixels: np.ndarray) -> HistogramPlotData | None:
     series = (
         HistogramSeries(
             name="L",
-            color=QColor("#eef2f7"),
+            color=QColor("#475467"),
             values=np.histogram(lightness, bins=256, range=(0.0, 100.0))[0],
         ),
         HistogramSeries(
@@ -388,7 +388,7 @@ def build_yuv_histogram(rgb_pixels: np.ndarray) -> HistogramPlotData | None:
     series = (
         HistogramSeries(
             name="Y",
-            color=QColor("#eef2f7"),
+            color=QColor("#475467"),
             values=np.bincount(yuv_pixels[:, 0], minlength=256)[:256],
         ),
         HistogramSeries(

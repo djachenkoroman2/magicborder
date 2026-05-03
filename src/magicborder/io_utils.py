@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, UnidentifiedImageError
+from PIL import ExifTags, Image, UnidentifiedImageError
 from PyQt5.QtGui import QImage, QPixmap
 
-from .models import Annotation
+from .models import Annotation, ProjectDocument
 
 SUPPORTED_RASTER_SUFFIXES = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
 
@@ -75,6 +77,47 @@ def load_annotation(path: str | Path) -> Annotation:
     return Annotation.from_dict(payload)
 
 
+def save_project(path: str | Path, project: ProjectDocument) -> None:
+    project_path = Path(path)
+    project_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(project.to_dict(), ensure_ascii=False, indent=2)
+    temp_path = project_path.with_name(f".{project_path.name}.tmp")
+    temp_path.write_text(payload, encoding="utf-8")
+    os.replace(temp_path, project_path)
+
+
+def load_project(path: str | Path) -> ProjectDocument:
+    project_path = Path(path)
+    try:
+        raw_text = project_path.read_text(encoding="utf-8")
+        payload = json.loads(raw_text)
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(f"Файл проекта не найден: {project_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Некорректный JSON проекта: {exc}") from exc
+    return ProjectDocument.from_dict(payload)
+
+
+def read_image_captured_at(path: str | Path) -> str:
+    image_path = Path(path)
+    try:
+        with Image.open(image_path) as image:
+            exif = image.getexif()
+    except (OSError, UnidentifiedImageError):
+        return ""
+
+    if not exif:
+        return ""
+
+    tag_by_name = {name: tag for tag, name in ExifTags.TAGS.items()}
+    for tag_name in ("DateTimeOriginal", "DateTimeDigitized", "DateTime"):
+        raw_value = exif.get(tag_by_name.get(tag_name))
+        parsed_value = _parse_exif_datetime(raw_value)
+        if parsed_value:
+            return parsed_value
+    return ""
+
+
 def loaded_image_from_rgb_array(
     path: str | Path,
     rgb_array: np.ndarray,
@@ -104,6 +147,20 @@ def _pil_rgba_to_qimage(image: Image.Image) -> QImage:
     data = image.tobytes("raw", "RGBA")
     qimage = QImage(data, image.width, image.height, QImage.Format_RGBA8888)
     return qimage.copy()
+
+
+def _parse_exif_datetime(value: object) -> str:
+    if not value:
+        return ""
+    raw_text = str(value).strip()
+    if not raw_text:
+        return ""
+    for format_string in ("%Y:%m:%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(raw_text, format_string).isoformat(timespec="seconds")
+        except ValueError:
+            continue
+    return raw_text
 
 
 def _normalize_rgb_array(rgb_array: np.ndarray) -> np.ndarray:

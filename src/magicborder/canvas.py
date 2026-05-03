@@ -6,7 +6,7 @@ from typing import Sequence
 import cv2
 import numpy as np
 from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QImage, QKeyEvent, QPainter, QPainterPath, QPen, QWheelEvent
+from PyQt5.QtGui import QBrush, QColor, QImage, QKeyEvent, QPainter, QPainterPath, QPen, QPixmap, QWheelEvent
 from PyQt5.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
@@ -67,7 +67,7 @@ class ImageCanvas(QGraphicsView):
         self._scene.addItem(self._image_item)
 
         self._path_item = QGraphicsPathItem()
-        contour_pen = QPen(QColor("#28c5ff"), 2.0)
+        contour_pen = QPen(QColor("#0b84c6"), 2.0)
         contour_pen.setCosmetic(True)
         self._path_item.setPen(contour_pen)
         self._path_item.setBrush(QBrush(Qt.NoBrush))
@@ -88,7 +88,7 @@ class ImageCanvas(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
         self.setDragMode(QGraphicsView.ScrollHandDrag)
-        self.setBackgroundBrush(QColor("#1c1f24"))
+        self.setBackgroundBrush(QColor("#eef2f7"))
 
     def has_image(self) -> bool:
         return self._loaded_image is not None
@@ -129,6 +129,15 @@ class ImageCanvas(QGraphicsView):
         self.fit_to_image()
         self.image_state_changed.emit(True)
         self.message_changed.emit(f"Открыто изображение: {image.path.name}")
+
+    def clear_image(self) -> None:
+        self._loaded_image = None
+        self._image_item.setPixmap(QPixmap())
+        self._scene.setSceneRect(QRectF())
+        self.clear_contour()
+        self.resetTransform()
+        self.image_state_changed.emit(False)
+        self.message_changed.emit("Изображение очищено.")
 
     def replace_current_rgb_array(self, rgb_array: np.ndarray) -> None:
         if not self._loaded_image:

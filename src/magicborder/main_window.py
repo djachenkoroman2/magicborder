@@ -1,16 +1,37 @@
 from __future__ import annotations
 
+import csv
+import math
+import shutil
+from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
-from PyQt5.QtCore import Qt, QTimer
+import numpy as np
+import cv2
+from PyQt5.QtCore import QDateTime, QSignalBlocker, Qt, QTimer
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
+    QDateTimeEdit,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QScrollArea,
     QSplitter,
+    QTextEdit,
+    QToolButton,
     QToolBar,
     QVBoxLayout,
     QWidget,
@@ -26,13 +47,24 @@ from .histograms import (
     build_rgb_histogram,
     build_yuv_histogram,
 )
-from .icons import ACTION_VISUALS, TOOLBAR_ICON_SIZE, apply_action_visual
-from .io_utils import image_open_filter, image_save_filter, load_annotation, load_raster_image, save_annotation
-from .models import Annotation
+from .icons import ACTION_VISUALS, TOOLBAR_ICON_SIZE, apply_action_visual, load_icon
+from .io_utils import (
+    image_open_filter,
+    image_save_filter,
+    load_annotation,
+    load_project,
+    load_raster_image,
+    read_image_captured_at,
+    save_annotation,
+    save_project,
+    SUPPORTED_RASTER_SUFFIXES,
+)
+from .models import Annotation, Point, ProjectDocument, ProjectImageRecord, default_project_image_metadata
 from .path_utils import annotation_image_candidates, portable_path_reference
 
 APP_TITLE = "MagicBorder"
-WORKSPACE_DEFAULT_SIZES = [1120, 280]
+WORKSPACE_DEFAULT_SIZES = [260, 860, 280]
+PROJECT_PANEL_DEFAULT_SIZES = [520, 280]
 HISTOGRAM_DEFAULT_SIZES = [170, 170, 170, 170, 170]
 
 
@@ -77,6 +109,16 @@ class MainWindow(QMainWindow):
         self._histogram_refresh_timer.setSingleShot(True)
         self._histogram_refresh_timer.timeout.connect(self._refresh_histograms)
 
+        self.project_document: ProjectDocument | None = None
+        self.project_path: Path | None = None
+        self._current_project_image_id: str | None = None
+        self._loading_project_image = False
+        self._updating_project_list = False
+        self._updating_metadata_fields = False
+        self._project_autosave_timer = QTimer(self)
+        self._project_autosave_timer.setSingleShot(True)
+        self._project_autosave_timer.timeout.connect(self._save_project_silently)
+
         self.setCentralWidget(self._create_workspace())
 
         self._current_annotation_path: Path | None = None
@@ -90,12 +132,288 @@ class MainWindow(QMainWindow):
         self.canvas.message_changed.connect(self.statusBar().showMessage)
         self.canvas.image_state_changed.connect(self._update_action_states)
         self.canvas.image_state_changed.connect(self._schedule_histogram_refresh)
+        self.canvas.image_state_changed.connect(self._update_project_properties)
         self.canvas.contour_state_changed.connect(self._update_action_states)
         self.canvas.contour_geometry_changed.connect(self._schedule_histogram_refresh)
+        self.canvas.contour_geometry_changed.connect(self._handle_contour_geometry_changed)
         self._update_action_states()
         self._refresh_histograms()
+        self._update_project_panel()
 
     def _create_workspace(self) -> QSplitter:
+        project_panel = self._create_project_panel()
+        analysis_panel = self._create_analysis_panel()
+
+        self.workspace_splitter = QSplitter(Qt.Horizontal, self)
+        self.workspace_splitter.setChildrenCollapsible(False)
+        self.workspace_splitter.addWidget(project_panel)
+        self.workspace_splitter.addWidget(self.canvas)
+        self.workspace_splitter.addWidget(analysis_panel)
+        self.workspace_splitter.setStretchFactor(0, 0)
+        self.workspace_splitter.setStretchFactor(1, 4)
+        self.workspace_splitter.setStretchFactor(2, 1)
+        self.workspace_splitter.setSizes(WORKSPACE_DEFAULT_SIZES)
+        self.workspace_splitter.setStyleSheet(
+            "QSplitter::handle { background: #d5dbe5; width: 8px; }"
+            "QSplitter::handle:hover { background: #bdc7d5; }"
+        )
+        return self.workspace_splitter
+
+    def _create_project_panel(self) -> QWidget:
+        project_panel = QWidget(self)
+        project_panel.setObjectName("projectPanel")
+        project_panel.setMinimumWidth(220)
+
+        self.project_list = QListWidget(project_panel)
+        self.project_list.setObjectName("projectImageList")
+        self.project_list.setAlternatingRowColors(True)
+        self.project_list.currentItemChanged.connect(self._handle_project_selection_changed)
+
+        images_title = QLabel("Изображения проекта")
+        images_title.setObjectName("projectPanelTitle")
+
+        self.export_project_csv_button = QToolButton(project_panel)
+        self.export_project_csv_button.setIcon(load_icon("export-csv"))
+        self.export_project_csv_button.setToolTip("Экспорт CSV")
+        self.export_project_csv_button.setStatusTip("Сохранить сводную таблицу изображений проекта в CSV.")
+        self.export_project_csv_button.setAutoRaise(True)
+        self.export_project_csv_button.clicked.connect(self.export_project_csv)
+
+        images_header_layout = QHBoxLayout()
+        images_header_layout.setContentsMargins(0, 0, 0, 0)
+        images_header_layout.setSpacing(6)
+        images_header_layout.addWidget(images_title)
+        images_header_layout.addStretch(1)
+        images_header_layout.addWidget(self.export_project_csv_button)
+
+        images_widget = QWidget(project_panel)
+        images_layout = QVBoxLayout(images_widget)
+        images_layout.setContentsMargins(8, 8, 8, 8)
+        images_layout.setSpacing(6)
+        images_layout.addLayout(images_header_layout)
+        images_layout.addWidget(self.project_list, 1)
+
+        properties_widget = self._create_image_properties_panel(project_panel)
+
+        self.project_splitter = QSplitter(Qt.Vertical, project_panel)
+        self.project_splitter.setChildrenCollapsible(False)
+        self.project_splitter.addWidget(images_widget)
+        self.project_splitter.addWidget(properties_widget)
+        self.project_splitter.setSizes(PROJECT_PANEL_DEFAULT_SIZES)
+        self.project_splitter.setStyleSheet(
+            "QSplitter::handle { background: #d5dbe5; height: 7px; }"
+            "QSplitter::handle:hover { background: #bdc7d5; }"
+        )
+
+        layout = QVBoxLayout(project_panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.project_splitter)
+
+        project_panel.setStyleSheet(
+            "QWidget#projectPanel { background: #f5f7fb; border-right: 1px solid #d6dde8; }"
+            "QLabel#projectPanelTitle { color: #1f2937; font-size: 13px; font-weight: 600; }"
+            "QListWidget#projectImageList { background: #ffffff; color: #1f2937; border: 1px solid #ccd6e1; border-radius: 5px; outline: none; }"
+            "QListWidget#projectImageList::item { padding: 7px 8px; border-bottom: 1px solid #e5eaf2; }"
+            "QListWidget#projectImageList::item:selected { background: #d8edf3; color: #102a32; }"
+            "QListWidget#projectImageList::item:alternate { background: #f7f9fc; }"
+            "QLabel#propertyName { color: #5f6b7a; }"
+            "QLabel#propertyValue { color: #18202c; }"
+            "QLabel#propertyEmpty { color: #7a8696; padding: 12px; }"
+            "QLineEdit, QTextEdit { background: #ffffff; color: #1f2937; border: 1px solid #ccd6e1; border-radius: 4px; padding: 4px; selection-background-color: #cdeaf2; selection-color: #102a32; }"
+            "QLineEdit:focus, QTextEdit:focus { border-color: #2A9D8F; }"
+            "QLineEdit:read-only { color: #5f6b7a; background: #f1f4f8; }"
+            "QScrollArea#propertiesScrollArea { background: transparent; border: none; }"
+            "QFrame#averageColorSwatch { border: 1px solid #95a3b8; border-radius: 4px; background: transparent; }"
+            "QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 4px; color: #1f2937; }"
+            "QToolButton:hover { background: #e9eef5; border-color: #c6d1de; }"
+            "QToolButton:pressed { background: #dce4ee; }"
+        )
+        return project_panel
+
+    def _create_image_properties_panel(self, parent: QWidget) -> QWidget:
+        properties_widget = QWidget(parent)
+        properties_widget.setObjectName("imagePropertiesPanel")
+
+        title = QLabel("Свойства изображения")
+        title.setObjectName("projectPanelTitle")
+
+        self.refresh_properties_button = QToolButton(properties_widget)
+        self.refresh_properties_button.setText("Обновить")
+        self.refresh_properties_button.setIcon(load_icon("refresh-properties"))
+        self.refresh_properties_button.setToolTip("Обновить свойства выбранного изображения")
+        self.refresh_properties_button.setStatusTip("Пересчитать свойства и средний цвет контура.")
+        self.refresh_properties_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.refresh_properties_button.clicked.connect(self._update_project_properties)
+
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(6)
+        header_layout.addWidget(title)
+        header_layout.addStretch(1)
+        header_layout.addWidget(self.refresh_properties_button)
+
+        self.properties_empty_label = QLabel("Изображение не выбрано.")
+        self.properties_empty_label.setObjectName("propertyEmpty")
+        self.properties_empty_label.setWordWrap(True)
+        self.properties_empty_label.setAlignment(Qt.AlignCenter)
+
+        self.property_file_name = self._metadata_line_edit()
+        self.property_file_name.editingFinished.connect(self._handle_file_name_edit_finished)
+        self.property_file_name_widget, self.rename_file_as_id_button = self._file_name_widget(properties_widget)
+        self.property_path = self._property_value_label()
+        self.property_size = self._property_value_label()
+        self.property_annotation = self._property_value_label()
+        self.property_points = self._property_value_label()
+        self.property_contour_pixels = self._property_value_label()
+        self.property_red = self._property_value_label()
+        self.property_green = self._property_value_label()
+        self.property_blue = self._property_value_label()
+        self.property_status = self._property_value_label()
+        self.average_color_swatch = QFrame(properties_widget)
+        self.average_color_swatch.setObjectName("averageColorSwatch")
+        self.average_color_swatch.setFixedSize(58, 24)
+
+        self.metadata_sample_id = self._metadata_line_edit()
+        self.metadata_added_at = self._metadata_line_edit()
+        self.metadata_captured_at = self._metadata_line_edit()
+        self.metadata_added_at_widget, self.metadata_added_at_button = self._metadata_datetime_widget(
+            self.metadata_added_at,
+            "added_at",
+            properties_widget,
+        )
+        self.metadata_captured_at_widget, self.metadata_captured_at_button = self._metadata_datetime_widget(
+            self.metadata_captured_at,
+            "captured_at",
+            properties_widget,
+        )
+        self.metadata_illumination = self._metadata_line_edit()
+        self.metadata_humidity = self._metadata_line_edit()
+        self.metadata_wind_speed = self._metadata_line_edit()
+        self.metadata_wind_direction = self._metadata_line_edit()
+        self.metadata_latitude = self._metadata_line_edit()
+        self.metadata_longitude = self._metadata_line_edit()
+        self.metadata_diagnosis = self._metadata_line_edit()
+        self.metadata_notes = QTextEdit(properties_widget)
+        self.metadata_notes.setAcceptRichText(False)
+        self.metadata_notes.setMinimumHeight(70)
+        self.metadata_notes.textChanged.connect(self._handle_metadata_notes_changed)
+
+        self._metadata_fields = {
+            "sample_id": self.metadata_sample_id,
+            "added_at": self.metadata_added_at,
+            "captured_at": self.metadata_captured_at,
+            "illumination": self.metadata_illumination,
+            "humidity": self.metadata_humidity,
+            "wind_speed": self.metadata_wind_speed,
+            "wind_direction": self.metadata_wind_direction,
+            "latitude": self.metadata_latitude,
+            "longitude": self.metadata_longitude,
+            "diagnosis": self.metadata_diagnosis,
+        }
+        for metadata_key, field in self._metadata_fields.items():
+            field.editingFinished.connect(
+                lambda key=metadata_key, editor=field: self._handle_metadata_line_edit_finished(key, editor)
+            )
+
+        self.properties_form_widget = QWidget(properties_widget)
+        form_layout = QFormLayout(self.properties_form_widget)
+        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout.setSpacing(7)
+        form_layout.setLabelAlignment(Qt.AlignLeft)
+        form_layout.addRow(self._property_name_label("Файл"), self.property_file_name_widget)
+        form_layout.addRow(self._property_name_label("Путь"), self.property_path)
+        form_layout.addRow(self._property_name_label("Размер"), self.property_size)
+        form_layout.addRow(self._property_name_label("Аннотация"), self.property_annotation)
+        form_layout.addRow(self._property_name_label("Количество узлов контура"), self.property_points)
+        form_layout.addRow(self._property_name_label("Количество пикселов контура"), self.property_contour_pixels)
+        form_layout.addRow(self._property_name_label("Красный"), self.property_red)
+        form_layout.addRow(self._property_name_label("Зелёный"), self.property_green)
+        form_layout.addRow(self._property_name_label("Синий"), self.property_blue)
+        form_layout.addRow(self._property_name_label("Средний цвет"), self.average_color_swatch)
+        form_layout.addRow(self._property_name_label("Статус"), self.property_status)
+        form_layout.addRow(self._property_name_label("ID"), self.metadata_sample_id)
+        form_layout.addRow(self._property_name_label("Дата добавления"), self.metadata_added_at_widget)
+        form_layout.addRow(self._property_name_label("Дата съёмки"), self.metadata_captured_at_widget)
+        form_layout.addRow(self._property_name_label("Освещённость"), self.metadata_illumination)
+        form_layout.addRow(self._property_name_label("Влажность, %"), self.metadata_humidity)
+        form_layout.addRow(self._property_name_label("Скорость ветра"), self.metadata_wind_speed)
+        form_layout.addRow(self._property_name_label("Направление ветра"), self.metadata_wind_direction)
+        form_layout.addRow(self._property_name_label("Широта"), self.metadata_latitude)
+        form_layout.addRow(self._property_name_label("Долгота"), self.metadata_longitude)
+        form_layout.addRow(self._property_name_label("Диагноз"), self.metadata_diagnosis)
+        form_layout.addRow(self._property_name_label("Дополнительные сведения"), self.metadata_notes)
+
+        self.properties_scroll_area = QScrollArea(properties_widget)
+        self.properties_scroll_area.setObjectName("propertiesScrollArea")
+        self.properties_scroll_area.setWidgetResizable(True)
+        self.properties_scroll_area.setWidget(self.properties_form_widget)
+
+        layout = QVBoxLayout(properties_widget)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+        layout.addLayout(header_layout)
+        layout.addWidget(self.properties_empty_label, 1)
+        layout.addWidget(self.properties_scroll_area, 1)
+        return properties_widget
+
+    def _property_name_label(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("propertyName")
+        return label
+
+    def _property_value_label(self) -> QLabel:
+        label = QLabel("-")
+        label.setObjectName("propertyValue")
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        return label
+
+    def _metadata_line_edit(self) -> QLineEdit:
+        field = QLineEdit()
+        field.setClearButtonEnabled(True)
+        return field
+
+    def _file_name_widget(self, parent: QWidget) -> tuple[QWidget, QToolButton]:
+        container = QWidget(parent)
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        button = QToolButton(container)
+        button.setText("ID")
+        button.setToolTip("Переименовать файл как ID")
+        button.setStatusTip("Переименовать файл изображения по текущему ID с сохранением расширения.")
+        button.setAutoRaise(True)
+        button.clicked.connect(self._rename_file_to_sample_id)
+
+        layout.addWidget(self.property_file_name, 1)
+        layout.addWidget(button)
+        return container, button
+
+    def _metadata_datetime_widget(
+        self,
+        field: QLineEdit,
+        metadata_key: str,
+        parent: QWidget,
+    ) -> tuple[QWidget, QToolButton]:
+        container = QWidget(parent)
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        button = QToolButton(container)
+        button.setIcon(load_icon("calendar-time"))
+        button.setToolTip("Выбрать дату и время")
+        button.setStatusTip("Открыть диалог выбора даты и времени.")
+        button.setAutoRaise(True)
+        button.clicked.connect(lambda: self._open_metadata_datetime_dialog(metadata_key, field))
+
+        layout.addWidget(field, 1)
+        layout.addWidget(button)
+        return container, button
+
+    def _create_analysis_panel(self) -> QWidget:
         analysis_panel = QWidget(self)
         analysis_panel.setObjectName("analysisPanel")
 
@@ -111,8 +429,8 @@ class MainWindow(QMainWindow):
         self.histogram_splitter.addWidget(self.lms_histogram_panel)
         self.histogram_splitter.setSizes(HISTOGRAM_DEFAULT_SIZES)
         self.histogram_splitter.setStyleSheet(
-            "QSplitter::handle { background: #36404c; height: 7px; }"
-            "QSplitter::handle:hover { background: #4b5968; }"
+            "QSplitter::handle { background: #d5dbe5; height: 7px; }"
+            "QSplitter::handle:hover { background: #bdc7d5; }"
         )
 
         analysis_layout = QVBoxLayout(analysis_panel)
@@ -122,29 +440,43 @@ class MainWindow(QMainWindow):
         analysis_layout.addWidget(self.histogram_splitter, 1)
 
         analysis_panel.setStyleSheet(
-            "QWidget#analysisPanel { background: #232933; border-left: 1px solid #343d49; }"
-            "QLabel#analysisTitle { color: #eef3fa; font-size: 13px; font-weight: 600; }"
-            "QFrame#histogramPanel { background: #202630; border: 1px solid #3a4451; border-radius: 6px; }"
-            "QLabel#histogramTitle { color: #dfe7f0; font-size: 12px; font-weight: 600; }"
+            "QWidget#analysisPanel { background: #f7f9fc; border-left: 1px solid #d6dde8; }"
+            "QLabel#analysisTitle { color: #1f2937; font-size: 13px; font-weight: 600; }"
+            "QFrame#histogramPanel { background: #ffffff; border: 1px solid #ccd6e1; border-radius: 6px; }"
+            "QLabel#histogramTitle { color: #1f2937; font-size: 12px; font-weight: 600; }"
             "QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 4px; }"
-            "QToolButton:hover { background: #303947; border-color: #475568; }"
-            "QToolButton:pressed { background: #3b4655; }"
+            "QToolButton:hover { background: #e9eef5; border-color: #c6d1de; }"
+            "QToolButton:pressed { background: #dce4ee; }"
         )
-
-        self.workspace_splitter = QSplitter(Qt.Horizontal, self)
-        self.workspace_splitter.setChildrenCollapsible(False)
-        self.workspace_splitter.addWidget(self.canvas)
-        self.workspace_splitter.addWidget(analysis_panel)
-        self.workspace_splitter.setStretchFactor(0, 4)
-        self.workspace_splitter.setStretchFactor(1, 1)
-        self.workspace_splitter.setSizes(WORKSPACE_DEFAULT_SIZES)
-        self.workspace_splitter.setStyleSheet(
-            "QSplitter::handle { background: #303844; width: 8px; }"
-            "QSplitter::handle:hover { background: #485665; }"
-        )
-        return self.workspace_splitter
+        return analysis_panel
 
     def _create_actions(self) -> None:
+        self.new_project_action = QAction("Новый проект...", self)
+        self.new_project_action.setShortcut("Ctrl+N")
+        self.new_project_action.triggered.connect(self.new_project)
+
+        self.open_project_action = QAction("Открыть проект...", self)
+        self.open_project_action.setShortcut("Ctrl+Alt+O")
+        self.open_project_action.triggered.connect(self.open_project)
+
+        self.save_project_action = QAction("Сохранить проект", self)
+        self.save_project_action.setShortcut("Ctrl+Shift+S")
+        self.save_project_action.triggered.connect(self.save_project_file)
+
+        self.close_project_action = QAction("Закрыть проект", self)
+        self.close_project_action.setShortcut("Ctrl+W")
+        self.close_project_action.triggered.connect(self.close_project)
+
+        self.add_images_action = QAction("Добавить изображения...", self)
+        self.add_images_action.setShortcut("Ctrl+I")
+        self.add_images_action.triggered.connect(self.add_images_to_project)
+
+        self.remove_image_action = QAction("Удалить изображение из проекта", self)
+        self.remove_image_action.triggered.connect(self.remove_selected_project_image)
+
+        self.export_project_csv_action = QAction("Экспорт CSV...", self)
+        self.export_project_csv_action.triggered.connect(self.export_project_csv)
+
         self.open_image_action = QAction("Открыть изображение...", self)
         self.open_image_action.setShortcut("Ctrl+O")
         self.open_image_action.triggered.connect(self.open_image)
@@ -177,9 +509,17 @@ class MainWindow(QMainWindow):
         self.default_view_action.setShortcut("Ctrl+R")
         self.default_view_action.triggered.connect(self.restore_default_view)
 
+        self.new_contour_action = QAction("Новый контур", self)
+        self.new_contour_action.setShortcut("Ctrl+Shift+N")
+        self.new_contour_action.triggered.connect(self.create_new_contour)
+
         self.detect_contour_action = QAction("Определить контур", self)
         self.detect_contour_action.setShortcut("F5")
         self.detect_contour_action.triggered.connect(self.detect_contour)
+
+        self.delete_contour_action = QAction("Удалить контур", self)
+        self.delete_contour_action.setShortcut("Ctrl+Delete")
+        self.delete_contour_action.triggered.connect(self.delete_current_contour)
 
         self.flatten_background_action = QAction("Выровнять фон", self)
         self.flatten_background_action.setShortcut("F6")
@@ -198,6 +538,13 @@ class MainWindow(QMainWindow):
 
     def _apply_action_visuals(self) -> None:
         action_map = {
+            "new_project": self.new_project_action,
+            "open_project": self.open_project_action,
+            "save_project": self.save_project_action,
+            "close_project": self.close_project_action,
+            "add_images": self.add_images_action,
+            "remove_image": self.remove_image_action,
+            "export_project_csv": self.export_project_csv_action,
             "open_image": self.open_image_action,
             "save_image": self.save_image_action,
             "exit": self.exit_action,
@@ -206,7 +553,9 @@ class MainWindow(QMainWindow):
             "fit_image": self.fit_image_action,
             "actual_size": self.actual_size_action,
             "default_view": self.default_view_action,
+            "new_contour": self.new_contour_action,
             "detect_contour": self.detect_contour_action,
+            "delete_contour": self.delete_contour_action,
             "flatten_background": self.flatten_background_action,
             "save_annotation": self.save_annotation_action,
             "open_annotation": self.open_annotation_action,
@@ -218,6 +567,15 @@ class MainWindow(QMainWindow):
 
     def _create_menus(self) -> None:
         file_menu = self.menuBar().addMenu("Файл")
+        file_menu.addAction(self.new_project_action)
+        file_menu.addAction(self.open_project_action)
+        file_menu.addAction(self.save_project_action)
+        file_menu.addAction(self.close_project_action)
+        file_menu.addSeparator()
+        file_menu.addAction(self.add_images_action)
+        file_menu.addAction(self.remove_image_action)
+        file_menu.addAction(self.export_project_csv_action)
+        file_menu.addSeparator()
         file_menu.addAction(self.open_image_action)
         file_menu.addAction(self.save_image_action)
         file_menu.addSeparator()
@@ -232,7 +590,9 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.default_view_action)
 
         tools_menu = self.menuBar().addMenu("Инструменты")
+        tools_menu.addAction(self.new_contour_action)
         tools_menu.addAction(self.detect_contour_action)
+        tools_menu.addAction(self.delete_contour_action)
         tools_menu.addAction(self.flatten_background_action)
         tools_menu.addSeparator()
         tools_menu.addAction(self.save_annotation_action)
@@ -252,6 +612,15 @@ class MainWindow(QMainWindow):
         )
         self.addToolBar(toolbar)
 
+        toolbar.addAction(self.new_project_action)
+        toolbar.addAction(self.open_project_action)
+        toolbar.addAction(self.save_project_action)
+        toolbar.addAction(self.close_project_action)
+        toolbar.addSeparator()
+        toolbar.addAction(self.add_images_action)
+        toolbar.addAction(self.remove_image_action)
+        toolbar.addAction(self.export_project_csv_action)
+        toolbar.addSeparator()
         toolbar.addAction(self.open_image_action)
         toolbar.addAction(self.save_image_action)
         toolbar.addAction(self.exit_action)
@@ -262,7 +631,9 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.actual_size_action)
         toolbar.addAction(self.default_view_action)
         toolbar.addSeparator()
+        toolbar.addAction(self.new_contour_action)
         toolbar.addAction(self.detect_contour_action)
+        toolbar.addAction(self.delete_contour_action)
         toolbar.addAction(self.flatten_background_action)
         toolbar.addAction(self.save_annotation_action)
         toolbar.addAction(self.open_annotation_action)
@@ -272,13 +643,31 @@ class MainWindow(QMainWindow):
     def _update_action_states(self, *_args) -> None:
         has_image = self.canvas.has_image()
         has_contour = self.canvas.has_contour()
+        has_project = self.project_document is not None
+        selected_project_image = self._selected_project_image()
+        has_project_image = has_project and selected_project_image is not None
+        has_project_contour = (
+            selected_project_image is not None
+            and (
+                selected_project_image.annotation is not None
+                or selected_project_image.raw_annotation is not None
+            )
+        )
 
+        self.save_project_action.setEnabled(has_project)
+        self.close_project_action.setEnabled(has_project)
+        self.add_images_action.setEnabled(has_project)
+        self.remove_image_action.setEnabled(has_project_image)
+        self.export_project_csv_action.setEnabled(has_project)
+        self.export_project_csv_button.setEnabled(has_project)
         self.save_image_action.setEnabled(has_image)
         self.zoom_in_action.setEnabled(has_image)
         self.zoom_out_action.setEnabled(has_image)
         self.fit_image_action.setEnabled(has_image)
         self.actual_size_action.setEnabled(has_image)
+        self.new_contour_action.setEnabled(has_image)
         self.detect_contour_action.setEnabled(has_image)
+        self.delete_contour_action.setEnabled(has_contour or has_project_contour)
         self.flatten_background_action.setEnabled(has_image and has_contour)
         self.save_annotation_action.setEnabled(has_image and has_contour)
 
@@ -334,9 +723,303 @@ class MainWindow(QMainWindow):
 
     def _restore_splitter_defaults(self) -> None:
         self.workspace_splitter.setSizes(WORKSPACE_DEFAULT_SIZES)
+        self.project_splitter.setSizes(PROJECT_PANEL_DEFAULT_SIZES)
         self.histogram_splitter.setSizes(HISTOGRAM_DEFAULT_SIZES)
 
+    def new_project(self) -> None:
+        parent_dir_name = QFileDialog.getExistingDirectory(
+            self,
+            "Выберите папку для нового проекта",
+            "",
+        )
+        if not parent_dir_name:
+            return
+
+        project_name, accepted = QInputDialog.getText(
+            self,
+            "Новый проект",
+            "Имя проекта:",
+        )
+        if not accepted:
+            return
+
+        safe_name = _safe_project_name(project_name)
+        if not safe_name:
+            self._show_warning("Некорректное имя", "Введите имя проекта.")
+            return
+
+        project_dir = Path(parent_dir_name) / safe_name
+        if project_dir.exists() and any(project_dir.iterdir()):
+            self._show_warning(
+                "Папка уже существует",
+                "Выберите другое имя проекта или пустую папку.",
+            )
+            return
+
+        self._save_current_project_annotation()
+        if not self._save_project_silently(show_error=True):
+            return
+
+        try:
+            project_dir.mkdir(parents=True, exist_ok=True)
+            (project_dir / "images").mkdir(exist_ok=True)
+        except OSError as exc:
+            self._show_error("Ошибка создания проекта", f"Не удалось создать папку проекта: {exc}")
+            return
+
+        project_path = project_dir / f"{safe_name}.json"
+        document = ProjectDocument(name=safe_name, images=[])
+        try:
+            save_project(project_path, document)
+        except OSError as exc:
+            self._show_error("Ошибка создания проекта", f"Не удалось сохранить файл проекта: {exc}")
+            return
+
+        self._set_project(project_path, document)
+        self.statusBar().showMessage(f"Создан проект: {safe_name}")
+
+    def open_project(self) -> None:
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            "Открыть проект",
+            "",
+            "MagicBorder project (*.json);;JSON (*.json);;All files (*)",
+        )
+        if not file_name:
+            return
+
+        self._save_current_project_annotation()
+        if not self._save_project_silently(show_error=True):
+            return
+
+        project_path = Path(file_name)
+        try:
+            document = load_project(project_path)
+        except (OSError, ValueError) as exc:
+            self._show_error("Ошибка открытия проекта", str(exc))
+            return
+
+        self._set_project(project_path, document)
+        self.statusBar().showMessage(f"Открыт проект: {document.name}")
+
+    def save_project_file(self) -> None:
+        if self.project_document is None:
+            self._show_warning("Нет проекта", "Сначала создайте или откройте проект.")
+            return
+        self._save_current_project_annotation()
+        if self._save_project_silently(show_error=True):
+            self.statusBar().showMessage("Проект сохранён.")
+
+    def close_project(self) -> None:
+        if self.project_document is None:
+            return
+        self._save_current_project_annotation()
+        if not self._save_project_silently(show_error=True):
+            return
+        self._clear_project_state()
+        self.statusBar().showMessage("Проект закрыт.")
+
+    def add_images_to_project(self) -> None:
+        if self.project_document is None or self.project_path is None:
+            self._show_warning("Нет проекта", "Сначала создайте или откройте проект.")
+            return
+
+        file_names, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Добавить изображения в проект",
+            "",
+            image_open_filter(),
+        )
+        if not file_names:
+            return
+
+        project_dir = self.project_path.parent
+        image_dir = project_dir / self.project_document.images_dir
+        errors: list[str] = []
+        added_ids: list[str] = []
+
+        try:
+            image_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._show_error("Ошибка добавления", f"Не удалось создать папку изображений: {exc}")
+            return
+
+        for file_name in file_names:
+            source_path = Path(file_name)
+            try:
+                loaded_image = load_raster_image(source_path)
+                destination_path = _unique_destination_path(image_dir, source_path.name)
+                if source_path.resolve() != destination_path.resolve():
+                    shutil.copy2(source_path, destination_path)
+            except (OSError, ValueError) as exc:
+                errors.append(f"{source_path.name}: {exc}")
+                continue
+
+            record = ProjectImageRecord(
+                id=uuid4().hex,
+                relative_path=portable_path_reference(destination_path, project_dir),
+                display_name=destination_path.name,
+                image_width=loaded_image.width,
+                image_height=loaded_image.height,
+                metadata=default_project_image_metadata(
+                    sample_id=self._unique_project_sample_id(destination_path.stem),
+                    added_at=_current_timestamp(),
+                    captured_at=read_image_captured_at(source_path),
+                ),
+            )
+            self.project_document.images.append(record)
+            added_ids.append(record.id)
+
+        if added_ids:
+            self._refresh_project_list()
+            self._select_project_image(added_ids[0])
+            self._save_project_silently(show_error=True)
+            self.statusBar().showMessage(f"Добавлено изображений: {len(added_ids)}")
+
+        if errors:
+            self._show_warning("Не все изображения добавлены", "\n".join(errors[:8]))
+
+    def remove_selected_project_image(self) -> None:
+        if self.project_document is None or self.project_path is None:
+            return
+
+        record = self._selected_project_image()
+        if record is None:
+            self._show_warning("Изображение не выбрано", "Выберите изображение в списке проекта.")
+            return
+
+        row_to_remove = self.project_list.currentRow()
+        self._save_current_project_annotation()
+
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Удалить изображение")
+        dialog.setIcon(QMessageBox.Question)
+        dialog.setText(f"Удалить '{record.display_name}' из проекта?")
+        delete_file_button = dialog.addButton("Удалить файл", QMessageBox.DestructiveRole)
+        remove_only_button = dialog.addButton("Только убрать из проекта", QMessageBox.AcceptRole)
+        cancel_button = dialog.addButton("Отмена", QMessageBox.RejectRole)
+        dialog.setDefaultButton(remove_only_button)
+        dialog.exec_()
+
+        clicked_button = dialog.clickedButton()
+        if clicked_button is cancel_button:
+            return
+
+        image_path = self._project_image_path(record)
+        if clicked_button is delete_file_button and image_path.exists():
+            try:
+                image_path.unlink()
+            except OSError as exc:
+                self._show_error("Ошибка удаления", f"Не удалось удалить файл изображения: {exc}")
+                return
+
+        self.project_document.images = [
+            item for item in self.project_document.images if item.id != record.id
+        ]
+        if self._current_project_image_id == record.id:
+            self._current_project_image_id = None
+
+        self._refresh_project_list()
+        if self.project_document.images:
+            next_row = min(max(row_to_remove, 0), len(self.project_document.images) - 1)
+            self.project_list.setCurrentRow(next_row)
+        else:
+            self._clear_current_image_display()
+        self._save_project_silently(show_error=True)
+        self.statusBar().showMessage("Изображение удалено из проекта.")
+
+    def export_project_csv(self) -> None:
+        if self.project_document is None or self.project_path is None:
+            self._show_warning("Нет проекта", "Сначала создайте или откройте проект.")
+            return
+
+        self._save_current_project_annotation()
+        file_name, _ = QFileDialog.getSaveFileName(
+            self,
+            "Экспорт CSV",
+            str(self.project_path.with_suffix(".csv")),
+            "CSV (*.csv);;All files (*)",
+        )
+        if not file_name:
+            return
+
+        output_path = _ensure_csv_suffix(Path(file_name))
+        try:
+            self._write_project_csv(output_path)
+        except OSError as exc:
+            self._show_error("Ошибка экспорта CSV", f"Не удалось сохранить CSV: {exc}")
+            return
+
+        self.statusBar().showMessage(f"CSV сохранён: {output_path.name}")
+
+    def _write_project_csv(self, output_path: Path) -> None:
+        if self.project_document is None:
+            raise ValueError("Нет проекта для экспорта.")
+
+        fieldnames = [
+            "id",
+            "file_name",
+            "relative_path",
+            "has_annotation",
+            "status",
+            "diagnosis",
+            "r",
+            "g",
+            "b",
+            "contour_pixel_count",
+        ]
+        with output_path.open("w", encoding="utf-8-sig", newline="") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+            writer.writeheader()
+            for record in self.project_document.images:
+                writer.writerow(self._project_csv_row(record))
+
+    def _project_csv_row(self, record: ProjectImageRecord) -> dict[str, str]:
+        self._normalize_record_metadata(record)
+        row = {
+            "id": str(record.metadata.get("sample_id", "")),
+            "file_name": record.display_name,
+            "relative_path": record.relative_path,
+            "has_annotation": "1" if record.annotation is not None else "0",
+            "status": "ok",
+            "diagnosis": str(record.metadata.get("diagnosis", "")),
+            "r": "",
+            "g": "",
+            "b": "",
+            "contour_pixel_count": "",
+        }
+
+        image_path = self._project_image_path(record)
+        if not image_path.exists():
+            row["status"] = "файл не найден"
+            return row
+        if record.annotation is None:
+            row["status"] = "нет контура"
+            return row
+
+        try:
+            loaded_image = load_raster_image(image_path)
+            rgb_pixels = _annotation_rgb_pixels(loaded_image.rgb_array, record.annotation)
+        except (OSError, ValueError) as exc:
+            row["status"] = f"ошибка: {exc}"
+            return row
+
+        if rgb_pixels.size == 0:
+            row["status"] = "внутри контура нет пикселов"
+            return row
+
+        mean_values = np.rint(rgb_pixels.mean(axis=0)).astype(int)
+        row["r"] = str(int(mean_values[0]))
+        row["g"] = str(int(mean_values[1]))
+        row["b"] = str(int(mean_values[2]))
+        row["contour_pixel_count"] = str(int(rgb_pixels.shape[0]))
+        return row
+
     def open_image(self) -> None:
+        if self.project_document is not None:
+            self.add_images_to_project()
+            return
+
         file_name, _ = QFileDialog.getOpenFileName(
             self,
             "Открыть изображение",
@@ -370,6 +1053,58 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage(f"Изображение сохранено: {output_path.name}")
 
+    def create_new_contour(self) -> None:
+        if not self.canvas.has_image():
+            self._show_warning("Нет изображения", "Сначала откройте изображение.")
+            return
+
+        node_count, accepted = QInputDialog.getInt(
+            self,
+            "Новый контур",
+            "Количество узлов контура:",
+            5,
+            3,
+            128,
+            1,
+        )
+        if not accepted:
+            return
+
+        record = self._selected_project_image()
+        has_saved_project_contour = (
+            record is not None
+            and (record.annotation is not None or record.raw_annotation is not None)
+        )
+        if self.canvas.has_contour() or has_saved_project_contour:
+            answer = QMessageBox.question(
+                self,
+                "Заменить контур?",
+                "Текущий контур будет заменён новым окружным контуром. Продолжить?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+
+        image_size = self.canvas.image_size()
+        if image_size is None:
+            self._show_warning("Нет изображения", "Сначала откройте изображение.")
+            return
+
+        width, height = image_size
+        points = _circle_contour_points(width, height, node_count)
+        try:
+            self.canvas.set_contour(points)
+        except ValueError as exc:
+            self._show_error("Не удалось создать контур", str(exc))
+            return
+
+        self._save_current_project_annotation()
+        self._refresh_histograms()
+        self._update_project_properties()
+        self._update_action_states()
+        self.statusBar().showMessage(f"Создан новый контур: {len(points)} узлов.")
+
     def detect_contour(self) -> None:
         if not self.canvas.has_image():
             self._show_warning("Нет изображения", "Сначала откройте изображение.")
@@ -386,6 +1121,44 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
 
         self.statusBar().showMessage(f"Контур построен: {len(points)} узлов.")
+
+    def delete_current_contour(self) -> None:
+        record = self._selected_project_image()
+        has_project_contour = (
+            record is not None
+            and (record.annotation is not None or record.raw_annotation is not None)
+        )
+        if not self.canvas.has_contour() and not has_project_contour:
+            self._show_warning("Нет контура", "Для текущего изображения нет контура.")
+            return
+
+        if self.project_document is not None:
+            if record is None:
+                self._show_warning("Изображение не выбрано", "Выберите изображение в списке проекта.")
+                return
+
+            record.annotation = None
+            record.raw_annotation = None
+            record.annotation_error = None
+
+            if self._current_project_image_id == record.id and self.canvas.has_contour():
+                self.canvas.clear_contour()
+            else:
+                self._update_current_project_list_item(record)
+                self._update_project_properties()
+                self._update_action_states()
+                self._schedule_project_save()
+
+            self._clear_histograms("Создайте основной контур, чтобы увидеть гистограмму.")
+            self._save_project_silently(show_error=True)
+            self.statusBar().showMessage(f"Контур удалён: {record.display_name}")
+            return
+
+        self.canvas.clear_contour()
+        self._current_annotation_path = None
+        self._clear_histograms("Создайте основной контур, чтобы увидеть гистограмму.")
+        self._update_action_states()
+        self.statusBar().showMessage("Контур удалён.")
 
     def flatten_background(self) -> None:
         if not self.canvas.has_image():
@@ -410,6 +1183,7 @@ class MainWindow(QMainWindow):
         if not self.canvas.has_contour():
             self._show_warning("Нет контура", "Сначала постройте или загрузите контур.")
             return
+        self._save_current_project_annotation()
 
         initial_name = self._default_annotation_file_name()
         if self._current_annotation_path is not None:
@@ -472,6 +1246,633 @@ class MainWindow(QMainWindow):
         self._current_annotation_path = annotation_path
         self.statusBar().showMessage(f"Аннотация открыта: {annotation_path.name}")
 
+    def _set_project(self, project_path: Path, document: ProjectDocument) -> None:
+        self.project_path = project_path.resolve()
+        self.project_document = document
+        self._current_project_image_id = None
+        self._current_annotation_path = None
+        self._refresh_project_list()
+        if document.images:
+            self._select_project_image(document.images[0].id)
+        else:
+            self._clear_current_image_display()
+        self._update_project_panel()
+        self._update_window_title()
+
+    def _clear_project_state(self) -> None:
+        self._project_autosave_timer.stop()
+        self.project_document = None
+        self.project_path = None
+        self._current_project_image_id = None
+        self._current_annotation_path = None
+        self._refresh_project_list()
+        self._clear_current_image_display()
+        self._update_project_panel()
+        self._update_window_title()
+
+    def _clear_current_image_display(self) -> None:
+        self._loading_project_image = True
+        try:
+            self.canvas.clear_image()
+        finally:
+            self._loading_project_image = False
+        self._clear_histograms("Откройте изображение и создайте контур, чтобы увидеть гистограмму.")
+        self._update_project_properties()
+        self._update_action_states()
+
+    def _update_project_panel(self) -> None:
+        has_project = self.project_document is not None
+        self.project_list.setEnabled(has_project)
+        self.refresh_properties_button.setEnabled(has_project and self._selected_project_image() is not None)
+        self._update_project_properties()
+        self._update_action_states()
+
+    def _refresh_project_list(self) -> None:
+        self._updating_project_list = True
+        try:
+            selected_id = self._current_project_image_id
+            self.project_list.clear()
+            if self.project_document is None:
+                return
+            for record in self.project_document.images:
+                item = QListWidgetItem()
+                item.setData(Qt.UserRole, record.id)
+                self._populate_project_list_item(item, record)
+                self.project_list.addItem(item)
+            if selected_id is not None:
+                self._select_project_image(selected_id, emit_signal=False)
+        finally:
+            self._updating_project_list = False
+
+    def _populate_project_list_item(self, item: QListWidgetItem, record: ProjectImageRecord) -> None:
+        details: list[str] = []
+        if record.annotation is not None:
+            details.append("аннотация есть")
+        elif record.annotation_error:
+            details.append("ошибка аннотации")
+        else:
+            details.append("без аннотации")
+
+        image_path = self._project_image_path(record)
+        if self.project_path is not None and not image_path.exists():
+            details.append("файл не найден")
+            item.setForeground(QColor("#b42318"))
+        else:
+            item.setForeground(QColor("#1f2937"))
+
+        item.setText(f"{record.display_name}\n{'; '.join(details)}")
+        item.setToolTip(f"{record.display_name}\n{record.relative_path}\n{'; '.join(details)}")
+
+    def _update_current_project_list_item(self, record: ProjectImageRecord) -> None:
+        current_item = self.project_list.currentItem()
+        if current_item is None or current_item.data(Qt.UserRole) != record.id:
+            return
+        self._populate_project_list_item(current_item, record)
+
+    def _select_project_image(self, record_id: str, *, emit_signal: bool = True) -> None:
+        previous_state = self._updating_project_list
+        if not emit_signal:
+            self._updating_project_list = True
+        try:
+            for row in range(self.project_list.count()):
+                item = self.project_list.item(row)
+                if item.data(Qt.UserRole) == record_id:
+                    self.project_list.setCurrentRow(row)
+                    if emit_signal:
+                        return
+                    self._current_project_image_id = record_id
+                    return
+            self.project_list.clearSelection()
+            self._current_project_image_id = None
+        finally:
+            self._updating_project_list = previous_state
+
+    def _handle_project_selection_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
+        if self._updating_project_list:
+            return
+
+        selected_id = current.data(Qt.UserRole) if current is not None else None
+        if selected_id == self._current_project_image_id:
+            return
+
+        self._save_current_project_annotation()
+        self._current_project_image_id = str(selected_id) if selected_id else None
+        self._current_annotation_path = None
+
+        record = self._selected_project_image()
+        if record is None:
+            self._clear_current_image_display()
+            return
+
+        self._load_project_image(record)
+
+    def _load_project_image(self, record: ProjectImageRecord) -> None:
+        image_path = self._project_image_path(record)
+        self._loading_project_image = True
+        size_changed = False
+        loaded_ok = False
+        try:
+            if not image_path.exists():
+                self.canvas.clear_image()
+                self._clear_histograms("Файл изображения из проекта не найден.")
+                self.statusBar().showMessage(f"Файл изображения не найден: {record.display_name}")
+            else:
+                try:
+                    loaded_image = load_raster_image(image_path)
+                except (OSError, ValueError) as exc:
+                    self.canvas.clear_image()
+                    self._clear_histograms(str(exc))
+                    self.statusBar().showMessage(f"Не удалось открыть изображение: {record.display_name}")
+                else:
+                    loaded_ok = True
+                    self.canvas.set_loaded_image(loaded_image)
+                    if (record.image_width, record.image_height) != (
+                        loaded_image.width,
+                        loaded_image.height,
+                    ):
+                        record.image_width = loaded_image.width
+                        record.image_height = loaded_image.height
+                        size_changed = True
+
+                    if record.annotation is not None:
+                        if (record.annotation.image_width, record.annotation.image_height) != (
+                            loaded_image.width,
+                            loaded_image.height,
+                        ):
+                            self.statusBar().showMessage(
+                                "Аннотация не загружена: размеры изображения не совпадают."
+                            )
+                        else:
+                            try:
+                                self.canvas.set_contour(record.annotation.points)
+                            except ValueError as exc:
+                                record.annotation_error = str(exc)
+                                self.statusBar().showMessage("Аннотация повреждена и не загружена.")
+                    elif record.annotation_error:
+                        self.statusBar().showMessage("У выбранного изображения повреждена аннотация.")
+        finally:
+            self._loading_project_image = False
+
+        if size_changed:
+            self._schedule_project_save()
+        if loaded_ok:
+            self._refresh_histograms()
+        self._update_current_project_list_item(record)
+        self._update_project_properties()
+        self._update_action_states()
+        self._update_window_title()
+
+    def _handle_contour_geometry_changed(self) -> None:
+        if self._loading_project_image:
+            return
+        self._save_current_project_annotation()
+        self._update_project_properties()
+
+    def _save_current_project_annotation(self) -> None:
+        if self._loading_project_image:
+            return
+        if self.project_document is None:
+            return
+
+        record = self._current_project_image()
+        if record is None or not self.canvas.has_image():
+            return
+
+        image_size = self.canvas.image_size()
+        if image_size is None:
+            return
+
+        width, height = image_size
+        record.image_width = width
+        record.image_height = height
+        if self.canvas.has_contour():
+            record.annotation = Annotation(
+                image_path=record.relative_path,
+                image_width=width,
+                image_height=height,
+                points=self.canvas.contour_points(),
+                closed=True,
+            )
+            record.annotation_error = None
+            record.raw_annotation = None
+        else:
+            record.annotation = None
+            record.raw_annotation = None
+
+        self._update_current_project_list_item(record)
+        self._schedule_project_save()
+
+    def _schedule_project_save(self) -> None:
+        if self.project_document is None or self.project_path is None:
+            return
+        self._project_autosave_timer.start(350)
+
+    def _save_project_silently(self, *, show_error: bool = False) -> bool:
+        if self.project_document is None or self.project_path is None:
+            return True
+        try:
+            save_project(self.project_path, self.project_document)
+        except OSError as exc:
+            if show_error:
+                self._show_error("Ошибка сохранения проекта", f"Не удалось сохранить проект: {exc}")
+            return False
+        return True
+
+    def _selected_project_image_id(self) -> str | None:
+        item = self.project_list.currentItem()
+        if item is None:
+            return None
+        value = item.data(Qt.UserRole)
+        return str(value) if value else None
+
+    def _selected_project_image(self) -> ProjectImageRecord | None:
+        selected_id = self._selected_project_image_id()
+        if selected_id is None:
+            return None
+        return self._project_image_by_id(selected_id)
+
+    def _current_project_image(self) -> ProjectImageRecord | None:
+        if self._current_project_image_id is None:
+            return None
+        return self._project_image_by_id(self._current_project_image_id)
+
+    def _project_image_by_id(self, record_id: str) -> ProjectImageRecord | None:
+        if self.project_document is None:
+            return None
+        for record in self.project_document.images:
+            if record.id == record_id:
+                return record
+        return None
+
+    def _project_image_path(self, record: ProjectImageRecord) -> Path:
+        if self.project_path is None:
+            return Path(record.relative_path)
+        return (self.project_path.parent / record.relative_path).resolve()
+
+    def _update_project_properties(self, *_args) -> None:
+        record = self._selected_project_image()
+        has_record = record is not None
+        self.properties_empty_label.setVisible(not has_record)
+        self.properties_scroll_area.setVisible(has_record)
+        self.refresh_properties_button.setEnabled(has_record)
+        self.rename_file_as_id_button.setEnabled(has_record)
+
+        if record is None:
+            self.properties_empty_label.setText(
+                "Создайте или откройте проект, затем выберите изображение."
+                if self.project_document is None
+                else "Изображение не выбрано."
+            )
+            self._set_average_color_swatch(None)
+            return
+
+        self._normalize_record_metadata(record)
+        image_path = self._project_image_path(record)
+        file_exists = image_path.exists()
+        size_text = "-"
+        if record.image_width and record.image_height:
+            size_text = f"{record.image_width} x {record.image_height}"
+
+        annotation_text = "нет"
+        point_count_text = "-"
+        if record.annotation is not None:
+            annotation_text = "есть"
+            point_count_text = str(record.point_count())
+        elif record.annotation_error:
+            annotation_text = f"ошибка: {record.annotation_error}"
+
+        contour_stats = self._current_contour_stats(record)
+        if contour_stats is None:
+            red_text = green_text = blue_text = "-"
+            contour_pixels_text = "-"
+            mean_rgb = None
+        else:
+            mean_rgb, contour_pixel_count = contour_stats
+            red, green, blue = mean_rgb
+            red_text = str(red)
+            green_text = str(green)
+            blue_text = str(blue)
+            contour_pixels_text = str(contour_pixel_count)
+
+        self.property_file_name.setText(record.display_name)
+        self.property_path.setText(record.relative_path)
+        self.property_size.setText(size_text)
+        self.property_annotation.setText(annotation_text)
+        self.property_points.setText(point_count_text)
+        self.property_contour_pixels.setText(contour_pixels_text)
+        self.property_red.setText(red_text)
+        self.property_green.setText(green_text)
+        self.property_blue.setText(blue_text)
+        self.property_status.setText("найден" if file_exists else "отсутствует")
+        self._set_average_color_swatch(mean_rgb)
+        self._load_metadata_fields(record)
+
+    def _normalize_record_metadata(self, record: ProjectImageRecord) -> None:
+        if not isinstance(record.metadata, dict):
+            record.metadata = {}
+        normalized_metadata = default_project_image_metadata()
+        normalized_metadata.update(record.metadata)
+        if not str(normalized_metadata.get("sample_id", "")).strip():
+            normalized_metadata["sample_id"] = record.id
+        record.metadata = normalized_metadata
+
+    def _load_metadata_fields(self, record: ProjectImageRecord) -> None:
+        self._updating_metadata_fields = True
+        try:
+            with QSignalBlocker(self.property_file_name):
+                self.property_file_name.setText(record.display_name)
+            for metadata_key, field in self._metadata_fields.items():
+                with QSignalBlocker(field):
+                    field.setText(str(record.metadata.get(metadata_key, "")))
+            with QSignalBlocker(self.metadata_notes):
+                self.metadata_notes.setPlainText(str(record.metadata.get("notes", "")))
+        finally:
+            self._updating_metadata_fields = False
+
+    def _handle_metadata_line_edit_finished(self, metadata_key: str, field: QLineEdit) -> None:
+        if self._updating_metadata_fields:
+            return
+
+        self._store_metadata_text_value(metadata_key, field.text().strip(), field)
+
+    def _store_metadata_text_value(
+        self,
+        metadata_key: str,
+        value: str,
+        field: QLineEdit | None = None,
+    ) -> bool:
+        record = self._selected_project_image()
+        if record is None:
+            return False
+
+        if metadata_key == "sample_id":
+            sample_id_error = self._sample_id_validation_error(record, value)
+            if sample_id_error:
+                self._show_warning("Некорректный ID", sample_id_error)
+                if field is not None:
+                    with QSignalBlocker(field):
+                        field.setText(str(record.metadata.get(metadata_key, "")))
+                return False
+
+        validation_error = _metadata_validation_error(metadata_key, value)
+        if validation_error:
+            self._show_warning("Некорректное значение", validation_error)
+            if field is not None:
+                with QSignalBlocker(field):
+                    field.setText(str(record.metadata.get(metadata_key, "")))
+            return False
+
+        self._normalize_record_metadata(record)
+        if str(record.metadata.get(metadata_key, "")) == value:
+            return True
+
+        record.metadata[metadata_key] = value
+        if field is not None:
+            with QSignalBlocker(field):
+                field.setText(value)
+        self._schedule_project_save()
+        return True
+
+    def _sample_id_validation_error(self, current_record: ProjectImageRecord, value: str) -> str:
+        if not value:
+            return "ID изображения не должен быть пустым."
+        if self.project_document is None:
+            return ""
+
+        normalized_value = value.strip()
+        for record in self.project_document.images:
+            if record.id == current_record.id:
+                continue
+            self._normalize_record_metadata(record)
+            other_value = str(record.metadata.get("sample_id", "")).strip()
+            if other_value == normalized_value:
+                return "Такой ID уже используется другим изображением проекта."
+        return ""
+
+    def _unique_project_sample_id(self, base_value: str) -> str:
+        base_id = base_value.strip() or "image"
+        if self.project_document is None:
+            return base_id
+
+        used_ids = {
+            str(record.metadata.get("sample_id", "")).strip()
+            for record in self.project_document.images
+            if isinstance(record.metadata, dict)
+        }
+        if base_id not in used_ids:
+            return base_id
+
+        index = 1
+        while f"{base_id}_{index}" in used_ids:
+            index += 1
+        return f"{base_id}_{index}"
+
+    def _open_metadata_datetime_dialog(self, metadata_key: str, field: QLineEdit) -> None:
+        if self._updating_metadata_fields:
+            return
+        if self._selected_project_image() is None:
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Выбор даты и времени")
+
+        editor = QDateTimeEdit(_qdatetime_from_text(field.text()), dialog)
+        editor.setCalendarPopup(True)
+        editor.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+        clear_button = button_box.addButton("Очистить", QDialogButtonBox.ActionRole)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+        layout.addWidget(editor)
+        layout.addWidget(button_box)
+
+        clear_requested = False
+
+        def clear_value() -> None:
+            nonlocal clear_requested
+            clear_requested = True
+            dialog.accept()
+
+        clear_button.clicked.connect(clear_value)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        value = ""
+        if not clear_requested:
+            value = editor.dateTime().toPyDateTime().isoformat(timespec="seconds")
+        self._store_metadata_text_value(metadata_key, value, field)
+
+    def _handle_metadata_notes_changed(self) -> None:
+        if self._updating_metadata_fields:
+            return
+
+        record = self._selected_project_image()
+        if record is None:
+            return
+
+        self._normalize_record_metadata(record)
+        notes = self.metadata_notes.toPlainText()
+        if str(record.metadata.get("notes", "")) == notes:
+            return
+
+        record.metadata["notes"] = notes
+        self._schedule_project_save()
+
+    def _handle_file_name_edit_finished(self) -> None:
+        if self._updating_metadata_fields:
+            return
+
+        record = self._selected_project_image()
+        if record is None:
+            return
+
+        new_name = self.property_file_name.text().strip()
+        if new_name == record.display_name:
+            return
+
+        if self._rename_project_image(record, new_name):
+            self._update_current_project_list_item(record)
+            self._update_project_properties()
+            self._update_window_title()
+            self._save_project_silently(show_error=True)
+            return
+
+        with QSignalBlocker(self.property_file_name):
+            self.property_file_name.setText(record.display_name)
+
+    def _rename_file_to_sample_id(self) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+
+        sample_id = self.metadata_sample_id.text().strip()
+        if not self._store_metadata_text_value("sample_id", sample_id, self.metadata_sample_id):
+            return
+
+        self._normalize_record_metadata(record)
+        sample_id = str(record.metadata.get("sample_id", "")).strip()
+        if not sample_id:
+            self._show_warning("Некорректный ID", "ID изображения не должен быть пустым.")
+            return
+        if "/" in sample_id or "\\" in sample_id:
+            self._show_warning(
+                "Некорректный ID",
+                "ID изображения не должен содержать символы пути.",
+            )
+            return
+
+        old_suffix = Path(record.relative_path).suffix
+        target_name = sample_id
+        if old_suffix and not target_name.lower().endswith(old_suffix.lower()):
+            target_name = f"{target_name}{old_suffix}"
+
+        if target_name == record.display_name:
+            self.statusBar().showMessage("Файл уже назван как ID.")
+            return
+
+        if self._rename_project_image(record, target_name):
+            self._update_current_project_list_item(record)
+            self._update_project_properties()
+            self._update_window_title()
+            self._save_project_silently(show_error=True)
+
+    def _rename_project_image(self, record: ProjectImageRecord, new_name: str) -> bool:
+        if not new_name:
+            self._show_warning("Некорректное имя", "Имя файла не должно быть пустым.")
+            return False
+
+        new_file_name = Path(new_name).name
+        if not new_file_name:
+            self._show_warning("Некорректное имя", "Имя файла не должно быть пустым.")
+            return False
+
+        old_relative_path = Path(record.relative_path)
+        old_suffix = old_relative_path.suffix
+        candidate = Path(new_file_name)
+        if not candidate.suffix:
+            candidate = candidate.with_suffix(old_suffix)
+
+        if candidate.suffix.lower() not in SUPPORTED_RASTER_SUFFIXES:
+            self._show_warning(
+                "Некорректное расширение",
+                "Имя файла должно иметь поддерживаемое расширение изображения.",
+            )
+            return False
+
+        image_path = self._project_image_path(record)
+        if self.project_path is None:
+            record.display_name = candidate.name
+            return True
+
+        if not image_path.exists():
+            record.display_name = candidate.name
+            self._show_warning(
+                "Файл отсутствует",
+                "Файл изображения не найден на диске. Изменено только отображаемое имя.",
+            )
+            self._schedule_project_save()
+            return True
+
+        target_path = image_path.with_name(candidate.name)
+        if target_path.resolve() != image_path.resolve() and target_path.exists():
+            self._show_warning(
+                "Имя занято",
+                "Файл с таким именем уже существует в папке проекта.",
+            )
+            return False
+
+        try:
+            if target_path.resolve() != image_path.resolve():
+                image_path.rename(target_path)
+        except OSError as exc:
+            self._show_error("Ошибка переименования", f"Не удалось переименовать файл: {exc}")
+            return False
+
+        record.relative_path = portable_path_reference(target_path, self.project_path.parent)
+        record.display_name = candidate.name
+        if record.annotation is not None:
+            record.annotation.image_path = record.relative_path
+        self._schedule_project_save()
+        self.statusBar().showMessage(f"Файл переименован: {record.display_name}")
+        return True
+
+    def _current_contour_stats(
+        self,
+        record: ProjectImageRecord,
+    ) -> tuple[tuple[int, int, int], int] | None:
+        if record.id != self._current_project_image_id:
+            return None
+        if not self.canvas.has_image() or not self.canvas.has_contour():
+            return None
+        try:
+            pixels = self.canvas.contour_rgb_pixels()
+        except ValueError:
+            return None
+        if pixels.size == 0:
+            return None
+        mean_values = np.rint(pixels.mean(axis=0)).astype(int)
+        mean_rgb = int(mean_values[0]), int(mean_values[1]), int(mean_values[2])
+        return mean_rgb, int(pixels.shape[0])
+
+    def _set_average_color_swatch(self, rgb: tuple[int, int, int] | None) -> None:
+        if rgb is None:
+            self.average_color_swatch.setStyleSheet(
+                "QFrame#averageColorSwatch { border: 1px solid #95a3b8; border-radius: 4px; background: transparent; }"
+            )
+            return
+        red, green, blue = rgb
+        self.average_color_swatch.setStyleSheet(
+            "QFrame#averageColorSwatch { "
+            f"border: 1px solid #95a3b8; border-radius: 4px; background: rgb({red}, {green}, {blue}); "
+            "}"
+        )
+
     def show_about_dialog(self) -> None:
         QMessageBox.about(
             self,
@@ -521,6 +1922,13 @@ class MainWindow(QMainWindow):
         if current_image_size == (annotation.image_width, annotation.image_height):
             return True
 
+        if self.project_document is not None:
+            self._show_warning(
+                "Аннотация не подходит",
+                "В проектном режиме аннотацию можно загрузить только для выбранного изображения с тем же размером.",
+            )
+            return False
+
         resolved_path = self._resolve_annotation_image_path(annotation, annotation_path)
         if resolved_path is None:
             self._show_warning(
@@ -543,6 +1951,14 @@ class MainWindow(QMainWindow):
         return None
 
     def _update_window_title(self) -> None:
+        if self.project_document is not None:
+            record = self._current_project_image()
+            if record is not None:
+                self.setWindowTitle(f"{APP_TITLE} - {self.project_document.name} - {record.display_name}")
+                return
+            self.setWindowTitle(f"{APP_TITLE} - {self.project_document.name}")
+            return
+
         image_path = self.canvas.current_image_path()
         if image_path is None:
             self.setWindowTitle(APP_TITLE)
@@ -561,6 +1977,24 @@ class MainWindow(QMainWindow):
         if image_path is None:
             return fallback_name
         return str(image_path.with_name(f"{image_path.stem}_{color_space}_histogram.png"))
+
+    def closeEvent(self, event) -> None:
+        self._save_current_project_annotation()
+        if self._save_project_silently(show_error=True):
+            event.accept()
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Закрыть без сохранения?",
+            "Проект не удалось сохранить. Закрыть приложение без сохранения проекта?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer == QMessageBox.Yes:
+            event.accept()
+        else:
+            event.ignore()
 
     def _show_warning(self, title: str, message: str) -> None:
         QMessageBox.warning(self, title, message)
@@ -581,3 +2015,129 @@ def _ensure_json_suffix(path: Path) -> Path:
     if path.suffix:
         return path.with_suffix(".json")
     return path.with_suffix(".json")
+
+
+def _ensure_csv_suffix(path: Path) -> Path:
+    if path.suffix.lower() == ".csv":
+        return path
+    if path.suffix:
+        return path.with_suffix(".csv")
+    return path.with_suffix(".csv")
+
+
+def _annotation_rgb_pixels(rgb_array: np.ndarray, annotation: Annotation) -> np.ndarray:
+    mask = np.zeros(rgb_array.shape[:2], dtype=np.uint8)
+    polygon = np.array(
+        [
+            [int(round(point.x)), int(round(point.y))]
+            for point in annotation.points
+        ],
+        dtype=np.int32,
+    )
+    cv2.fillPoly(mask, [polygon], 255)
+    pixels = rgb_array[mask > 0]
+    return np.ascontiguousarray(pixels.reshape((-1, 3)))
+
+
+def _circle_contour_points(width: int, height: int, node_count: int) -> list[Point]:
+    bounded_count = max(3, min(128, int(node_count)))
+    image_width = max(1.0, float(width))
+    image_height = max(1.0, float(height))
+    center_x = image_width / 2.0
+    center_y = image_height / 2.0
+    radius = max(0.5, 0.35 * min(image_width, image_height))
+    radius = min(radius, max(0.5, min(center_x, center_y) - 0.5))
+
+    points: list[Point] = []
+    for index in range(bounded_count):
+        angle = -math.pi / 2.0 + 2.0 * math.pi * index / bounded_count
+        x = center_x + math.cos(angle) * radius
+        y = center_y + math.sin(angle) * radius
+        x = min(max(x, 0.0), image_width)
+        y = min(max(y, 0.0), image_height)
+        points.append(Point(x, y))
+    return points
+
+
+def _current_timestamp() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _metadata_validation_error(metadata_key: str, value: str) -> str:
+    if not value:
+        return ""
+
+    if metadata_key in ("added_at", "captured_at"):
+        if QDateTime.fromString(value, Qt.ISODate).isValid() or _datetime_from_text(value) is not None:
+            return ""
+        return "Дата и время должны быть указаны в формате ISO 8601 или ГГГГ-ММ-ДД ЧЧ:ММ:СС."
+
+    numeric_ranges = {
+        "humidity": (0.0, 100.0, "Влажность должна быть числом в диапазоне 0..100."),
+        "wind_speed": (0.0, None, "Скорость ветра не должна быть отрицательной."),
+        "latitude": (-90.0, 90.0, "Широта должна быть числом в диапазоне -90..90."),
+        "longitude": (-180.0, 180.0, "Долгота должна быть числом в диапазоне -180..180."),
+    }
+    if metadata_key not in numeric_ranges:
+        return ""
+
+    minimum, maximum, message = numeric_ranges[metadata_key]
+    try:
+        number = float(value.replace(",", "."))
+    except ValueError:
+        return message
+
+    if number < minimum:
+        return message
+    if maximum is not None and number > maximum:
+        return message
+    return ""
+
+
+def _qdatetime_from_text(value: str) -> QDateTime:
+    text = value.strip()
+    if text:
+        parsed = QDateTime.fromString(text, Qt.ISODate)
+        if parsed.isValid():
+            return parsed
+        with_timezone = _datetime_from_text(text)
+        if with_timezone is not None:
+            return QDateTime(with_timezone)
+    return QDateTime.currentDateTime()
+
+
+def _datetime_from_text(value: str) -> datetime | None:
+    text = value.strip()
+    if not text:
+        return None
+    for candidate in (text, text.replace(" ", "T", 1)):
+        try:
+            return datetime.fromisoformat(candidate)
+        except ValueError:
+            continue
+    for format_string in ("%Y-%m-%d %H:%M:%S", "%Y:%m:%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, format_string)
+        except ValueError:
+            continue
+    return None
+
+
+def _safe_project_name(raw_name: str) -> str:
+    safe_name = "".join(
+        char if char.isalnum() or char in ("-", "_", " ") else "_"
+        for char in raw_name.strip()
+    )
+    return "_".join(safe_name.split())
+
+
+def _unique_destination_path(directory: Path, file_name: str) -> Path:
+    source_name = Path(file_name).name
+    stem = Path(source_name).stem or "image"
+    suffix = Path(source_name).suffix
+    candidate = directory / source_name
+    index = 1
+    while candidate.exists():
+        candidate = directory / f"{stem}_{index}{suffix}"
+        index += 1
+    return candidate
