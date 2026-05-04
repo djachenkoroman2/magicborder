@@ -492,6 +492,9 @@ class MainWindow(QMainWindow):
         self.add_images_action.setShortcut("Ctrl+I")
         self.add_images_action.triggered.connect(self.add_images_to_project)
 
+        self.sync_images_action = QAction("Синхронизировать папку изображений", self)
+        self.sync_images_action.triggered.connect(self.sync_project_images_folder)
+
         self.remove_image_action = QAction("Удалить изображение из проекта", self)
         self.remove_image_action.triggered.connect(self.remove_selected_project_image)
 
@@ -564,6 +567,7 @@ class MainWindow(QMainWindow):
             "save_project": self.save_project_action,
             "close_project": self.close_project_action,
             "add_images": self.add_images_action,
+            "sync_images": self.sync_images_action,
             "remove_image": self.remove_image_action,
             "export_project_csv": self.export_project_csv_action,
             "open_image": self.open_image_action,
@@ -594,6 +598,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.close_project_action)
         file_menu.addSeparator()
         file_menu.addAction(self.add_images_action)
+        file_menu.addAction(self.sync_images_action)
         file_menu.addAction(self.remove_image_action)
         file_menu.addAction(self.export_project_csv_action)
         file_menu.addSeparator()
@@ -639,6 +644,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.close_project_action)
         toolbar.addSeparator()
         toolbar.addAction(self.add_images_action)
+        toolbar.addAction(self.sync_images_action)
         toolbar.addAction(self.remove_image_action)
         toolbar.addAction(self.export_project_csv_action)
         toolbar.addSeparator()
@@ -678,6 +684,7 @@ class MainWindow(QMainWindow):
         self.save_project_action.setEnabled(has_project)
         self.close_project_action.setEnabled(has_project)
         self.add_images_action.setEnabled(has_project)
+        self.sync_images_action.setEnabled(has_project)
         self.remove_image_action.setEnabled(has_project_image)
         self.export_project_csv_action.setEnabled(has_project)
         self.export_project_csv_button.setEnabled(has_project)
@@ -899,6 +906,81 @@ class MainWindow(QMainWindow):
 
         if errors:
             self._show_warning("Не все изображения добавлены", "\n".join(errors[:8]))
+
+    def sync_project_images_folder(self) -> None:
+        if self.project_document is None or self.project_path is None:
+            self._show_warning("Нет проекта", "Сначала создайте или откройте проект.")
+            return
+
+        self._save_current_project_annotation()
+
+        project_dir = self.project_path.parent
+        image_dir = project_dir / self.project_document.images_dir
+        errors: list[str] = []
+        added_ids: list[str] = []
+
+        try:
+            image_dir.mkdir(parents=True, exist_ok=True)
+            candidate_paths = sorted(
+                path
+                for path in image_dir.rglob("*")
+                if path.is_file() and path.suffix.lower() in SUPPORTED_RASTER_SUFFIXES
+            )
+        except OSError as exc:
+            self._show_error(
+                "Ошибка синхронизации",
+                f"Не удалось прочитать папку изображений проекта: {exc}",
+            )
+            return
+
+        existing_paths = {
+            _project_relative_path_key(record.relative_path)
+            for record in self.project_document.images
+        }
+
+        for image_path in candidate_paths:
+            relative_path = portable_path_reference(image_path, project_dir)
+            relative_path_key = _project_relative_path_key(relative_path)
+            if relative_path_key in existing_paths:
+                continue
+
+            try:
+                loaded_image = load_raster_image(image_path)
+            except (OSError, ValueError) as exc:
+                errors.append(f"{relative_path}: {exc}")
+                continue
+
+            try:
+                record_id = self._new_project_image_id()
+            except ValueError as exc:
+                self._show_error("Ошибка синхронизации", str(exc))
+                return
+
+            record = ProjectImageRecord(
+                id=record_id,
+                relative_path=relative_path,
+                display_name=image_path.name,
+                image_width=loaded_image.width,
+                image_height=loaded_image.height,
+                metadata=default_project_image_metadata(
+                    added_at=_current_timestamp(),
+                    captured_at=read_image_captured_at(image_path),
+                ),
+            )
+            self.project_document.images.append(record)
+            existing_paths.add(relative_path_key)
+            added_ids.append(record.id)
+
+        if added_ids:
+            self._refresh_project_list()
+            self._select_project_image(added_ids[0])
+            self._save_project_silently(show_error=True)
+            self.statusBar().showMessage(f"Синхронизировано изображений: {len(added_ids)}")
+        else:
+            self.statusBar().showMessage("Новых изображений не найдено.")
+
+        if errors:
+            self._show_warning("Не все изображения синхронизированы", "\n".join(errors[:8]))
 
     def remove_selected_project_image(self) -> None:
         if self.project_document is None or self.project_path is None:
@@ -2190,6 +2272,10 @@ def _safe_project_name(raw_name: str) -> str:
         for char in raw_name.strip()
     )
     return "_".join(safe_name.split())
+
+
+def _project_relative_path_key(value: str) -> str:
+    return str(value or "").replace("\\", "/").strip("/")
 
 
 def _unique_destination_path(directory: Path, file_name: str) -> Path:

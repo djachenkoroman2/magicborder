@@ -44,6 +44,11 @@ ACTION_VISUALS: dict[str, ActionVisual] = {
         tool_tip="Добавить изображения",
         status_tip="Добавить одно или несколько изображений в текущий проект.",
     ),
+    "sync_images": ActionVisual(
+        icon_name="sync-images",
+        tool_tip="Синхронизировать папку изображений",
+        status_tip="Добавить в проект изображения из папки проекта, которых ещё нет в JSON.",
+    ),
     "remove_image": ActionVisual(
         icon_name="remove-project-image",
         tool_tip="Удалить изображение из проекта",

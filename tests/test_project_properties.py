@@ -550,6 +550,79 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertNotIn("sample_id", record.metadata)
             self.assertTrue((project_dir / "images" / "leaf.png").exists())
 
+    def test_sync_project_images_folder_adds_untracked_images_only(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_dir = root / "project"
+            image_dir = project_dir / "images"
+            nested_dir = image_dir / "nested"
+            nested_dir.mkdir(parents=True)
+            Image.new("RGB", (20, 20), (120, 80, 40)).save(image_dir / "existing.png")
+            Image.new("RGB", (18, 12), (10, 20, 30)).save(image_dir / "new.png")
+            Image.new("RGB", (16, 14), (40, 50, 60)).save(nested_dir / "nested.jpg")
+            (image_dir / "broken.png").write_bytes(b"not an image")
+            (image_dir / "ignored.txt").write_text("not an image", encoding="utf-8")
+
+            project_path = project_dir / "project.json"
+            project = ProjectDocument(
+                name="project",
+                images=[
+                    ProjectImageRecord(
+                        id="existing-id",
+                        relative_path="images/existing.png",
+                        display_name="existing.png",
+                    )
+                ],
+            )
+            save_project(project_path, project)
+
+            window = MainWindow()
+
+            self.assertFalse(window.sync_images_action.isEnabled())
+            self.assertEqual(window.sync_images_action.toolTip(), "Синхронизировать папку изображений")
+            self.assertEqual(
+                window.sync_images_action.statusTip(),
+                "Добавить в проект изображения из папки проекта, которых ещё нет в JSON.",
+            )
+
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertTrue(window.sync_images_action.isEnabled())
+
+            with patch.object(window, "_show_warning") as show_warning:
+                window.sync_project_images_folder()
+            self.assertTrue(show_warning.called)
+
+            loaded_project = load_project(project_path)
+            records_by_path = {record.relative_path: record for record in loaded_project.images}
+
+            self.assertEqual(len(loaded_project.images), 3)
+            self.assertIn("images/existing.png", records_by_path)
+            self.assertIn("images/new.png", records_by_path)
+            self.assertIn("images/nested/nested.jpg", records_by_path)
+            self.assertNotIn("images/broken.png", records_by_path)
+            self.assertNotIn("images/ignored.txt", records_by_path)
+
+            new_record = records_by_path["images/new.png"]
+            nested_record = records_by_path["images/nested/nested.jpg"]
+            self.assertIsNone(new_record.annotation)
+            self.assertIsNone(nested_record.annotation)
+            self.assertEqual(new_record.display_name, "new.png")
+            self.assertEqual((new_record.image_width, new_record.image_height), (18, 12))
+            self.assertEqual(nested_record.display_name, "nested.jpg")
+            self.assertEqual((nested_record.image_width, nested_record.image_height), (16, 14))
+            self.assertTrue(new_record.metadata["added_at"])
+            self.assertEqual(new_record.metadata["diagnosis"], "Не указано")
+            self.assertNotIn("sample_id", new_record.metadata)
+            _assert_uuid4(self, new_record.id)
+            _assert_uuid4(self, nested_record.id)
+
+            with patch.object(window, "_show_warning"):
+                window.sync_project_images_folder()
+            reloaded_project = load_project(project_path)
+            self.assertEqual(len(reloaded_project.images), 3)
+
     def test_invalid_metadata_value_is_not_saved(self) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
