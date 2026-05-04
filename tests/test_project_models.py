@@ -113,9 +113,45 @@ class ProjectModelsTest(unittest.TestCase):
         metadata = project.images[0].metadata
 
         self.assertEqual(metadata["added_at"], "")
-        self.assertEqual(metadata["sample_id"], "")
+        self.assertNotIn("sample_id", metadata)
         self.assertEqual(metadata["diagnosis"], "Не указано")
         self.assertEqual(metadata["notes"], "")
+
+    def test_legacy_sample_id_is_preserved_but_not_required(self) -> None:
+        project = ProjectDocument.from_dict(
+            {
+                "name": "legacy",
+                "images": [
+                    {
+                        "id": "record-id",
+                        "path": "images/leaf.png",
+                        "display_name": "leaf.png",
+                        "metadata": {"sample_id": "legacy-sample"},
+                    }
+                ],
+            }
+        )
+
+        record = project.images[0]
+
+        self.assertEqual(record.id, "record-id")
+        self.assertEqual(record.metadata["sample_id"], "legacy-sample")
+
+    def test_legacy_sample_id_can_seed_missing_record_id(self) -> None:
+        project = ProjectDocument.from_dict(
+            {
+                "name": "legacy",
+                "images": [
+                    {
+                        "path": "images/leaf.png",
+                        "display_name": "leaf.png",
+                        "metadata": {"sample_id": "legacy-sample"},
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(project.images[0].id, "legacy-sample")
 
 
 if __name__ == "__main__":

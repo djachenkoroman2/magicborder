@@ -6,11 +6,13 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from uuid import UUID
 
 from PIL import Image
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt5.QtCore import Qt  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from magicborder.io_utils import load_project, save_project  # noqa: E402
@@ -29,7 +31,73 @@ def _app() -> QApplication:
     return app
 
 
+def _assert_uuid4(test_case: unittest.TestCase, value: str) -> None:
+    parsed_uuid = UUID(value)
+    test_case.assertEqual(str(parsed_uuid), value)
+    test_case.assertEqual(parsed_uuid.version, 4)
+
+
 class ProjectPropertiesTest(unittest.TestCase):
+    def test_new_project_prompts_for_name_then_parent_directory(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            call_order: list[str] = []
+
+            def get_project_name(*_args, **_kwargs) -> tuple[str, bool]:
+                call_order.append("name")
+                return ("Leaves 2026", True)
+
+            def get_parent_directory(*_args, **_kwargs) -> str:
+                call_order.append("directory")
+                return str(root)
+
+            window = MainWindow()
+            with patch("magicborder.main_window.QInputDialog.getText", side_effect=get_project_name), patch(
+                "magicborder.main_window.QFileDialog.getExistingDirectory",
+                side_effect=get_parent_directory,
+            ):
+                window.new_project()
+
+            project_dir = root / "Leaves_2026"
+            project_path = project_dir / "Leaves_2026.json"
+
+            self.assertEqual(call_order, ["name", "directory"])
+            self.assertEqual(window.project_path, project_path.resolve())
+            self.assertTrue(project_dir.is_dir())
+            self.assertTrue((project_dir / "images").is_dir())
+            self.assertTrue(project_path.is_file())
+            self.assertEqual(load_project(project_path).name, "Leaves_2026")
+
+    def test_new_project_cancel_name_does_not_open_directory_dialog(self) -> None:
+        _app()
+        window = MainWindow()
+
+        with patch("magicborder.main_window.QInputDialog.getText", return_value=("", False)), patch(
+            "magicborder.main_window.QFileDialog.getExistingDirectory",
+        ) as get_directory:
+            window.new_project()
+
+        get_directory.assert_not_called()
+        self.assertIsNone(window.project_path)
+        self.assertIsNone(window.project_document)
+
+    def test_new_project_cancel_directory_creates_nothing(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window = MainWindow()
+
+            with patch("magicborder.main_window.QInputDialog.getText", return_value=("Leaves 2026", True)), patch(
+                "magicborder.main_window.QFileDialog.getExistingDirectory",
+                return_value="",
+            ):
+                window.new_project()
+
+            self.assertFalse((root / "Leaves_2026").exists())
+            self.assertIsNone(window.project_path)
+            self.assertIsNone(window.project_document)
+
     def test_circle_contour_points_are_centered_and_counted(self) -> None:
         points = _circle_contour_points(20, 20, 5)
 
@@ -182,7 +250,7 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(record.metadata["latitude"], "48.7")
             self.assertEqual(record.metadata["notes"], "Проверка метаданных")
 
-    def test_file_name_button_renames_image_to_sample_id(self) -> None:
+    def test_file_name_button_renames_image_to_record_id(self) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -209,8 +277,8 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.rename_file_as_id_button.toolTip(), "Переименовать файл как ID")
             self.assertTrue(window.rename_file_as_id_button.isEnabled())
 
-            window.metadata_sample_id.setText("SAMPLE_001")
-            window._rename_file_to_sample_id()
+            window.image_id.setText("SAMPLE_001")
+            window._rename_file_to_image_id()
             window.save_project_file()
 
             loaded_project = load_project(project_path)
@@ -218,11 +286,81 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             self.assertEqual(record.display_name, "SAMPLE_001.png")
             self.assertEqual(record.relative_path, "images/SAMPLE_001.png")
-            self.assertEqual(record.metadata["sample_id"], "SAMPLE_001")
+            self.assertEqual(record.id, "SAMPLE_001")
+            self.assertNotIn("sample_id", record.metadata)
             self.assertTrue((image_dir / "SAMPLE_001.png").exists())
             self.assertFalse((image_dir / "leaf.png").exists())
 
-    def test_sample_id_is_editable_and_unique(self) -> None:
+    def test_generate_image_id_button_creates_new_uuid(self) -> None:
+        _app()
+        window = MainWindow()
+
+        self.assertFalse(window.generate_image_id_button.isEnabled())
+        self.assertEqual(window.generate_image_id_button.toolTip(), "Сгенерировать ID")
+        self.assertEqual(
+            window.generate_image_id_button.statusTip(),
+            "Сгенерировать новый GUID изображения.",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            Image.new("RGB", (20, 20), (120, 80, 40)).save(image_dir / "leaf.png")
+            Image.new("RGB", (20, 20), (10, 20, 30)).save(image_dir / "other.png")
+
+            project = ProjectDocument(
+                name="generate_id",
+                images=[
+                    ProjectImageRecord(
+                        id="11111111-1111-4111-8111-111111111111",
+                        relative_path="images/leaf.png",
+                        display_name="leaf.png",
+                    ),
+                    ProjectImageRecord(
+                        id="22222222-2222-4222-8222-222222222222",
+                        relative_path="images/other.png",
+                        display_name="other.png",
+                    ),
+                ],
+            )
+            project_path = root / "generate_id.json"
+            save_project(project_path, project)
+
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertTrue(window.generate_image_id_button.isEnabled())
+            old_id = window.project_document.images[0].id
+
+            window._generate_image_id()
+            first_generated_id = window.project_document.images[0].id
+            window._generate_image_id()
+            second_generated_id = window.project_document.images[0].id
+            window.save_project_file()
+
+            loaded_project = load_project(project_path)
+            self.assertNotEqual(first_generated_id, old_id)
+            self.assertNotEqual(second_generated_id, first_generated_id)
+            _assert_uuid4(self, first_generated_id)
+            _assert_uuid4(self, second_generated_id)
+            self.assertEqual(window.image_id.text(), second_generated_id)
+            self.assertEqual(loaded_project.images[0].id, second_generated_id)
+            self.assertEqual(loaded_project.images[1].id, "22222222-2222-4222-8222-222222222222")
+            self.assertNotIn("sample_id", loaded_project.images[0].metadata)
+
+            output_path = root / "generated_ids"
+            with patch(
+                "magicborder.main_window.QFileDialog.getSaveFileName",
+                return_value=(str(output_path), ""),
+            ):
+                window.export_project_csv()
+
+            csv_path = root / "generated_ids.csv"
+            with csv_path.open("r", encoding="utf-8-sig", newline="") as csv_file:
+                rows = list(csv.DictReader(csv_file))
+            self.assertEqual(rows[0]["id"], second_generated_id)
+
+    def test_record_id_is_editable_and_unique(self) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -235,16 +373,14 @@ class ProjectPropertiesTest(unittest.TestCase):
                 name="ids",
                 images=[
                     ProjectImageRecord(
-                        id="record-a",
+                        id="A",
                         relative_path="images/leaf_a.png",
                         display_name="leaf_a.png",
-                        metadata={"sample_id": "A"},
                     ),
                     ProjectImageRecord(
-                        id="record-b",
+                        id="B",
                         relative_path="images/leaf_b.png",
                         display_name="leaf_b.png",
-                        metadata={"sample_id": "B"},
                     ),
                 ],
             )
@@ -254,20 +390,21 @@ class ProjectPropertiesTest(unittest.TestCase):
             window = MainWindow()
             window._set_project(project_path, load_project(project_path))
 
-            self.assertEqual(window.metadata_sample_id.text(), "A")
+            self.assertEqual(window.image_id.text(), "A")
 
-            window.metadata_sample_id.setText("B")
+            window.image_id.setText("B")
             with patch.object(window, "_show_warning"):
-                window._handle_metadata_line_edit_finished("sample_id", window.metadata_sample_id)
-            self.assertEqual(window.metadata_sample_id.text(), "A")
-            self.assertEqual(window.project_document.images[0].metadata["sample_id"], "A")
+                window._handle_image_id_edit_finished()
+            self.assertEqual(window.image_id.text(), "A")
+            self.assertEqual(window.project_document.images[0].id, "A")
 
-            window.metadata_sample_id.setText("C")
-            window._handle_metadata_line_edit_finished("sample_id", window.metadata_sample_id)
+            window.image_id.setText("C")
+            window._handle_image_id_edit_finished()
             window.save_project_file()
 
             loaded_project = load_project(project_path)
-            self.assertEqual(loaded_project.images[0].metadata["sample_id"], "C")
+            self.assertEqual(loaded_project.images[0].id, "C")
+            self.assertEqual(window.project_list.currentItem().data(Qt.UserRole), "C")
 
     def test_project_csv_export_contains_contour_statistics(self) -> None:
         _app()
@@ -297,19 +434,19 @@ class ProjectPropertiesTest(unittest.TestCase):
                         relative_path="images/leaf_a.png",
                         display_name="leaf_a.png",
                         annotation=annotation,
-                        metadata={"sample_id": "A", "diagnosis": "class_a"},
+                        metadata={"sample_id": "legacy-a", "diagnosis": "class_a"},
                     ),
                     ProjectImageRecord(
                         id="record-b",
                         relative_path="images/leaf_b.png",
                         display_name="leaf_b.png",
-                        metadata={"sample_id": "B"},
+                        metadata={"sample_id": "legacy-b"},
                     ),
                     ProjectImageRecord(
                         id="record-missing",
                         relative_path="images/missing.png",
                         display_name="missing.png",
-                        metadata={"sample_id": "M"},
+                        metadata={"sample_id": "legacy-m"},
                     ),
                 ],
             )
@@ -331,7 +468,7 @@ class ProjectPropertiesTest(unittest.TestCase):
                 rows = list(csv.DictReader(csv_file))
 
             self.assertEqual(len(rows), 3)
-            self.assertEqual(rows[0]["id"], "A")
+            self.assertEqual(rows[0]["id"], "record-a")
             self.assertEqual(rows[0]["file_name"], "leaf_a.png")
             self.assertEqual(rows[0]["diagnosis"], "class_a")
             self.assertEqual(rows[0]["r"], "120")
@@ -407,8 +544,10 @@ class ProjectPropertiesTest(unittest.TestCase):
             loaded_project = load_project(project_path)
             record = loaded_project.images[0]
 
+            _assert_uuid4(self, record.id)
             self.assertTrue(record.metadata["added_at"])
             self.assertEqual(record.metadata["diagnosis"], "Не указано")
+            self.assertNotIn("sample_id", record.metadata)
             self.assertTrue((project_dir / "images" / "leaf.png").exists())
 
     def test_invalid_metadata_value_is_not_saved(self) -> None:

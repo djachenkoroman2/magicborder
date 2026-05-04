@@ -274,7 +274,12 @@ class MainWindow(QMainWindow):
         self.average_color_swatch.setObjectName("averageColorSwatch")
         self.average_color_swatch.setFixedSize(58, 24)
 
-        self.metadata_sample_id = self._metadata_line_edit()
+        self.image_id = self._metadata_line_edit()
+        self.image_id.editingFinished.connect(self._handle_image_id_edit_finished)
+        self.image_id_widget, self.generate_image_id_button = self._image_id_widget(
+            self.image_id,
+            properties_widget,
+        )
         self.metadata_added_at = self._metadata_line_edit()
         self.metadata_captured_at = self._metadata_line_edit()
         self.metadata_added_at_widget, self.metadata_added_at_button = self._metadata_datetime_widget(
@@ -300,7 +305,6 @@ class MainWindow(QMainWindow):
         self.metadata_notes.textChanged.connect(self._handle_metadata_notes_changed)
 
         self._metadata_fields = {
-            "sample_id": self.metadata_sample_id,
             "added_at": self.metadata_added_at,
             "captured_at": self.metadata_captured_at,
             "illumination": self.metadata_illumination,
@@ -332,7 +336,7 @@ class MainWindow(QMainWindow):
         form_layout.addRow(self._property_name_label("Синий"), self.property_blue)
         form_layout.addRow(self._property_name_label("Средний цвет"), self.average_color_swatch)
         form_layout.addRow(self._property_name_label("Статус"), self.property_status)
-        form_layout.addRow(self._property_name_label("ID"), self.metadata_sample_id)
+        form_layout.addRow(self._property_name_label("ID"), self.image_id_widget)
         form_layout.addRow(self._property_name_label("Дата добавления"), self.metadata_added_at_widget)
         form_layout.addRow(self._property_name_label("Дата съёмки"), self.metadata_captured_at_widget)
         form_layout.addRow(self._property_name_label("Освещённость"), self.metadata_illumination)
@@ -385,9 +389,26 @@ class MainWindow(QMainWindow):
         button.setToolTip("Переименовать файл как ID")
         button.setStatusTip("Переименовать файл изображения по текущему ID с сохранением расширения.")
         button.setAutoRaise(True)
-        button.clicked.connect(self._rename_file_to_sample_id)
+        button.clicked.connect(self._rename_file_to_image_id)
 
         layout.addWidget(self.property_file_name, 1)
+        layout.addWidget(button)
+        return container, button
+
+    def _image_id_widget(self, field: QLineEdit, parent: QWidget) -> tuple[QWidget, QToolButton]:
+        container = QWidget(parent)
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        button = QToolButton(container)
+        button.setIcon(load_icon("generate-id"))
+        button.setToolTip("Сгенерировать ID")
+        button.setStatusTip("Сгенерировать новый GUID изображения.")
+        button.setAutoRaise(True)
+        button.clicked.connect(self._generate_image_id)
+
+        layout.addWidget(field, 1)
         layout.addWidget(button)
         return container, button
 
@@ -727,14 +748,6 @@ class MainWindow(QMainWindow):
         self.histogram_splitter.setSizes(HISTOGRAM_DEFAULT_SIZES)
 
     def new_project(self) -> None:
-        parent_dir_name = QFileDialog.getExistingDirectory(
-            self,
-            "Выберите папку для нового проекта",
-            "",
-        )
-        if not parent_dir_name:
-            return
-
         project_name, accepted = QInputDialog.getText(
             self,
             "Новый проект",
@@ -746,6 +759,14 @@ class MainWindow(QMainWindow):
         safe_name = _safe_project_name(project_name)
         if not safe_name:
             self._show_warning("Некорректное имя", "Введите имя проекта.")
+            return
+
+        parent_dir_name = QFileDialog.getExistingDirectory(
+            self,
+            "Выберите папку, где будет создан проект",
+            "",
+        )
+        if not parent_dir_name:
             return
 
         project_dir = Path(parent_dir_name) / safe_name
@@ -855,14 +876,14 @@ class MainWindow(QMainWindow):
                 errors.append(f"{source_path.name}: {exc}")
                 continue
 
+            record_id = self._new_project_image_id()
             record = ProjectImageRecord(
-                id=uuid4().hex,
+                id=record_id,
                 relative_path=portable_path_reference(destination_path, project_dir),
                 display_name=destination_path.name,
                 image_width=loaded_image.width,
                 image_height=loaded_image.height,
                 metadata=default_project_image_metadata(
-                    sample_id=self._unique_project_sample_id(destination_path.stem),
                     added_at=_current_timestamp(),
                     captured_at=read_image_captured_at(source_path),
                 ),
@@ -977,7 +998,7 @@ class MainWindow(QMainWindow):
     def _project_csv_row(self, record: ProjectImageRecord) -> dict[str, str]:
         self._normalize_record_metadata(record)
         row = {
-            "id": str(record.metadata.get("sample_id", "")),
+            "id": record.id,
             "file_name": record.display_name,
             "relative_path": record.relative_path,
             "has_annotation": "1" if record.annotation is not None else "0",
@@ -1516,6 +1537,7 @@ class MainWindow(QMainWindow):
         self.properties_scroll_area.setVisible(has_record)
         self.refresh_properties_button.setEnabled(has_record)
         self.rename_file_as_id_button.setEnabled(has_record)
+        self.generate_image_id_button.setEnabled(has_record)
 
         if record is None:
             self.properties_empty_label.setText(
@@ -1572,8 +1594,6 @@ class MainWindow(QMainWindow):
             record.metadata = {}
         normalized_metadata = default_project_image_metadata()
         normalized_metadata.update(record.metadata)
-        if not str(normalized_metadata.get("sample_id", "")).strip():
-            normalized_metadata["sample_id"] = record.id
         record.metadata = normalized_metadata
 
     def _load_metadata_fields(self, record: ProjectImageRecord) -> None:
@@ -1581,6 +1601,8 @@ class MainWindow(QMainWindow):
         try:
             with QSignalBlocker(self.property_file_name):
                 self.property_file_name.setText(record.display_name)
+            with QSignalBlocker(self.image_id):
+                self.image_id.setText(record.id)
             for metadata_key, field in self._metadata_fields.items():
                 with QSignalBlocker(field):
                     field.setText(str(record.metadata.get(metadata_key, "")))
@@ -1595,6 +1617,12 @@ class MainWindow(QMainWindow):
 
         self._store_metadata_text_value(metadata_key, field.text().strip(), field)
 
+    def _handle_image_id_edit_finished(self) -> None:
+        if self._updating_metadata_fields:
+            return
+
+        self._store_record_id_value(self.image_id.text().strip(), self.image_id)
+
     def _store_metadata_text_value(
         self,
         metadata_key: str,
@@ -1604,15 +1632,6 @@ class MainWindow(QMainWindow):
         record = self._selected_project_image()
         if record is None:
             return False
-
-        if metadata_key == "sample_id":
-            sample_id_error = self._sample_id_validation_error(record, value)
-            if sample_id_error:
-                self._show_warning("Некорректный ID", sample_id_error)
-                if field is not None:
-                    with QSignalBlocker(field):
-                        field.setText(str(record.metadata.get(metadata_key, "")))
-                return False
 
         validation_error = _metadata_validation_error(metadata_key, value)
         if validation_error:
@@ -1633,7 +1652,43 @@ class MainWindow(QMainWindow):
         self._schedule_project_save()
         return True
 
-    def _sample_id_validation_error(self, current_record: ProjectImageRecord, value: str) -> str:
+    def _store_record_id_value(self, value: str, field: QLineEdit | None = None) -> bool:
+        record = self._selected_project_image()
+        if record is None:
+            return False
+
+        normalized_value = value.strip()
+        validation_error = self._record_id_validation_error(record, normalized_value)
+        if validation_error:
+            self._show_warning("Некорректный ID", validation_error)
+            if field is not None:
+                with QSignalBlocker(field):
+                    field.setText(record.id)
+            return False
+
+        if record.id == normalized_value:
+            if field is not None:
+                with QSignalBlocker(field):
+                    field.setText(normalized_value)
+            return True
+
+        old_id = record.id
+        record.id = normalized_value
+        if self._current_project_image_id == old_id:
+            self._current_project_image_id = normalized_value
+
+        current_item = self.project_list.currentItem()
+        if current_item is not None and current_item.data(Qt.UserRole) == old_id:
+            current_item.setData(Qt.UserRole, normalized_value)
+            self._populate_project_list_item(current_item, record)
+
+        if field is not None:
+            with QSignalBlocker(field):
+                field.setText(normalized_value)
+        self._schedule_project_save()
+        return True
+
+    def _record_id_validation_error(self, current_record: ProjectImageRecord, value: str) -> str:
         if not value:
             return "ID изображения не должен быть пустым."
         if self.project_document is None:
@@ -1643,29 +1698,36 @@ class MainWindow(QMainWindow):
         for record in self.project_document.images:
             if record.id == current_record.id:
                 continue
-            self._normalize_record_metadata(record)
-            other_value = str(record.metadata.get("sample_id", "")).strip()
-            if other_value == normalized_value:
+            if record.id == normalized_value:
                 return "Такой ID уже используется другим изображением проекта."
         return ""
 
-    def _unique_project_sample_id(self, base_value: str) -> str:
-        base_id = base_value.strip() or "image"
-        if self.project_document is None:
-            return base_id
+    def _new_project_image_id(self) -> str:
+        used_ids = set()
+        if self.project_document is not None:
+            used_ids = {record.id for record in self.project_document.images}
 
-        used_ids = {
-            str(record.metadata.get("sample_id", "")).strip()
-            for record in self.project_document.images
-            if isinstance(record.metadata, dict)
-        }
-        if base_id not in used_ids:
-            return base_id
+        for _attempt in range(10):
+            candidate = str(uuid4())
+            if candidate not in used_ids:
+                return candidate
+        raise ValueError("Не удалось сгенерировать уникальный ID изображения.")
 
-        index = 1
-        while f"{base_id}_{index}" in used_ids:
-            index += 1
-        return f"{base_id}_{index}"
+    def _generate_image_id(self) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+
+        try:
+            generated_id = self._new_project_image_id()
+        except ValueError as exc:
+            self._show_error("Ошибка генерации ID", str(exc))
+            return
+
+        if not self._store_record_id_value(generated_id, self.image_id):
+            return
+
+        self.statusBar().showMessage(f"Сгенерирован новый ID изображения: {generated_id}")
 
     def _open_metadata_datetime_dialog(self, metadata_key: str, field: QLineEdit) -> None:
         if self._updating_metadata_fields:
@@ -1746,21 +1808,20 @@ class MainWindow(QMainWindow):
         with QSignalBlocker(self.property_file_name):
             self.property_file_name.setText(record.display_name)
 
-    def _rename_file_to_sample_id(self) -> None:
+    def _rename_file_to_image_id(self) -> None:
         record = self._selected_project_image()
         if record is None:
             return
 
-        sample_id = self.metadata_sample_id.text().strip()
-        if not self._store_metadata_text_value("sample_id", sample_id, self.metadata_sample_id):
+        image_id = self.image_id.text().strip()
+        if not self._store_record_id_value(image_id, self.image_id):
             return
 
-        self._normalize_record_metadata(record)
-        sample_id = str(record.metadata.get("sample_id", "")).strip()
-        if not sample_id:
+        image_id = record.id.strip()
+        if not image_id:
             self._show_warning("Некорректный ID", "ID изображения не должен быть пустым.")
             return
-        if "/" in sample_id or "\\" in sample_id:
+        if "/" in image_id or "\\" in image_id:
             self._show_warning(
                 "Некорректный ID",
                 "ID изображения не должен содержать символы пути.",
@@ -1768,7 +1829,7 @@ class MainWindow(QMainWindow):
             return
 
         old_suffix = Path(record.relative_path).suffix
-        target_name = sample_id
+        target_name = image_id
         if old_suffix and not target_name.lower().endswith(old_suffix.lower()):
             target_name = f"{target_name}{old_suffix}"
 

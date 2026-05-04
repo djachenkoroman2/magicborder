@@ -111,7 +111,6 @@ def _normalize_project_path(value: Any) -> str:
 
 
 PROJECT_IMAGE_METADATA_DEFAULTS: dict[str, str] = {
-    "sample_id": "",
     "added_at": "",
     "captured_at": "",
     "illumination": "",
@@ -127,12 +126,10 @@ PROJECT_IMAGE_METADATA_DEFAULTS: dict[str, str] = {
 
 def default_project_image_metadata(
     *,
-    sample_id: str = "",
     added_at: str = "",
     captured_at: str = "",
 ) -> dict[str, str]:
     metadata = dict(PROJECT_IMAGE_METADATA_DEFAULTS)
-    metadata["sample_id"] = str(sample_id or "")
     metadata["added_at"] = str(added_at or "")
     metadata["captured_at"] = str(captured_at or "")
     return metadata
@@ -215,13 +212,14 @@ class ProjectImageRecord:
             except ValueError as exc:
                 annotation_error = str(exc)
 
-        record_id = str(data.get("id") or relative_path)
-        display_name = str(data.get("display_name") or relative_path.rsplit("/", 1)[-1])
         metadata = data.get("metadata", {})
         if not isinstance(metadata, dict):
             metadata = {}
+        legacy_sample_id = str(metadata.get("sample_id", "")).strip()
+        record_id = str(data.get("id") or legacy_sample_id or relative_path)
+        display_name = str(data.get("display_name") or relative_path.rsplit("/", 1)[-1])
         migrated_metadata = dict(metadata)
-        for key in PROJECT_IMAGE_METADATA_DEFAULTS:
+        for key in (*PROJECT_IMAGE_METADATA_DEFAULTS, "sample_id"):
             if key in data and key not in migrated_metadata:
                 migrated_metadata[key] = data[key]
         return cls(
