@@ -69,16 +69,6 @@ ACTION_VISUALS: dict[str, ActionVisual] = {
         tool_tip="Экспорт свойств изображения в Excel",
         status_tip="Сохранить свойства выбранного изображения в файл .xlsx.",
     ),
-    "open_image": ActionVisual(
-        icon_name="open-image",
-        tool_tip="Открыть изображение",
-        status_tip="Открыть фотографию листа растения из файла.",
-    ),
-    "save_image": ActionVisual(
-        icon_name="save-image",
-        tool_tip="Сохранить изображение",
-        status_tip="Сохранить текущее изображение без контура в файл.",
-    ),
     "exit": ActionVisual(
         icon_name="exit-app",
         tool_tip="Выход",

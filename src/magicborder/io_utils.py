@@ -32,15 +32,6 @@ def image_open_filter() -> str:
     return f"Raster images ({patterns});;All files (*)"
 
 
-def image_save_filter() -> str:
-    return (
-        "PNG image (*.png);;"
-        "JPEG image (*.jpg *.jpeg);;"
-        "Bitmap image (*.bmp);;"
-        "TIFF image (*.tif *.tiff)"
-    )
-
-
 def load_raster_image(path: str | Path) -> LoadedImage:
     image_path = Path(path)
     if not image_path.exists():

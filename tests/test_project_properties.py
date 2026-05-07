@@ -15,7 +15,16 @@ from PIL import Image
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import Qt  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
+from PyQt5.QtWidgets import (  # noqa: E402
+    QAction,
+    QApplication,
+    QDialog,
+    QFormLayout,
+    QSizePolicy,
+    QToolBar,
+    QToolButton,
+    QWidgetAction,
+)
 
 from magicborder.io_utils import load_project, save_project  # noqa: E402
 from magicborder.main_window import (  # noqa: E402
@@ -106,7 +115,121 @@ def _list_item_color_name(window: MainWindow, row: int = 0) -> str:
     return window.project_list.item(row).foreground().color().name()
 
 
+def _property_panel_rows(window: MainWindow) -> list[str]:
+    form_layout = window.properties_form_widget.layout()
+    assert isinstance(form_layout, QFormLayout)
+    rows: list[str] = []
+    for row in range(form_layout.rowCount()):
+        spanning_item = form_layout.itemAt(row, QFormLayout.SpanningRole)
+        if spanning_item is not None and spanning_item.widget() is not None:
+            rows.append(f"--- {spanning_item.widget().text()}")
+            continue
+
+        label_item = form_layout.itemAt(row, QFormLayout.LabelRole)
+        if label_item is not None and label_item.widget() is not None:
+            rows.append(label_item.widget().text())
+    return rows
+
+
+def _main_toolbar(window: MainWindow) -> QToolBar:
+    for toolbar in window.findChildren(QToolBar):
+        if toolbar.windowTitle() == "Основная панель":
+            return toolbar
+    raise AssertionError("Основная панель не найдена")
+
+
 class ProjectPropertiesTest(unittest.TestCase):
+    def test_single_image_open_save_actions_are_removed(self) -> None:
+        _app()
+        window = MainWindow()
+
+        self.assertFalse(hasattr(window, "open_image_action"))
+        self.assertFalse(hasattr(window, "save_image_action"))
+
+        actions = window.findChildren(QAction)
+        action_texts = {action.text() for action in actions}
+        shortcuts = {action.shortcut().toString() for action in actions if not action.shortcut().isEmpty()}
+
+        self.assertNotIn("Открыть изображение...", action_texts)
+        self.assertNotIn("Сохранить изображение...", action_texts)
+        self.assertNotIn("Ctrl+O", shortcuts)
+        self.assertNotIn("Ctrl+S", shortcuts)
+
+    def test_exit_button_is_right_aligned_on_toolbar(self) -> None:
+        _app()
+        window = MainWindow()
+        toolbar = _main_toolbar(window)
+
+        actions = toolbar.actions()
+        self.assertIs(actions[-1], window.exit_action)
+        self.assertIsInstance(actions[-2], QWidgetAction)
+        spacer = actions[-2].defaultWidget()
+        self.assertIsNotNone(spacer)
+        self.assertEqual(spacer.sizePolicy().horizontalPolicy(), QSizePolicy.Expanding)
+
+    def test_image_properties_panel_uses_grouped_order(self) -> None:
+        _app()
+        window = MainWindow()
+
+        self.assertEqual(
+            _property_panel_rows(window),
+            [
+                "--- Общая информация о файле",
+                "ID",
+                "Файл",
+                "Путь",
+                "Размер",
+                "Статус",
+                "Дата добавления",
+                "Дата съёмки",
+                "--- Информация о контуре",
+                "Аннотация",
+                "Количество узлов контура",
+                "Количество пикселов контура",
+                "--- Цветовая схема RGB",
+                "Красный",
+                "Зелёный",
+                "Синий",
+                "Средний цвет",
+                "--- Локация",
+                "Освещённость",
+                "Влажность, %",
+                "Скорость ветра",
+                "Направление ветра",
+                "Широта",
+                "Долгота",
+                "--- Дополнительно",
+                "Диагноз",
+                "Дополнительные сведения",
+            ],
+        )
+
+    def test_image_properties_panel_has_no_refresh_button(self) -> None:
+        _app()
+        window = MainWindow()
+
+        property_buttons = window.properties_form_widget.parentWidget().findChildren(QToolButton)
+        button_texts = {button.text() for button in property_buttons}
+        button_tooltips = {button.toolTip() for button in property_buttons}
+
+        self.assertNotIn("Обновить", button_texts)
+        self.assertNotIn("Обновить свойства выбранного изображения", button_tooltips)
+
+    def test_project_panel_header_buttons_share_icon_text_style(self) -> None:
+        _app()
+        window = MainWindow()
+
+        buttons = [
+            window.export_project_excel_button,
+            window.export_image_properties_excel_button,
+        ]
+
+        for button in buttons:
+            self.assertEqual(button.text(), "Excel")
+            self.assertEqual(button.toolButtonStyle(), Qt.ToolButtonTextBesideIcon)
+            self.assertFalse(button.icon().isNull())
+            self.assertFalse(button.autoRaise())
+
     def test_new_project_prompts_for_name_then_parent_directory(self) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -215,6 +338,8 @@ class ProjectPropertiesTest(unittest.TestCase):
             window = MainWindow()
             window._set_project(project_path, load_project(project_path))
 
+            self.assertTrue(window.canvas.has_image())
+            self.assertEqual(window.canvas.current_image_path(), image_dir / "leaf.png")
             self.assertEqual(window.property_points.text(), "5")
 
             window.canvas.set_contour(
@@ -299,16 +424,21 @@ class ProjectPropertiesTest(unittest.TestCase):
                         "name": "list_error",
                         "images": [
                             {
-                                "id": "leaf-1",
-                                "path": "images/leaf.png",
-                                "display_name": "leaf.png",
-                                "image_size": {"width": 20, "height": 20},
-                                "annotation": {
-                                    "image_path": "images/leaf.png",
+                                "file": {
+                                    "id": "leaf-1",
+                                    "path": "images/leaf.png",
+                                    "display_name": "leaf.png",
                                     "image_size": {"width": 20, "height": 20},
-                                    "points": [],
                                 },
-                                "metadata": {},
+                                "contour": {
+                                    "annotation": {
+                                        "image_path": "images/leaf.png",
+                                        "image_size": {"width": 20, "height": 20},
+                                        "points": [],
+                                    },
+                                },
+                                "location": {},
+                                "details": {},
                             }
                         ],
                     },
@@ -393,9 +523,17 @@ class ProjectPropertiesTest(unittest.TestCase):
             window._handle_file_name_edit_finished()
             window.save_project_file()
 
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
             loaded_project = load_project(project_path)
             record = loaded_project.images[0]
+            record_payload = payload["images"][0]
 
+            self.assertNotIn("metadata", record_payload)
+            self.assertEqual(record_payload["file"]["display_name"], "renamed.png")
+            self.assertEqual(record_payload["file"]["path"], "images/renamed.png")
+            self.assertEqual(record_payload["location"]["humidity"], "65")
+            self.assertEqual(record_payload["location"]["latitude"], "48.7")
+            self.assertEqual(record_payload["details"]["notes"], "Проверка метаданных")
             self.assertEqual(record.display_name, "renamed.png")
             self.assertEqual(record.relative_path, "images/renamed.png")
             self.assertTrue((image_dir / "renamed.png").exists())
@@ -587,19 +725,17 @@ class ProjectPropertiesTest(unittest.TestCase):
                         relative_path="images/leaf_a.png",
                         display_name="leaf_a.png",
                         annotation=annotation,
-                        metadata={"sample_id": "legacy-a", "diagnosis": "class_a"},
+                        metadata={"diagnosis": "class_a"},
                     ),
                     ProjectImageRecord(
                         id="record-b",
                         relative_path="images/leaf_b.png",
                         display_name="leaf_b.png",
-                        metadata={"sample_id": "legacy-b"},
                     ),
                     ProjectImageRecord(
                         id="record-missing",
                         relative_path="images/missing.png",
                         display_name="missing.png",
-                        metadata={"sample_id": "legacy-m"},
                     ),
                 ],
             )
@@ -751,7 +887,7 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(
                 rows,
                 [
-                    {"Свойство": "Имя файла", "Значение": "missing.png"},
+                    {"Свойство": "Файл", "Значение": "missing.png"},
                     {"Свойство": "Диагноз", "Значение": "class_x"},
                     {"Свойство": "Статус", "Значение": "отсутствует"},
                 ],

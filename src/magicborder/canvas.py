@@ -6,7 +6,7 @@ from typing import Sequence
 import cv2
 import numpy as np
 from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QImage, QKeyEvent, QPainter, QPainterPath, QPen, QPixmap, QWheelEvent
+from PyQt5.QtGui import QBrush, QColor, QKeyEvent, QPainter, QPainterPath, QPen, QPixmap, QWheelEvent
 from PyQt5.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
@@ -106,7 +106,7 @@ class ImageCanvas(QGraphicsView):
 
     def current_rgb_array(self) -> np.ndarray:
         if not self._loaded_image:
-            raise ValueError("Сначала откройте изображение.")
+            raise ValueError("Сначала загрузите изображение проекта.")
         return self._loaded_image.rgb_array.copy()
 
     def contour_points(self) -> list[Point]:
@@ -141,7 +141,7 @@ class ImageCanvas(QGraphicsView):
 
     def replace_current_rgb_array(self, rgb_array: np.ndarray) -> None:
         if not self._loaded_image:
-            raise ValueError("Сначала откройте изображение.")
+            raise ValueError("Сначала загрузите изображение проекта.")
         updated_image = loaded_image_from_rgb_array(self._loaded_image.path, rgb_array)
         self._loaded_image = updated_image
         self._image_item.setPixmap(updated_image.pixmap)
@@ -153,7 +153,7 @@ class ImageCanvas(QGraphicsView):
 
     def flatten_background_to_white(self) -> None:
         if not self._loaded_image:
-            raise ValueError("Сначала откройте изображение.")
+            raise ValueError("Сначала загрузите изображение проекта.")
         if len(self._contour_points) < 3:
             raise ValueError("Сначала постройте или загрузите контур.")
 
@@ -295,46 +295,6 @@ class ImageCanvas(QGraphicsView):
         self.fitInView(self._image_item, Qt.KeepAspectRatio)
         self.message_changed.emit("Изображение вписано в окно.")
 
-    def save_rendered_image(self, path: str | Path) -> None:
-        if not self.has_image():
-            raise ValueError("Нет изображения для сохранения.")
-
-        image_rect = self._image_item.boundingRect()
-        target = QImage(
-            int(round(image_rect.width())),
-            int(round(image_rect.height())),
-            QImage.Format_ARGB32,
-        )
-        target.fill(Qt.transparent)
-
-        previous_path_visibility = self._path_item.isVisible()
-        previous_visibility = [handle.isVisible() for handle in self._handles]
-        self._path_item.setVisible(False)
-        for handle in self._handles:
-            handle.setVisible(False)
-
-        painter = QPainter(target)
-        painter.setRenderHints(
-            QPainter.Antialiasing
-            | QPainter.SmoothPixmapTransform
-            | QPainter.TextAntialiasing
-        )
-
-        try:
-            self._scene.render(
-                painter,
-                QRectF(0, 0, target.width(), target.height()),
-                image_rect,
-            )
-        finally:
-            painter.end()
-            self._path_item.setVisible(previous_path_visibility)
-            for handle, was_visible in zip(self._handles, previous_visibility):
-                handle.setVisible(was_visible)
-
-        if not target.save(str(path)):
-            raise ValueError("Не удалось сохранить изображение в указанный файл.")
-
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() == Qt.LeftButton and self.has_contour():
             item = self.itemAt(event.pos())
@@ -405,7 +365,7 @@ class ImageCanvas(QGraphicsView):
 
     def _contour_mask(self) -> np.ndarray:
         if not self._loaded_image:
-            raise ValueError("Сначала откройте изображение.")
+            raise ValueError("Сначала загрузите изображение проекта.")
 
         mask = np.zeros(self._loaded_image.rgb_array.shape[:2], dtype=np.uint8)
         if len(self._contour_points) < 3:
