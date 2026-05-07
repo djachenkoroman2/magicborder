@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import math
 import shutil
 from datetime import datetime
@@ -58,6 +57,7 @@ from .io_utils import (
     save_annotation,
     save_project,
     SUPPORTED_RASTER_SUFFIXES,
+    write_xlsx_table,
 )
 from .models import Annotation, Point, ProjectDocument, ProjectImageRecord, default_project_image_metadata
 from .path_utils import annotation_image_candidates, portable_path_reference
@@ -66,6 +66,45 @@ APP_TITLE = "MagicBorder"
 WORKSPACE_DEFAULT_SIZES = [260, 860, 280]
 PROJECT_PANEL_DEFAULT_SIZES = [520, 280]
 HISTOGRAM_DEFAULT_SIZES = [170, 170, 170, 170, 170]
+PROJECT_EXPORT_COLUMNS = [
+    ("id", "ID изображения"),
+    ("file_name", "Имя файла"),
+    ("relative_path", "Относительный путь"),
+    ("has_annotation", "Есть аннотация"),
+    ("status", "Статус"),
+    ("diagnosis", "Диагноз"),
+    ("r", "Средний R"),
+    ("g", "Средний G"),
+    ("b", "Средний B"),
+    ("contour_pixel_count", "Количество пикселов контура"),
+]
+PROJECT_EXPORT_FIELDNAMES = [field_name for field_name, _label in PROJECT_EXPORT_COLUMNS]
+PROJECT_EXPORT_COLUMN_LABELS = dict(PROJECT_EXPORT_COLUMNS)
+IMAGE_PROPERTY_EXPORT_ITEMS = [
+    ("id", "ID изображения"),
+    ("file_name", "Имя файла"),
+    ("relative_path", "Путь"),
+    ("size", "Размер"),
+    ("annotation", "Аннотация"),
+    ("point_count", "Количество узлов контура"),
+    ("contour_pixel_count", "Количество пикселов контура"),
+    ("red", "Красный"),
+    ("green", "Зелёный"),
+    ("blue", "Синий"),
+    ("status", "Статус"),
+    ("added_at", "Дата добавления"),
+    ("captured_at", "Дата съёмки"),
+    ("illumination", "Освещённость"),
+    ("humidity", "Влажность, %"),
+    ("wind_speed", "Скорость ветра"),
+    ("wind_direction", "Направление ветра"),
+    ("latitude", "Широта"),
+    ("longitude", "Долгота"),
+    ("diagnosis", "Диагноз"),
+    ("notes", "Дополнительные сведения"),
+]
+IMAGE_PROPERTY_EXPORT_KEYS = [field_name for field_name, _label in IMAGE_PROPERTY_EXPORT_ITEMS]
+IMAGE_PROPERTY_EXPORT_LABELS = dict(IMAGE_PROPERTY_EXPORT_ITEMS)
 
 
 class MainWindow(QMainWindow):
@@ -172,19 +211,22 @@ class MainWindow(QMainWindow):
         images_title = QLabel("Изображения проекта")
         images_title.setObjectName("projectPanelTitle")
 
-        self.export_project_csv_button = QToolButton(project_panel)
-        self.export_project_csv_button.setIcon(load_icon("export-csv"))
-        self.export_project_csv_button.setToolTip("Экспорт CSV")
-        self.export_project_csv_button.setStatusTip("Сохранить сводную таблицу изображений проекта в CSV.")
-        self.export_project_csv_button.setAutoRaise(True)
-        self.export_project_csv_button.clicked.connect(self.export_project_csv)
+        self.export_project_excel_button = QToolButton(project_panel)
+        self.export_project_excel_button.setIcon(load_icon("export-csv"))
+        self.export_project_excel_button.setToolTip("Экспорт списка в Excel")
+        self.export_project_excel_button.setStatusTip(
+            "Экспорт списка в Excel: сохранить список изображений проекта в файл .xlsx."
+        )
+        self.export_project_excel_button.setAutoRaise(True)
+        self.export_project_excel_button.clicked.connect(self.export_project_excel)
+        self.export_project_csv_button = self.export_project_excel_button
 
         images_header_layout = QHBoxLayout()
         images_header_layout.setContentsMargins(0, 0, 0, 0)
         images_header_layout.setSpacing(6)
         images_header_layout.addWidget(images_title)
         images_header_layout.addStretch(1)
-        images_header_layout.addWidget(self.export_project_csv_button)
+        images_header_layout.addWidget(self.export_project_excel_button)
 
         images_widget = QWidget(project_panel)
         images_layout = QVBoxLayout(images_widget)
@@ -246,11 +288,22 @@ class MainWindow(QMainWindow):
         self.refresh_properties_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.refresh_properties_button.clicked.connect(self._update_project_properties)
 
+        self.export_image_properties_excel_button = QToolButton(properties_widget)
+        self.export_image_properties_excel_button.setText("Excel")
+        self.export_image_properties_excel_button.setIcon(load_icon("export-csv"))
+        self.export_image_properties_excel_button.setToolTip("Экспорт свойств изображения в Excel")
+        self.export_image_properties_excel_button.setStatusTip(
+            "Сохранить свойства выбранного изображения в файл .xlsx."
+        )
+        self.export_image_properties_excel_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.export_image_properties_excel_button.clicked.connect(self.export_image_properties_excel)
+
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(6)
         header_layout.addWidget(title)
         header_layout.addStretch(1)
+        header_layout.addWidget(self.export_image_properties_excel_button)
         header_layout.addWidget(self.refresh_properties_button)
 
         self.properties_empty_label = QLabel("Изображение не выбрано.")
@@ -498,8 +551,12 @@ class MainWindow(QMainWindow):
         self.remove_image_action = QAction("Удалить изображение из проекта", self)
         self.remove_image_action.triggered.connect(self.remove_selected_project_image)
 
-        self.export_project_csv_action = QAction("Экспорт CSV...", self)
-        self.export_project_csv_action.triggered.connect(self.export_project_csv)
+        self.export_project_excel_action = QAction("Экспорт списка в Excel...", self)
+        self.export_project_excel_action.triggered.connect(self.export_project_excel)
+        self.export_project_csv_action = self.export_project_excel_action
+
+        self.export_image_properties_excel_action = QAction("Экспорт свойств изображения в Excel...", self)
+        self.export_image_properties_excel_action.triggered.connect(self.export_image_properties_excel)
 
         self.open_image_action = QAction("Открыть изображение...", self)
         self.open_image_action.setShortcut("Ctrl+O")
@@ -569,7 +626,8 @@ class MainWindow(QMainWindow):
             "add_images": self.add_images_action,
             "sync_images": self.sync_images_action,
             "remove_image": self.remove_image_action,
-            "export_project_csv": self.export_project_csv_action,
+            "export_project_excel": self.export_project_excel_action,
+            "export_image_properties_excel": self.export_image_properties_excel_action,
             "open_image": self.open_image_action,
             "save_image": self.save_image_action,
             "exit": self.exit_action,
@@ -600,7 +658,8 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.add_images_action)
         file_menu.addAction(self.sync_images_action)
         file_menu.addAction(self.remove_image_action)
-        file_menu.addAction(self.export_project_csv_action)
+        file_menu.addAction(self.export_project_excel_action)
+        file_menu.addAction(self.export_image_properties_excel_action)
         file_menu.addSeparator()
         file_menu.addAction(self.open_image_action)
         file_menu.addAction(self.save_image_action)
@@ -646,7 +705,8 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.add_images_action)
         toolbar.addAction(self.sync_images_action)
         toolbar.addAction(self.remove_image_action)
-        toolbar.addAction(self.export_project_csv_action)
+        toolbar.addAction(self.export_project_excel_action)
+        toolbar.addAction(self.export_image_properties_excel_action)
         toolbar.addSeparator()
         toolbar.addAction(self.open_image_action)
         toolbar.addAction(self.save_image_action)
@@ -686,8 +746,10 @@ class MainWindow(QMainWindow):
         self.add_images_action.setEnabled(has_project)
         self.sync_images_action.setEnabled(has_project)
         self.remove_image_action.setEnabled(has_project_image)
-        self.export_project_csv_action.setEnabled(has_project)
-        self.export_project_csv_button.setEnabled(has_project)
+        self.export_project_excel_action.setEnabled(has_project)
+        self.export_project_excel_button.setEnabled(has_project)
+        self.export_image_properties_excel_action.setEnabled(has_project_image)
+        self.export_image_properties_excel_button.setEnabled(has_project_image)
         self.save_image_action.setEnabled(has_image)
         self.zoom_in_action.setEnabled(has_image)
         self.zoom_out_action.setEnabled(has_image)
@@ -1031,53 +1093,211 @@ class MainWindow(QMainWindow):
         self._save_project_silently(show_error=True)
         self.statusBar().showMessage("Изображение удалено из проекта.")
 
-    def export_project_csv(self) -> None:
+    def export_project_excel(self) -> None:
         if self.project_document is None or self.project_path is None:
             self._show_warning("Нет проекта", "Сначала создайте или откройте проект.")
             return
 
         self._save_current_project_annotation()
+        selected_fieldnames = self._select_project_export_columns()
+        if selected_fieldnames is None:
+            return
+        if not selected_fieldnames:
+            self._show_warning("Нет выбранных столбцов", "Выберите хотя бы один столбец для экспорта.")
+            return
+
         file_name, _ = QFileDialog.getSaveFileName(
             self,
-            "Экспорт CSV",
-            str(self.project_path.with_suffix(".csv")),
-            "CSV (*.csv);;All files (*)",
+            "Экспорт списка в Excel",
+            str(self.project_path.with_suffix(".xlsx")),
+            "Excel (*.xlsx);;All files (*)",
         )
         if not file_name:
             return
 
-        output_path = _ensure_csv_suffix(Path(file_name))
+        output_path = _ensure_xlsx_suffix(Path(file_name))
         try:
-            self._write_project_csv(output_path)
+            self._write_project_excel(output_path, selected_fieldnames)
         except OSError as exc:
-            self._show_error("Ошибка экспорта CSV", f"Не удалось сохранить CSV: {exc}")
+            self._show_error("Ошибка экспорта списка в Excel", f"Не удалось сохранить Excel-файл: {exc}")
             return
 
-        self.statusBar().showMessage(f"CSV сохранён: {output_path.name}")
+        self.statusBar().showMessage(f"Экспорт списка в Excel выполнен: {output_path.name}")
 
-    def _write_project_csv(self, output_path: Path) -> None:
+    def export_project_csv(self) -> None:
+        self.export_project_excel()
+
+    def _select_project_export_columns(self) -> list[str] | None:
+        return self._select_checked_export_items(
+            title="Столбцы экспорта",
+            items=PROJECT_EXPORT_COLUMNS,
+            empty_title="Нет выбранных столбцов",
+            empty_message="Выберите хотя бы один столбец для экспорта.",
+        )
+
+    def _select_checked_export_items(
+        self,
+        *,
+        title: str,
+        items: list[tuple[str, str]],
+        empty_title: str,
+        empty_message: str,
+    ) -> list[str] | None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+
+        item_list = QListWidget(dialog)
+        item_list.setAlternatingRowColors(True)
+        for field_name, label in items:
+            item = QListWidgetItem(label)
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked)
+            item.setData(Qt.UserRole, field_name)
+            item_list.addItem(item)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+        button_box.rejected.connect(dialog.reject)
+
+        def selected_items() -> list[str]:
+            return [
+                str(item_list.item(index).data(Qt.UserRole))
+                for index in range(item_list.count())
+                if item_list.item(index).checkState() == Qt.Checked
+            ]
+
+        def accept_if_any_selected() -> None:
+            if not selected_items():
+                self._show_warning(empty_title, empty_message)
+                return
+            dialog.accept()
+
+        ok_button = button_box.button(QDialogButtonBox.Ok)
+        if ok_button is not None:
+            ok_button.clicked.connect(accept_if_any_selected)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+        layout.addWidget(item_list)
+        layout.addWidget(button_box)
+        dialog.resize(360, 360)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+        return selected_items()
+
+    def _write_project_excel(self, output_path: Path, selected_fieldnames: list[str]) -> None:
         if self.project_document is None:
             raise ValueError("Нет проекта для экспорта.")
 
-        fieldnames = [
-            "id",
-            "file_name",
-            "relative_path",
-            "has_annotation",
-            "status",
-            "diagnosis",
-            "r",
-            "g",
-            "b",
-            "contour_pixel_count",
+        rows = [self._project_export_row(record) for record in self.project_document.images]
+        selected_headers = [PROJECT_EXPORT_COLUMN_LABELS[field_name] for field_name in selected_fieldnames]
+        localized_rows = [
+            {
+                PROJECT_EXPORT_COLUMN_LABELS[field_name]: row.get(field_name, "")
+                for field_name in selected_fieldnames
+            }
+            for row in rows
         ]
-        with output_path.open("w", encoding="utf-8-sig", newline="") as csv_file:
-            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-            writer.writeheader()
-            for record in self.project_document.images:
-                writer.writerow(self._project_csv_row(record))
+        write_xlsx_table(output_path, selected_headers, localized_rows, sheet_name="Сводка")
 
-    def _project_csv_row(self, record: ProjectImageRecord) -> dict[str, str]:
+    def export_image_properties_excel(self) -> None:
+        if self.project_document is None:
+            self._show_warning("Нет проекта", "Сначала создайте или откройте проект.")
+            return
+
+        record = self._selected_project_image()
+        if record is None:
+            self._show_warning("Нет выбранного изображения", "Выберите изображение в списке проекта.")
+            return
+
+        self._save_current_project_annotation()
+        self._update_project_properties()
+        selected_properties = self._select_image_property_export_items()
+        if selected_properties is None:
+            return
+        if not selected_properties:
+            self._show_warning("Нет выбранных свойств", "Выберите хотя бы одно свойство для экспорта.")
+            return
+
+        file_name, _ = QFileDialog.getSaveFileName(
+            self,
+            "Экспорт свойств изображения в Excel",
+            str(self._default_image_properties_export_path(record)),
+            "Excel (*.xlsx);;All files (*)",
+        )
+        if not file_name:
+            return
+
+        output_path = _ensure_xlsx_suffix(Path(file_name))
+        try:
+            self._write_image_properties_excel(output_path, selected_properties)
+        except OSError as exc:
+            self._show_error(
+                "Ошибка экспорта свойств изображения в Excel",
+                f"Не удалось сохранить Excel-файл: {exc}",
+            )
+            return
+
+        self.statusBar().showMessage(f"Экспорт свойств изображения в Excel выполнен: {output_path.name}")
+
+    def _select_image_property_export_items(self) -> list[str] | None:
+        return self._select_checked_export_items(
+            title="Свойства экспорта",
+            items=IMAGE_PROPERTY_EXPORT_ITEMS,
+            empty_title="Нет выбранных свойств",
+            empty_message="Выберите хотя бы одно свойство для экспорта.",
+        )
+
+    def _default_image_properties_export_path(self, record: ProjectImageRecord) -> Path:
+        stem = Path(record.display_name).stem or "image"
+        file_name = f"{stem}_properties.xlsx"
+        if self.project_path is None:
+            return Path(file_name)
+        return self.project_path.parent / file_name
+
+    def _write_image_properties_excel(self, output_path: Path, selected_properties: list[str]) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            raise ValueError("Нет выбранного изображения для экспорта.")
+
+        values = self._image_property_export_values(record)
+        rows = [
+            {
+                "Свойство": IMAGE_PROPERTY_EXPORT_LABELS[property_key],
+                "Значение": values.get(property_key, ""),
+            }
+            for property_key in selected_properties
+        ]
+        write_xlsx_table(output_path, ["Свойство", "Значение"], rows, sheet_name="Свойства")
+
+    def _image_property_export_values(self, record: ProjectImageRecord) -> dict[str, str]:
+        self._normalize_record_metadata(record)
+        return {
+            "id": self.image_id.text().strip(),
+            "file_name": self.property_file_name.text().strip(),
+            "relative_path": self.property_path.text(),
+            "size": self.property_size.text(),
+            "annotation": self.property_annotation.text(),
+            "point_count": self.property_points.text(),
+            "contour_pixel_count": self.property_contour_pixels.text(),
+            "red": self.property_red.text(),
+            "green": self.property_green.text(),
+            "blue": self.property_blue.text(),
+            "status": self.property_status.text(),
+            "added_at": self.metadata_added_at.text().strip(),
+            "captured_at": self.metadata_captured_at.text().strip(),
+            "illumination": self.metadata_illumination.text().strip(),
+            "humidity": self.metadata_humidity.text().strip(),
+            "wind_speed": self.metadata_wind_speed.text().strip(),
+            "wind_direction": self.metadata_wind_direction.text().strip(),
+            "latitude": self.metadata_latitude.text().strip(),
+            "longitude": self.metadata_longitude.text().strip(),
+            "diagnosis": self.metadata_diagnosis.text().strip(),
+            "notes": self.metadata_notes.toPlainText(),
+        }
+
+    def _project_export_row(self, record: ProjectImageRecord) -> dict[str, str]:
         self._normalize_record_metadata(record)
         row = {
             "id": record.id,
@@ -1387,6 +1607,7 @@ class MainWindow(QMainWindow):
         has_project = self.project_document is not None
         self.project_list.setEnabled(has_project)
         self.refresh_properties_button.setEnabled(has_project and self._selected_project_image() is not None)
+        self.export_image_properties_excel_button.setEnabled(has_project and self._selected_project_image() is not None)
         self._update_project_properties()
         self._update_action_states()
 
@@ -1417,8 +1638,12 @@ class MainWindow(QMainWindow):
             details.append("без аннотации")
 
         image_path = self._project_image_path(record)
-        if self.project_path is not None and not image_path.exists():
+        file_is_missing = self.project_path is not None and not image_path.exists()
+        has_valid_annotation = record.annotation is not None
+        if file_is_missing:
             details.append("файл не найден")
+
+        if file_is_missing or not has_valid_annotation:
             item.setForeground(QColor("#b42318"))
         else:
             item.setForeground(QColor("#1f2937"))
@@ -1618,6 +1843,7 @@ class MainWindow(QMainWindow):
         self.properties_empty_label.setVisible(not has_record)
         self.properties_scroll_area.setVisible(has_record)
         self.refresh_properties_button.setEnabled(has_record)
+        self.export_image_properties_excel_button.setEnabled(has_record)
         self.rename_file_as_id_button.setEnabled(has_record)
         self.generate_image_id_button.setEnabled(has_record)
 
@@ -2160,12 +2386,12 @@ def _ensure_json_suffix(path: Path) -> Path:
     return path.with_suffix(".json")
 
 
-def _ensure_csv_suffix(path: Path) -> Path:
-    if path.suffix.lower() == ".csv":
+def _ensure_xlsx_suffix(path: Path) -> Path:
+    if path.suffix.lower() == ".xlsx":
         return path
     if path.suffix:
-        return path.with_suffix(".csv")
-    return path.with_suffix(".csv")
+        return path.with_suffix(".xlsx")
+    return path.with_suffix(".xlsx")
 
 
 def _annotation_rgb_pixels(rgb_array: np.ndarray, annotation: Annotation) -> np.ndarray:

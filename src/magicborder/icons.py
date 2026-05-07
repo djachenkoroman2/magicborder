@@ -54,10 +54,20 @@ ACTION_VISUALS: dict[str, ActionVisual] = {
         tool_tip="Удалить изображение из проекта",
         status_tip="Удалить выбранное изображение из списка проекта.",
     ),
+    "export_project_excel": ActionVisual(
+        icon_name="export-csv",
+        tool_tip="Экспорт списка в Excel",
+        status_tip="Экспорт списка в Excel: сохранить список изображений проекта в файл .xlsx.",
+    ),
     "export_project_csv": ActionVisual(
         icon_name="export-csv",
-        tool_tip="Экспорт CSV",
-        status_tip="Сохранить сводную таблицу изображений проекта в CSV.",
+        tool_tip="Экспорт списка в Excel",
+        status_tip="Экспорт списка в Excel: сохранить список изображений проекта в файл .xlsx.",
+    ),
+    "export_image_properties_excel": ActionVisual(
+        icon_name="export-csv",
+        tool_tip="Экспорт свойств изображения в Excel",
+        status_tip="Сохранить свойства выбранного изображения в файл .xlsx.",
     ),
     "open_image": ActionVisual(
         icon_name="open-image",

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from xml.sax.saxutils import escape, quoteattr
 
 import numpy as np
 from PIL import ExifTags, Image, UnidentifiedImageError
@@ -98,6 +100,29 @@ def load_project(path: str | Path) -> ProjectDocument:
     return ProjectDocument.from_dict(payload)
 
 
+def write_xlsx_table(
+    output_path: str | Path,
+    fieldnames: list[str],
+    rows: list[dict[str, str]],
+    *,
+    sheet_name: str,
+) -> None:
+    created_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    archive_parts = {
+        "[Content_Types].xml": _xlsx_content_types_xml(),
+        "_rels/.rels": _xlsx_root_relationships_xml(),
+        "docProps/app.xml": _xlsx_app_properties_xml(sheet_name),
+        "docProps/core.xml": _xlsx_core_properties_xml(created_at),
+        "xl/workbook.xml": _xlsx_workbook_xml(sheet_name),
+        "xl/_rels/workbook.xml.rels": _xlsx_workbook_relationships_xml(),
+        "xl/styles.xml": _xlsx_styles_xml(),
+        "xl/worksheets/sheet1.xml": _xlsx_sheet_xml(fieldnames, rows),
+    }
+    with zipfile.ZipFile(Path(output_path), "w", compression=zipfile.ZIP_DEFLATED) as workbook:
+        for name, content in archive_parts.items():
+            workbook.writestr(name, content)
+
+
 def read_image_captured_at(path: str | Path) -> str:
     image_path = Path(path)
     try:
@@ -147,6 +172,175 @@ def _pil_rgba_to_qimage(image: Image.Image) -> QImage:
     data = image.tobytes("raw", "RGBA")
     qimage = QImage(data, image.width, image.height, QImage.Format_RGBA8888)
     return qimage.copy()
+
+
+def _xlsx_content_types_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>"""
+
+
+def _xlsx_root_relationships_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>"""
+
+
+def _xlsx_app_properties_xml(sheet_name: str) -> str:
+    title = escape(_clean_xml_text(sheet_name))
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+    xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>MagicBorder</Application>
+  <DocSecurity>0</DocSecurity>
+  <ScaleCrop>false</ScaleCrop>
+  <HeadingPairs>
+    <vt:vector size="2" baseType="variant">
+      <vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant>
+      <vt:variant><vt:i4>1</vt:i4></vt:variant>
+    </vt:vector>
+  </HeadingPairs>
+  <TitlesOfParts>
+    <vt:vector size="1" baseType="lpstr">
+      <vt:lpstr>{title}</vt:lpstr>
+    </vt:vector>
+  </TitlesOfParts>
+  <Company></Company>
+  <LinksUpToDate>false</LinksUpToDate>
+  <SharedDoc>false</SharedDoc>
+  <HyperlinksChanged>false</HyperlinksChanged>
+  <AppVersion>16.0000</AppVersion>
+</Properties>"""
+
+
+def _xlsx_core_properties_xml(created_at: str) -> str:
+    created = escape(_clean_xml_text(created_at))
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmlns:dcterms="http://purl.org/dc/terms/"
+    xmlns:dcmitype="http://purl.org/dc/dcmitype/"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:creator>MagicBorder</dc:creator>
+  <cp:lastModifiedBy>MagicBorder</cp:lastModifiedBy>
+  <dcterms:created xsi:type="dcterms:W3CDTF">{created}</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">{created}</dcterms:modified>
+</cp:coreProperties>"""
+
+
+def _xlsx_workbook_xml(sheet_name: str) -> str:
+    quoted_sheet_name = quoteattr(_clean_xml_text(sheet_name))
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name={quoted_sheet_name} sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>"""
+
+
+def _xlsx_workbook_relationships_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>"""
+
+
+def _xlsx_styles_xml() -> str:
+    return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="1"><font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font></fonts>
+  <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+  <dxfs count="0"/>
+  <tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>
+</styleSheet>"""
+
+
+def _xlsx_sheet_xml(fieldnames: list[str], rows: list[dict[str, str]]) -> str:
+    table_rows = [fieldnames]
+    table_rows.extend([[row.get(field, "") for field in fieldnames] for row in rows])
+    rows_xml = "\n".join(
+        _xlsx_row_xml(row_values, row_index)
+        for row_index, row_values in enumerate(table_rows, start=1)
+    )
+    last_column = _xlsx_column_name(len(fieldnames))
+    last_row = max(1, len(table_rows))
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <dimension ref="A1:{last_column}{last_row}"/>
+  <sheetViews>
+    <sheetView workbookViewId="0">
+      <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
+      <selection pane="bottomLeft" activeCell="A2" sqref="A2"/>
+    </sheetView>
+  </sheetViews>
+  <sheetFormatPr defaultRowHeight="15"/>
+  <cols>
+    <col min="1" max="1" width="38" customWidth="1"/>
+    <col min="2" max="3" width="28" customWidth="1"/>
+    <col min="4" max="10" width="18" customWidth="1"/>
+  </cols>
+  <sheetData>
+{rows_xml}
+  </sheetData>
+  <autoFilter ref="A1:{last_column}{last_row}"/>
+  <pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>
+</worksheet>"""
+
+
+def _xlsx_row_xml(values: list[str], row_index: int) -> str:
+    cells_xml = "".join(
+        _xlsx_cell_xml(value, _xlsx_column_name(column_index), row_index)
+        for column_index, value in enumerate(values, start=1)
+    )
+    return f'    <row r="{row_index}">{cells_xml}</row>'
+
+
+def _xlsx_cell_xml(value: str, column_name: str, row_index: int) -> str:
+    cell_ref = f"{column_name}{row_index}"
+    text = escape(_clean_xml_text(str(value)))
+    return f'<c r="{cell_ref}" t="inlineStr"><is><t xml:space="preserve">{text}</t></is></c>'
+
+
+def _xlsx_column_name(column_index: int) -> str:
+    name = ""
+    while column_index:
+        column_index, remainder = divmod(column_index - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
+
+
+def _clean_xml_text(value: str) -> str:
+    return "".join(
+        char
+        for char in value
+        if _is_valid_xml_character(ord(char))
+    )
+
+
+def _is_valid_xml_character(codepoint: int) -> bool:
+    return (
+        codepoint in (0x09, 0x0A, 0x0D)
+        or 0x20 <= codepoint <= 0xD7FF
+        or 0xE000 <= codepoint <= 0xFFFD
+        or 0x10000 <= codepoint <= 0x10FFFF
+    )
 
 
 def _parse_exif_datetime(value: object) -> str:

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import csv
+import json
 import os
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
+from xml.etree import ElementTree
 from unittest.mock import patch
 from uuid import UUID
 
@@ -13,10 +15,16 @@ from PIL import Image
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import Qt  # noqa: E402
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
 
 from magicborder.io_utils import load_project, save_project  # noqa: E402
-from magicborder.main_window import MainWindow, _circle_contour_points, _qdatetime_from_text  # noqa: E402
+from magicborder.main_window import (  # noqa: E402
+    IMAGE_PROPERTY_EXPORT_KEYS,
+    MainWindow,
+    PROJECT_EXPORT_FIELDNAMES,
+    _circle_contour_points,
+    _qdatetime_from_text,
+)
 from magicborder.models import Annotation, Point, ProjectDocument, ProjectImageRecord  # noqa: E402
 
 _APP: QApplication | None = None
@@ -35,6 +43,67 @@ def _assert_uuid4(test_case: unittest.TestCase, value: str) -> None:
     parsed_uuid = UUID(value)
     test_case.assertEqual(str(parsed_uuid), value)
     test_case.assertEqual(parsed_uuid.version, 4)
+
+
+def _read_xlsx_rows(path: Path) -> list[list[str]]:
+    namespace = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    with zipfile.ZipFile(path) as workbook:
+        sheet_xml = workbook.read("xl/worksheets/sheet1.xml")
+
+    root = ElementTree.fromstring(sheet_xml)
+    values: list[list[str]] = []
+    for row in root.findall("s:sheetData/s:row", namespace):
+        row_values: dict[int, str] = {}
+        for cell in row.findall("s:c", namespace):
+            cell_ref = cell.attrib["r"]
+            column_name = "".join(char for char in cell_ref if char.isalpha())
+            text_node = cell.find("s:is/s:t", namespace)
+            row_values[_xlsx_column_index(column_name)] = "" if text_node is None else (text_node.text or "")
+        values.append([row_values.get(index, "") for index in range(max(row_values, default=-1) + 1)])
+    return values
+
+
+def _read_xlsx_dict_rows(path: Path) -> list[dict[str, str]]:
+    values = _read_xlsx_rows(path)
+
+    if not values:
+        return []
+    headers = values[0]
+    return [
+        dict(zip(headers, row + [""] * (len(headers) - len(row))))
+        for row in values[1:]
+    ]
+
+
+def _xlsx_column_index(column_name: str) -> int:
+    index = 0
+    for char in column_name:
+        index = index * 26 + ord(char.upper()) - 64
+    return index - 1
+
+
+def _minimal_export_window(root: Path) -> MainWindow:
+    project = ProjectDocument(
+        name="export",
+        images=[
+            ProjectImageRecord(
+                id="row-1",
+                relative_path="images/missing.png",
+                display_name="missing.png",
+                metadata={"diagnosis": "class_x"},
+            )
+        ],
+    )
+    project_path = root / "export.json"
+    save_project(project_path, project)
+
+    window = MainWindow()
+    window._set_project(project_path, load_project(project_path))
+    return window
+
+
+def _list_item_color_name(window: MainWindow, row: int = 0) -> str:
+    return window.project_list.item(row).foreground().color().name()
 
 
 class ProjectPropertiesTest(unittest.TestCase):
@@ -168,6 +237,91 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.property_annotation.text(), "нет")
             self.assertEqual(window.property_points.text(), "-")
             self.assertEqual(window.property_contour_pixels.text(), "-")
+
+    def test_project_list_item_color_tracks_annotation_state(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            Image.new("RGB", (20, 20), (120, 80, 40)).save(image_dir / "leaf.png")
+
+            project = ProjectDocument(
+                name="list_colors",
+                images=[
+                    ProjectImageRecord(
+                        id="leaf-1",
+                        relative_path="images/leaf.png",
+                        display_name="leaf.png",
+                        image_width=20,
+                        image_height=20,
+                    )
+                ],
+            )
+            project_path = root / "list_colors.json"
+            save_project(project_path, project)
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertIn("без аннотации", window.project_list.item(0).text())
+            self.assertEqual(_list_item_color_name(window), "#b42318")
+
+            window.canvas.set_contour(
+                [
+                    Point(1, 1),
+                    Point(18, 1),
+                    Point(18, 18),
+                    Point(1, 18),
+                ]
+            )
+
+            self.assertIn("аннотация есть", window.project_list.item(0).text())
+            self.assertEqual(_list_item_color_name(window), "#1f2937")
+
+            window.delete_current_contour()
+
+            self.assertIn("без аннотации", window.project_list.item(0).text())
+            self.assertEqual(_list_item_color_name(window), "#b42318")
+
+    def test_project_list_item_color_marks_annotation_errors_red(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            Image.new("RGB", (20, 20), (120, 80, 40)).save(image_dir / "leaf.png")
+
+            project_path = root / "list_error.json"
+            project_path.write_text(
+                json.dumps(
+                    {
+                        "name": "list_error",
+                        "images": [
+                            {
+                                "id": "leaf-1",
+                                "path": "images/leaf.png",
+                                "display_name": "leaf.png",
+                                "image_size": {"width": 20, "height": 20},
+                                "annotation": {
+                                    "image_path": "images/leaf.png",
+                                    "image_size": {"width": 20, "height": 20},
+                                    "points": [],
+                                },
+                                "metadata": {},
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertIn("ошибка аннотации", window.project_list.item(0).text())
+            self.assertEqual(_list_item_color_name(window), "#b42318")
 
     def test_new_contour_command_creates_project_annotation(self) -> None:
         _app()
@@ -349,16 +503,15 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertNotIn("sample_id", loaded_project.images[0].metadata)
 
             output_path = root / "generated_ids"
-            with patch(
+            with patch.object(window, "_select_project_export_columns", return_value=PROJECT_EXPORT_FIELDNAMES), patch(
                 "magicborder.main_window.QFileDialog.getSaveFileName",
                 return_value=(str(output_path), ""),
             ):
-                window.export_project_csv()
+                window.export_project_excel()
 
-            csv_path = root / "generated_ids.csv"
-            with csv_path.open("r", encoding="utf-8-sig", newline="") as csv_file:
-                rows = list(csv.DictReader(csv_file))
-            self.assertEqual(rows[0]["id"], second_generated_id)
+            xlsx_path = root / "generated_ids.xlsx"
+            rows = _read_xlsx_dict_rows(xlsx_path)
+            self.assertEqual(rows[0]["ID изображения"], second_generated_id)
 
     def test_record_id_is_editable_and_unique(self) -> None:
         _app()
@@ -406,7 +559,7 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(loaded_project.images[0].id, "C")
             self.assertEqual(window.project_list.currentItem().data(Qt.UserRole), "C")
 
-    def test_project_csv_export_contains_contour_statistics(self) -> None:
+    def test_project_excel_export_contains_contour_statistics(self) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -427,7 +580,7 @@ class ProjectPropertiesTest(unittest.TestCase):
                 ],
             )
             project = ProjectDocument(
-                name="csv",
+                name="excel",
                 images=[
                     ProjectImageRecord(
                         id="record-a",
@@ -450,34 +603,225 @@ class ProjectPropertiesTest(unittest.TestCase):
                     ),
                 ],
             )
-            project_path = root / "csv.json"
+            project_path = root / "excel.json"
             save_project(project_path, project)
 
             window = MainWindow()
             window._set_project(project_path, load_project(project_path))
             output_path = root / "report"
 
-            with patch(
+            self.assertEqual(window.export_project_excel_action.text(), "Экспорт списка в Excel...")
+            self.assertEqual(window.export_project_excel_action.toolTip(), "Экспорт списка в Excel")
+            self.assertEqual(window.export_project_excel_button.toolTip(), "Экспорт списка в Excel")
+
+            with patch.object(window, "_select_project_export_columns", return_value=PROJECT_EXPORT_FIELDNAMES), patch(
+                "magicborder.main_window.QFileDialog.getSaveFileName",
+                return_value=(str(output_path), ""),
+            ) as get_save_file_name:
+                window.export_project_excel()
+
+            self.assertEqual(get_save_file_name.call_args.args[1], "Экспорт списка в Excel")
+            xlsx_path = root / "report.xlsx"
+            raw_rows = _read_xlsx_rows(xlsx_path)
+            rows = _read_xlsx_dict_rows(xlsx_path)
+
+            self.assertEqual(
+                raw_rows[0],
+                [
+                    "ID изображения",
+                    "Имя файла",
+                    "Относительный путь",
+                    "Есть аннотация",
+                    "Статус",
+                    "Диагноз",
+                    "Средний R",
+                    "Средний G",
+                    "Средний B",
+                    "Количество пикселов контура",
+                ],
+            )
+            self.assertEqual(len(rows), 3)
+            self.assertEqual(rows[0]["ID изображения"], "record-a")
+            self.assertEqual(rows[0]["Имя файла"], "leaf_a.png")
+            self.assertEqual(rows[0]["Диагноз"], "class_a")
+            self.assertEqual(rows[0]["Средний R"], "120")
+            self.assertEqual(rows[0]["Средний G"], "80")
+            self.assertEqual(rows[0]["Средний B"], "40")
+            self.assertEqual(rows[0]["Количество пикселов контура"], "324")
+            self.assertEqual(rows[1]["Статус"], "нет контура")
+            self.assertEqual(rows[1]["Средний R"], "")
+            self.assertEqual(rows[2]["Статус"], "файл не найден")
+
+    def test_project_excel_export_uses_selected_columns_only(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window = _minimal_export_window(root)
+            output_path = root / "selected"
+
+            with patch.object(window, "_select_project_export_columns", return_value=["file_name", "diagnosis"]), patch(
                 "magicborder.main_window.QFileDialog.getSaveFileName",
                 return_value=(str(output_path), ""),
             ):
-                window.export_project_csv()
+                window.export_project_excel()
 
-            csv_path = root / "report.csv"
-            with csv_path.open("r", encoding="utf-8-sig", newline="") as csv_file:
-                rows = list(csv.DictReader(csv_file))
+            xlsx_path = root / "selected.xlsx"
+            raw_rows = _read_xlsx_rows(xlsx_path)
+            rows = _read_xlsx_dict_rows(xlsx_path)
 
-            self.assertEqual(len(rows), 3)
-            self.assertEqual(rows[0]["id"], "record-a")
-            self.assertEqual(rows[0]["file_name"], "leaf_a.png")
-            self.assertEqual(rows[0]["diagnosis"], "class_a")
-            self.assertEqual(rows[0]["r"], "120")
-            self.assertEqual(rows[0]["g"], "80")
-            self.assertEqual(rows[0]["b"], "40")
-            self.assertEqual(rows[0]["contour_pixel_count"], "324")
-            self.assertEqual(rows[1]["status"], "нет контура")
-            self.assertEqual(rows[1]["r"], "")
-            self.assertEqual(rows[2]["status"], "файл не найден")
+            self.assertEqual(raw_rows[0], ["Имя файла", "Диагноз"])
+            self.assertEqual(rows, [{"Имя файла": "missing.png", "Диагноз": "class_x"}])
+
+    def test_project_excel_export_cancel_column_selection_does_not_open_file_dialog(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window = _minimal_export_window(root)
+
+            with patch.object(window, "_select_project_export_columns", return_value=None), patch(
+                "magicborder.main_window.QFileDialog.getSaveFileName",
+            ) as get_save_file_name:
+                window.export_project_excel()
+
+            get_save_file_name.assert_not_called()
+
+    def test_project_excel_export_requires_at_least_one_column(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window = _minimal_export_window(root)
+
+            with patch.object(window, "_select_project_export_columns", return_value=[]), patch.object(
+                window,
+                "_show_warning",
+            ) as show_warning, patch(
+                "magicborder.main_window.QFileDialog.getSaveFileName",
+            ) as get_save_file_name:
+                window.export_project_excel()
+
+            show_warning.assert_called_once_with(
+                "Нет выбранных столбцов",
+                "Выберите хотя бы один столбец для экспорта.",
+            )
+            get_save_file_name.assert_not_called()
+
+    def test_project_excel_column_dialog_selects_all_columns_by_default(self) -> None:
+        _app()
+        window = MainWindow()
+
+        with patch("magicborder.main_window.QDialog.exec_", return_value=QDialog.Accepted):
+            selected_fieldnames = window._select_project_export_columns()
+
+        self.assertEqual(selected_fieldnames, PROJECT_EXPORT_FIELDNAMES)
+
+    def test_image_properties_excel_export_uses_selected_properties_vertically(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window = _minimal_export_window(root)
+            output_path = root / "properties"
+
+            self.assertTrue(window.export_image_properties_excel_action.isEnabled())
+            self.assertTrue(window.export_image_properties_excel_button.isEnabled())
+            self.assertEqual(
+                window.export_image_properties_excel_action.text(),
+                "Экспорт свойств изображения в Excel...",
+            )
+            self.assertEqual(
+                window.export_image_properties_excel_button.toolTip(),
+                "Экспорт свойств изображения в Excel",
+            )
+
+            with patch.object(
+                window,
+                "_select_image_property_export_items",
+                return_value=["file_name", "diagnosis", "status"],
+            ), patch(
+                "magicborder.main_window.QFileDialog.getSaveFileName",
+                return_value=(str(output_path), ""),
+            ) as get_save_file_name:
+                window.export_image_properties_excel()
+
+            self.assertEqual(get_save_file_name.call_args.args[1], "Экспорт свойств изображения в Excel")
+            xlsx_path = root / "properties.xlsx"
+            raw_rows = _read_xlsx_rows(xlsx_path)
+            rows = _read_xlsx_dict_rows(xlsx_path)
+
+            self.assertEqual(raw_rows[0], ["Свойство", "Значение"])
+            self.assertEqual(
+                rows,
+                [
+                    {"Свойство": "Имя файла", "Значение": "missing.png"},
+                    {"Свойство": "Диагноз", "Значение": "class_x"},
+                    {"Свойство": "Статус", "Значение": "отсутствует"},
+                ],
+            )
+
+    def test_image_properties_excel_export_cancel_property_selection_does_not_open_file_dialog(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window = _minimal_export_window(root)
+
+            with patch.object(window, "_select_image_property_export_items", return_value=None), patch(
+                "magicborder.main_window.QFileDialog.getSaveFileName",
+            ) as get_save_file_name:
+                window.export_image_properties_excel()
+
+            get_save_file_name.assert_not_called()
+
+    def test_image_properties_excel_export_requires_at_least_one_property(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window = _minimal_export_window(root)
+
+            with patch.object(window, "_select_image_property_export_items", return_value=[]), patch.object(
+                window,
+                "_show_warning",
+            ) as show_warning, patch(
+                "magicborder.main_window.QFileDialog.getSaveFileName",
+            ) as get_save_file_name:
+                window.export_image_properties_excel()
+
+            show_warning.assert_called_once_with(
+                "Нет выбранных свойств",
+                "Выберите хотя бы одно свойство для экспорта.",
+            )
+            get_save_file_name.assert_not_called()
+
+    def test_image_properties_excel_export_requires_selected_image(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_path = root / "empty.json"
+            save_project(project_path, ProjectDocument(name="empty", images=[]))
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertFalse(window.export_image_properties_excel_action.isEnabled())
+            self.assertFalse(window.export_image_properties_excel_button.isEnabled())
+
+            with patch.object(window, "_show_warning") as show_warning, patch(
+                "magicborder.main_window.QFileDialog.getSaveFileName",
+            ) as get_save_file_name:
+                window.export_image_properties_excel()
+
+            show_warning.assert_called_once_with(
+                "Нет выбранного изображения",
+                "Выберите изображение в списке проекта.",
+            )
+            get_save_file_name.assert_not_called()
+
+    def test_image_properties_export_dialog_selects_all_properties_by_default(self) -> None:
+        _app()
+        window = MainWindow()
+
+        with patch("magicborder.main_window.QDialog.exec_", return_value=QDialog.Accepted):
+            selected_properties = window._select_image_property_export_items()
+
+        self.assertEqual(selected_properties, IMAGE_PROPERTY_EXPORT_KEYS)
 
     def test_datetime_metadata_fields_have_picker_buttons_and_validate_text(self) -> None:
         _app()
