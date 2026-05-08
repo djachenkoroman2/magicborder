@@ -138,6 +138,23 @@ PROJECT_IMAGE_METADATA_DEFAULTS: dict[str, str] = {
 }
 
 
+@dataclass(slots=True)
+class ProjectInfo:
+    general_info: str = ""
+
+    def __post_init__(self) -> None:
+        self.general_info = str(self.general_info or "")
+
+    def to_dict(self) -> dict[str, str]:
+        return {"general_info": self.general_info}
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "ProjectInfo":
+        if not isinstance(data, dict):
+            data = {}
+        return cls(general_info=str(data.get("general_info", "")))
+
+
 def default_project_image_metadata(
     *,
     added_at: str = "",
@@ -503,17 +520,21 @@ class ProjectDocument:
     images: list[ProjectImageRecord]
     version: int = PROJECT_FORMAT_VERSION
     images_dir: str = "images"
+    project_info: ProjectInfo = field(default_factory=ProjectInfo)
 
     def __post_init__(self) -> None:
         self.name = str(self.name or "project").strip() or "project"
         self.version = _optional_positive_int(self.version) or PROJECT_FORMAT_VERSION
         self.images_dir = _normalize_project_path(self.images_dir or "images") or "images"
+        if not isinstance(self.project_info, ProjectInfo):
+            self.project_info = ProjectInfo.from_dict(self.project_info)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "version": self.version,
             "name": self.name,
             "images_dir": self.images_dir,
+            "project_info": self.project_info.to_dict(),
             "images": [record.to_dict() for record in self.images],
         }
 
@@ -537,5 +558,6 @@ class ProjectDocument:
             name=str(data.get("name") or data.get("project_name") or "project"),
             version=_optional_positive_int(data.get("version")) or PROJECT_FORMAT_VERSION,
             images_dir=str(data.get("images_dir") or "images"),
+            project_info=ProjectInfo.from_dict(data.get("project_info", {})),
             images=images,
         )

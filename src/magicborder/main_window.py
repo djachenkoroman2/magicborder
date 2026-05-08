@@ -64,7 +64,7 @@ from .path_utils import portable_path_reference
 
 APP_TITLE = "MagicBorder"
 WORKSPACE_DEFAULT_SIZES = [260, 860, 280]
-PROJECT_PANEL_DEFAULT_SIZES = [520, 280]
+PROJECT_PANEL_DEFAULT_SIZES = [380, 220, 320]
 HISTOGRAM_DEFAULT_SIZES = [170, 170, 170, 170, 170]
 PROJECT_EXPORT_COLUMNS = [
     ("id", "ID изображения"),
@@ -102,7 +102,7 @@ IMAGE_PROPERTY_GROUPS = [
         ],
     ),
     (
-        "Цветовая схема RGB",
+        "Цветовое пространство RGB",
         [
             ("red", "Красный"),
             ("green", "Зелёный"),
@@ -184,6 +184,7 @@ class MainWindow(QMainWindow):
         self._current_project_image_id: str | None = None
         self._loading_project_image = False
         self._updating_project_list = False
+        self._updating_project_info_fields = False
         self._updating_metadata_fields = False
         self._project_autosave_timer = QTimer(self)
         self._project_autosave_timer.setSingleShot(True)
@@ -261,17 +262,20 @@ class MainWindow(QMainWindow):
         images_header_layout.addWidget(self.export_project_excel_button)
 
         images_widget = QWidget(project_panel)
+        images_widget.setObjectName("projectImagesPanel")
         images_layout = QVBoxLayout(images_widget)
         images_layout.setContentsMargins(8, 8, 8, 8)
         images_layout.setSpacing(6)
         images_layout.addLayout(images_header_layout)
         images_layout.addWidget(self.project_list, 1)
 
+        project_properties_widget = self._create_project_properties_panel(project_panel)
         properties_widget = self._create_image_properties_panel(project_panel)
 
         self.project_splitter = QSplitter(Qt.Vertical, project_panel)
         self.project_splitter.setChildrenCollapsible(False)
         self.project_splitter.addWidget(images_widget)
+        self.project_splitter.addWidget(project_properties_widget)
         self.project_splitter.addWidget(properties_widget)
         self.project_splitter.setSizes(PROJECT_PANEL_DEFAULT_SIZES)
         self.project_splitter.setStyleSheet(
@@ -286,13 +290,20 @@ class MainWindow(QMainWindow):
 
         project_panel.setStyleSheet(
             "QWidget#projectPanel { background: #f5f7fb; border-right: 1px solid #d6dde8; }"
+            "QWidget#projectImagesPanel { background: #f7fbff; }"
+            "QWidget#projectPropertiesPanel { background: #f8fcf6; }"
+            "QWidget#imagePropertiesPanel { background: #fffaf4; }"
             "QLabel#projectPanelTitle { color: #1f2937; font-size: 13px; font-weight: 600; }"
             "QListWidget#projectImageList { background: #ffffff; color: #1f2937; border: 1px solid #ccd6e1; border-radius: 5px; outline: none; }"
             "QListWidget#projectImageList::item { padding: 7px 8px; border-bottom: 1px solid #e5eaf2; }"
             "QListWidget#projectImageList::item:selected { background: #d8edf3; color: #102a32; }"
             "QListWidget#projectImageList::item:alternate { background: #f7f9fc; }"
             "QLabel#propertyName { color: #5f6b7a; }"
-            "QLabel#propertyGroupTitle { color: #1f2937; font-size: 12px; font-weight: 600; padding-top: 9px; }"
+            "QWidget#propertyGroup { background: transparent; }"
+            "QWidget#propertyGroupBody { background: transparent; }"
+            "QToolButton#propertyGroupTitle { border: none; color: #1f2937; font-size: 12px; font-weight: 600; padding: 4px 0 3px 0; text-align: left; }"
+            "QToolButton#propertyGroupTitle:hover { background: transparent; border: none; color: #0f766e; }"
+            "QToolButton#propertyGroupTitle:pressed { background: transparent; }"
             "QLabel#propertyValue { color: #18202c; }"
             "QLabel#propertyEmpty { color: #7a8696; padding: 12px; }"
             "QLineEdit, QTextEdit { background: #ffffff; color: #1f2937; border: 1px solid #ccd6e1; border-radius: 4px; padding: 4px; selection-background-color: #cdeaf2; selection-color: #102a32; }"
@@ -306,9 +317,67 @@ class MainWindow(QMainWindow):
         )
         return project_panel
 
+    def _create_project_properties_panel(self, parent: QWidget) -> QWidget:
+        properties_widget = QWidget(parent)
+        properties_widget.setObjectName("projectPropertiesPanel")
+        self.project_properties_panel = properties_widget
+
+        title = QLabel("Свойства проекта")
+        title.setObjectName("projectPanelTitle")
+
+        self.project_properties_empty_label = QLabel("Проект не открыт.")
+        self.project_properties_empty_label.setObjectName("propertyEmpty")
+        self.project_properties_empty_label.setWordWrap(True)
+        self.project_properties_empty_label.setAlignment(Qt.AlignCenter)
+
+        self.project_general_info = QTextEdit(properties_widget)
+        self.project_general_info.setAcceptRichText(False)
+        self.project_general_info.setMinimumHeight(58)
+        self.project_general_info.textChanged.connect(self._handle_project_general_info_changed)
+        self.project_image_count = self._property_value_label()
+        self.project_mean_red = self._property_value_label()
+        self.project_mean_green = self._property_value_label()
+        self.project_mean_blue = self._property_value_label()
+
+        self.project_properties_form_widget = QWidget(properties_widget)
+        form_layout = QVBoxLayout(self.project_properties_form_widget)
+        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout.setSpacing(2)
+        self._add_property_group(
+            form_layout,
+            "Общие свойства",
+            [
+                ("Общая информация", self.project_general_info),
+                ("Количество изображений", self.project_image_count),
+            ],
+        )
+        self._add_property_group(
+            form_layout,
+            "Цветовое пространство RGB",
+            [
+                ("Средний R", self.project_mean_red),
+                ("Средний G", self.project_mean_green),
+                ("Средний B", self.project_mean_blue),
+            ],
+        )
+
+        self.project_properties_scroll_area = QScrollArea(properties_widget)
+        self.project_properties_scroll_area.setObjectName("propertiesScrollArea")
+        self.project_properties_scroll_area.setWidgetResizable(True)
+        self.project_properties_scroll_area.setWidget(self.project_properties_form_widget)
+
+        layout = QVBoxLayout(properties_widget)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+        layout.addWidget(title)
+        layout.addWidget(self.project_properties_empty_label, 1)
+        layout.addWidget(self.project_properties_scroll_area, 1)
+        return properties_widget
+
     def _create_image_properties_panel(self, parent: QWidget) -> QWidget:
         properties_widget = QWidget(parent)
         properties_widget.setObjectName("imagePropertiesPanel")
+        self.image_properties_panel = properties_widget
 
         title = QLabel("Свойства изображения")
         title.setObjectName("projectPanelTitle")
@@ -398,10 +467,9 @@ class MainWindow(QMainWindow):
             )
 
         self.properties_form_widget = QWidget(properties_widget)
-        form_layout = QFormLayout(self.properties_form_widget)
+        form_layout = QVBoxLayout(self.properties_form_widget)
         form_layout.setContentsMargins(0, 0, 0, 0)
-        form_layout.setSpacing(7)
-        form_layout.setLabelAlignment(Qt.AlignLeft)
+        form_layout.setSpacing(2)
         self._add_property_group(
             form_layout,
             "Общая информация о файле",
@@ -426,7 +494,7 @@ class MainWindow(QMainWindow):
         )
         self._add_property_group(
             form_layout,
-            "Цветовая схема RGB",
+            "Цветовое пространство RGB",
             [
                 ("Красный", self.property_red),
                 ("Зелёный", self.property_green),
@@ -470,18 +538,71 @@ class MainWindow(QMainWindow):
 
     def _add_property_group(
         self,
-        form_layout: QFormLayout,
+        form_layout: QVBoxLayout,
         title: str,
         rows: list[tuple[str, QWidget]],
     ) -> None:
-        form_layout.addRow(self._property_group_label(title))
-        for label, widget in rows:
-            form_layout.addRow(self._property_name_label(label), widget)
+        group_widget = QWidget()
+        group_widget.setObjectName("propertyGroup")
 
-    def _property_group_label(self, text: str) -> QLabel:
-        label = QLabel(text)
-        label.setObjectName("propertyGroupTitle")
-        return label
+        group_layout = QVBoxLayout(group_widget)
+        group_layout.setContentsMargins(0, 0, 0, 0)
+        group_layout.setSpacing(0)
+
+        group_button = self._property_group_button(title)
+        group_layout.addWidget(group_button)
+
+        body_widget = QWidget(group_widget)
+        body_widget.setObjectName("propertyGroupBody")
+        body_layout = QFormLayout(body_widget)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(7)
+        body_layout.setLabelAlignment(Qt.AlignLeft)
+        for label, widget in rows:
+            label_widget = self._property_name_label(label)
+            body_layout.addRow(label_widget, widget)
+        group_layout.addWidget(body_widget)
+        form_layout.addWidget(group_widget)
+
+        group_button.toggled.connect(
+            lambda expanded, button=group_button, body=body_widget: self._set_property_group_expanded(
+                button,
+                body,
+                expanded,
+            )
+        )
+        self._set_property_group_expanded(group_button, body_widget, False)
+
+    def _property_group_button(self, text: str) -> QToolButton:
+        button = QToolButton()
+        button.setObjectName("propertyGroupTitle")
+        button.setText(text)
+        button.setCheckable(True)
+        button.setChecked(False)
+        button.setArrowType(Qt.RightArrow)
+        button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        button.setToolTip("Развернуть или свернуть группу")
+        return button
+
+    def _set_property_group_expanded(
+        self,
+        button: QToolButton,
+        body_widget: QWidget,
+        expanded: bool,
+    ) -> None:
+        button.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+        body_widget.setVisible(expanded)
+        group_widget = body_widget.parentWidget()
+        if group_widget is not None and group_widget.layout() is not None:
+            group_widget.layout().invalidate()
+            group_widget.layout().activate()
+            group_widget.updateGeometry()
+            form_widget = group_widget.parentWidget()
+            if form_widget is not None and form_widget.layout() is not None:
+                form_widget.layout().invalidate()
+                form_widget.layout().activate()
+                form_widget.updateGeometry()
 
     def _property_name_label(self, text: str) -> QLabel:
         label = QLabel(text)
@@ -1019,6 +1140,7 @@ class MainWindow(QMainWindow):
         if added_ids:
             self._refresh_project_list()
             self._select_project_image(added_ids[0])
+            self._update_project_summary_properties()
             self._save_project_silently(show_error=True)
             self.statusBar().showMessage(f"Добавлено изображений: {len(added_ids)}")
 
@@ -1092,6 +1214,7 @@ class MainWindow(QMainWindow):
         if added_ids:
             self._refresh_project_list()
             self._select_project_image(added_ids[0])
+            self._update_project_summary_properties()
             self._save_project_silently(show_error=True)
             self.statusBar().showMessage(f"Синхронизировано изображений: {len(added_ids)}")
         else:
@@ -1146,6 +1269,7 @@ class MainWindow(QMainWindow):
             self.project_list.setCurrentRow(next_row)
         else:
             self._clear_current_image_display()
+        self._update_project_summary_properties()
         self._save_project_silently(show_error=True)
         self.statusBar().showMessage("Изображение удалено из проекта.")
 
@@ -1507,6 +1631,7 @@ class MainWindow(QMainWindow):
             self.canvas.clear_contour()
         else:
             self._update_current_project_list_item(record)
+            self._update_project_summary_properties()
             self._update_project_properties()
             self._update_action_states()
             self._schedule_project_save()
@@ -1643,6 +1768,7 @@ class MainWindow(QMainWindow):
         has_project = self.project_document is not None
         self.project_list.setEnabled(has_project)
         self.export_image_properties_excel_button.setEnabled(has_project and self._selected_project_image() is not None)
+        self._update_project_summary_properties()
         self._update_project_properties()
         self._update_action_states()
 
@@ -1781,6 +1907,7 @@ class MainWindow(QMainWindow):
         if loaded_ok:
             self._refresh_histograms()
         self._update_current_project_list_item(record)
+        self._update_project_summary_properties()
         self._update_project_properties()
         self._update_action_states()
         self._update_window_title()
@@ -1789,6 +1916,7 @@ class MainWindow(QMainWindow):
         if self._loading_project_image:
             return
         self._save_current_project_annotation()
+        self._update_project_summary_properties()
         self._update_project_properties()
 
     def _save_current_project_annotation(self) -> None:
@@ -1872,6 +2000,84 @@ class MainWindow(QMainWindow):
             return Path(record.relative_path)
         return (self.project_path.parent / record.relative_path).resolve()
 
+    def _update_project_summary_properties(self) -> None:
+        has_project = self.project_document is not None
+        self.project_properties_empty_label.setVisible(not has_project)
+        self.project_properties_scroll_area.setVisible(has_project)
+        self.project_general_info.setEnabled(has_project)
+
+        if self.project_document is None:
+            self.project_properties_empty_label.setText("Создайте или откройте проект.")
+            self.project_image_count.setText("-")
+            self.project_mean_red.setText("-")
+            self.project_mean_green.setText("-")
+            self.project_mean_blue.setText("-")
+            self._updating_project_info_fields = True
+            try:
+                with QSignalBlocker(self.project_general_info):
+                    self.project_general_info.setPlainText("")
+            finally:
+                self._updating_project_info_fields = False
+            return
+
+        self._updating_project_info_fields = True
+        try:
+            with QSignalBlocker(self.project_general_info):
+                self.project_general_info.setPlainText(self.project_document.project_info.general_info)
+        finally:
+            self._updating_project_info_fields = False
+
+        self.project_image_count.setText(str(len(self.project_document.images)))
+        mean_rgb = self._project_contours_mean_rgb()
+        if mean_rgb is None:
+            red_text = green_text = blue_text = "-"
+        else:
+            red, green, blue = mean_rgb
+            red_text = str(red)
+            green_text = str(green)
+            blue_text = str(blue)
+        self.project_mean_red.setText(red_text)
+        self.project_mean_green.setText(green_text)
+        self.project_mean_blue.setText(blue_text)
+
+    def _project_contours_mean_rgb(self) -> tuple[int, int, int] | None:
+        if self.project_document is None:
+            return None
+
+        total = np.zeros(3, dtype=np.float64)
+        pixel_count = 0
+        for record in self.project_document.images:
+            if record.annotation is None or record.annotation_error:
+                continue
+
+            image_path = self._project_image_path(record)
+            if not image_path.exists():
+                continue
+
+            try:
+                loaded_image = load_raster_image(image_path)
+            except (OSError, ValueError):
+                continue
+
+            if (record.annotation.image_width, record.annotation.image_height) != (
+                loaded_image.width,
+                loaded_image.height,
+            ):
+                continue
+
+            pixels = _annotation_rgb_pixels(loaded_image.rgb_array, record.annotation)
+            if pixels.size == 0:
+                continue
+
+            total += pixels.sum(axis=0)
+            pixel_count += int(pixels.shape[0])
+
+        if pixel_count == 0:
+            return None
+
+        mean_values = np.rint(total / pixel_count).astype(int)
+        return int(mean_values[0]), int(mean_values[1]), int(mean_values[2])
+
     def _update_project_properties(self, *_args) -> None:
         record = self._selected_project_image()
         has_record = record is not None
@@ -1950,6 +2156,19 @@ class MainWindow(QMainWindow):
                 self.metadata_notes.setPlainText(str(record.metadata.get("notes", "")))
         finally:
             self._updating_metadata_fields = False
+
+    def _handle_project_general_info_changed(self) -> None:
+        if self._updating_project_info_fields:
+            return
+        if self.project_document is None:
+            return
+
+        value = self.project_general_info.toPlainText()
+        if self.project_document.project_info.general_info == value:
+            return
+
+        self.project_document.project_info.general_info = value
+        self._schedule_project_save()
 
     def _handle_metadata_line_edit_finished(self, metadata_key: str, field: QLineEdit) -> None:
         if self._updating_metadata_fields:

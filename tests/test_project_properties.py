@@ -20,9 +20,12 @@ from PyQt5.QtWidgets import (  # noqa: E402
     QApplication,
     QDialog,
     QFormLayout,
+    QLabel,
     QSizePolicy,
     QToolBar,
     QToolButton,
+    QVBoxLayout,
+    QWidget,
     QWidgetAction,
 )
 
@@ -115,20 +118,79 @@ def _list_item_color_name(window: MainWindow, row: int = 0) -> str:
     return window.project_list.item(row).foreground().color().name()
 
 
-def _property_panel_rows(window: MainWindow) -> list[str]:
-    form_layout = window.properties_form_widget.layout()
-    assert isinstance(form_layout, QFormLayout)
+def _form_rows(form_widget) -> list[str]:
+    layout = form_widget.layout()
     rows: list[str] = []
-    for row in range(form_layout.rowCount()):
-        spanning_item = form_layout.itemAt(row, QFormLayout.SpanningRole)
-        if spanning_item is not None and spanning_item.widget() is not None:
-            rows.append(f"--- {spanning_item.widget().text()}")
-            continue
 
-        label_item = form_layout.itemAt(row, QFormLayout.LabelRole)
-        if label_item is not None and label_item.widget() is not None:
-            rows.append(label_item.widget().text())
+    def add_form_layout_rows(form_layout: QFormLayout) -> None:
+        for row in range(form_layout.rowCount()):
+            spanning_item = form_layout.itemAt(row, QFormLayout.SpanningRole)
+            if spanning_item is not None and spanning_item.widget() is not None:
+                rows.append(f"--- {spanning_item.widget().text()}")
+                continue
+
+            label_item = form_layout.itemAt(row, QFormLayout.LabelRole)
+            if label_item is not None and label_item.widget() is not None:
+                rows.append(label_item.widget().text())
+
+    if isinstance(layout, QFormLayout):
+        add_form_layout_rows(layout)
+        return rows
+
+    assert isinstance(layout, QVBoxLayout)
+    for index in range(layout.count()):
+        group_widget = layout.itemAt(index).widget()
+        if group_widget is None:
+            continue
+        group_button = _property_group_button(group_widget, "")
+        rows.append(f"--- {group_button.text()}")
+        body_widget = group_widget.findChild(QWidget, "propertyGroupBody")
+        if body_widget is None:
+            continue
+        body_layout = body_widget.layout()
+        assert isinstance(body_layout, QFormLayout)
+        add_form_layout_rows(body_layout)
     return rows
+
+
+def _property_panel_rows(window: MainWindow) -> list[str]:
+    return _form_rows(window.properties_form_widget)
+
+
+def _project_property_panel_rows(window: MainWindow) -> list[str]:
+    return _form_rows(window.project_properties_form_widget)
+
+
+def _property_group_button(form_widget, title: str) -> QToolButton:
+    for button in form_widget.findChildren(QToolButton):
+        if button.objectName() == "propertyGroupTitle" and (not title or button.text() == title):
+            return button
+    raise AssertionError(f"Группа свойств не найдена: {title}")
+
+
+def _property_row_label(form_widget, label_text: str):
+    for label_widget in form_widget.findChildren(QLabel):
+        if label_widget.objectName() == "propertyName" and label_widget.text() == label_text:
+            return label_widget
+    raise AssertionError(f"Строка свойства не найдена: {label_text}")
+
+
+def _property_group_body(form_widget, title: str) -> QWidget:
+    group_button = _property_group_button(form_widget, title)
+    group_widget = group_button.parentWidget()
+    assert group_widget is not None
+    body_widget = group_widget.findChild(QWidget, "propertyGroupBody")
+    if body_widget is None:
+        raise AssertionError(f"Тело группы свойств не найдено: {title}")
+    return body_widget
+
+
+def _collapsed_group_button_height(form_widget) -> int:
+    return sum(
+        button.sizeHint().height()
+        for button in form_widget.findChildren(QToolButton)
+        if button.objectName() == "propertyGroupTitle"
+    )
 
 
 def _main_toolbar(window: MainWindow) -> QToolBar:
@@ -186,7 +248,7 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Аннотация",
                 "Количество узлов контура",
                 "Количество пикселов контура",
-                "--- Цветовая схема RGB",
+                "--- Цветовое пространство RGB",
                 "Красный",
                 "Зелёный",
                 "Синий",
@@ -203,6 +265,106 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Дополнительные сведения",
             ],
         )
+
+    def test_project_properties_panel_is_between_images_and_image_properties(self) -> None:
+        _app()
+        window = MainWindow()
+
+        self.assertEqual(window.project_splitter.widget(0).objectName(), "projectImagesPanel")
+        self.assertEqual(window.project_splitter.widget(1).objectName(), "projectPropertiesPanel")
+        self.assertEqual(window.project_splitter.widget(2).objectName(), "imagePropertiesPanel")
+        self.assertEqual(
+            _project_property_panel_rows(window),
+            [
+                "--- Общие свойства",
+                "Общая информация",
+                "Количество изображений",
+                "--- Цветовое пространство RGB",
+                "Средний R",
+                "Средний G",
+                "Средний B",
+            ],
+        )
+
+    def test_left_project_sections_use_distinct_light_backgrounds(self) -> None:
+        _app()
+        window = MainWindow()
+        style_sheet = window.project_splitter.parentWidget().styleSheet()
+
+        self.assertIn("QWidget#projectImagesPanel { background: #f7fbff; }", style_sheet)
+        self.assertIn("QWidget#projectPropertiesPanel { background: #f8fcf6; }", style_sheet)
+        self.assertIn("QWidget#imagePropertiesPanel { background: #fffaf4; }", style_sheet)
+
+    def test_property_groups_are_collapsed_by_default_and_toggle_independently(self) -> None:
+        _app()
+        window = MainWindow()
+
+        file_group = _property_group_button(window.properties_form_widget, "Общая информация о файле")
+        contour_group = _property_group_button(window.properties_form_widget, "Информация о контуре")
+        file_body = _property_group_body(window.properties_form_widget, "Общая информация о файле")
+        id_label = _property_row_label(window.properties_form_widget, "ID")
+        annotation_label = _property_row_label(window.properties_form_widget, "Аннотация")
+        collapsed_height = window.properties_form_widget.sizeHint().height()
+
+        self.assertFalse(file_group.isChecked())
+        self.assertEqual(file_group.arrowType(), Qt.RightArrow)
+        self.assertTrue(file_body.isHidden())
+        self.assertLessEqual(
+            collapsed_height,
+            _collapsed_group_button_height(window.properties_form_widget) + 24,
+        )
+        self.assertFalse(id_label.isVisibleTo(window.properties_form_widget))
+        self.assertFalse(annotation_label.isVisibleTo(window.properties_form_widget))
+
+        file_group.click()
+
+        self.assertTrue(file_group.isChecked())
+        self.assertEqual(file_group.arrowType(), Qt.DownArrow)
+        self.assertFalse(file_body.isHidden())
+        self.assertGreater(window.properties_form_widget.sizeHint().height(), collapsed_height)
+        self.assertTrue(id_label.isVisibleTo(window.properties_form_widget))
+        self.assertFalse(contour_group.isChecked())
+        self.assertEqual(contour_group.arrowType(), Qt.RightArrow)
+        self.assertFalse(annotation_label.isVisibleTo(window.properties_form_widget))
+
+        file_group.click()
+
+        self.assertFalse(file_group.isChecked())
+        self.assertEqual(file_group.arrowType(), Qt.RightArrow)
+        self.assertTrue(file_body.isHidden())
+        self.assertEqual(window.properties_form_widget.sizeHint().height(), collapsed_height)
+        self.assertFalse(id_label.isVisibleTo(window.properties_form_widget))
+
+    def test_project_property_groups_are_collapsed_by_default_and_toggle(self) -> None:
+        _app()
+        window = MainWindow()
+
+        general_group = _property_group_button(window.project_properties_form_widget, "Общие свойства")
+        rgb_group = _property_group_button(window.project_properties_form_widget, "Цветовое пространство RGB")
+        general_body = _property_group_body(window.project_properties_form_widget, "Общие свойства")
+        general_info_label = _property_row_label(window.project_properties_form_widget, "Общая информация")
+        red_label = _property_row_label(window.project_properties_form_widget, "Средний R")
+        collapsed_height = window.project_properties_form_widget.sizeHint().height()
+
+        self.assertFalse(general_group.isChecked())
+        self.assertEqual(general_group.arrowType(), Qt.RightArrow)
+        self.assertTrue(general_body.isHidden())
+        self.assertLessEqual(
+            collapsed_height,
+            _collapsed_group_button_height(window.project_properties_form_widget) + 12,
+        )
+        self.assertFalse(general_info_label.isVisibleTo(window.project_properties_form_widget))
+        self.assertFalse(red_label.isVisibleTo(window.project_properties_form_widget))
+
+        general_group.click()
+
+        self.assertTrue(general_group.isChecked())
+        self.assertEqual(general_group.arrowType(), Qt.DownArrow)
+        self.assertFalse(general_body.isHidden())
+        self.assertGreater(window.project_properties_form_widget.sizeHint().height(), collapsed_height)
+        self.assertTrue(general_info_label.isVisibleTo(window.project_properties_form_widget))
+        self.assertFalse(rgb_group.isChecked())
+        self.assertFalse(red_label.isVisibleTo(window.project_properties_form_widget))
 
     def test_image_properties_panel_has_no_refresh_button(self) -> None:
         _app()
@@ -362,6 +524,129 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.property_annotation.text(), "нет")
             self.assertEqual(window.property_points.text(), "-")
             self.assertEqual(window.property_contour_pixels.text(), "-")
+
+    def test_project_properties_save_general_info_and_count_images(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project = ProjectDocument(
+                name="project_info",
+                images=[
+                    ProjectImageRecord(
+                        id="leaf-1",
+                        relative_path="images/leaf_a.png",
+                        display_name="leaf_a.png",
+                    ),
+                    ProjectImageRecord(
+                        id="leaf-2",
+                        relative_path="images/leaf_b.png",
+                        display_name="leaf_b.png",
+                    ),
+                ],
+            )
+            project_path = root / "project_info.json"
+            save_project(project_path, project)
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertEqual(window.project_image_count.text(), "2")
+            window.project_general_info.setPlainText("Серия измерений 2026")
+            window.save_project_file()
+
+            loaded_project = load_project(project_path)
+            self.assertEqual(loaded_project.project_info.general_info, "Серия измерений 2026")
+
+            reopened = MainWindow()
+            reopened._set_project(project_path, load_project(project_path))
+            self.assertEqual(reopened.project_general_info.toPlainText(), "Серия измерений 2026")
+            self.assertEqual(reopened.project_image_count.text(), "2")
+
+    def test_project_properties_average_rgb_uses_all_available_contours(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            Image.new("RGB", (20, 20), (100, 50, 0)).save(image_dir / "leaf_a.png")
+            Image.new("RGB", (20, 20), (10, 20, 30)).save(image_dir / "leaf_b.png")
+            Image.new("RGB", (20, 20), (200, 200, 200)).save(image_dir / "no_contour.png")
+
+            contour = [
+                Point(1, 1),
+                Point(18, 1),
+                Point(18, 18),
+                Point(1, 18),
+            ]
+            project = ProjectDocument(
+                name="project_rgb",
+                images=[
+                    ProjectImageRecord(
+                        id="leaf-a",
+                        relative_path="images/leaf_a.png",
+                        display_name="leaf_a.png",
+                        image_width=20,
+                        image_height=20,
+                        annotation=Annotation(
+                            image_path="images/leaf_a.png",
+                            image_width=20,
+                            image_height=20,
+                            points=contour,
+                        ),
+                    ),
+                    ProjectImageRecord(
+                        id="leaf-b",
+                        relative_path="images/leaf_b.png",
+                        display_name="leaf_b.png",
+                        image_width=20,
+                        image_height=20,
+                        annotation=Annotation(
+                            image_path="images/leaf_b.png",
+                            image_width=20,
+                            image_height=20,
+                            points=contour,
+                        ),
+                    ),
+                    ProjectImageRecord(
+                        id="no-contour",
+                        relative_path="images/no_contour.png",
+                        display_name="no_contour.png",
+                    ),
+                    ProjectImageRecord(
+                        id="missing",
+                        relative_path="images/missing.png",
+                        display_name="missing.png",
+                        annotation=Annotation(
+                            image_path="images/missing.png",
+                            image_width=20,
+                            image_height=20,
+                            points=contour,
+                        ),
+                    ),
+                ],
+            )
+            project_path = root / "project_rgb.json"
+            save_project(project_path, project)
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertEqual(window.project_mean_red.text(), "55")
+            self.assertEqual(window.project_mean_green.text(), "35")
+            self.assertEqual(window.project_mean_blue.text(), "15")
+
+            window.canvas.set_contour(
+                [
+                    Point(1, 1),
+                    Point(4, 1),
+                    Point(4, 4),
+                    Point(1, 4),
+                ]
+            )
+
+            self.assertEqual(window.project_mean_red.text(), "14")
+            self.assertEqual(window.project_mean_green.text(), "21")
+            self.assertEqual(window.project_mean_blue.text(), "29")
 
     def test_project_list_item_color_tracks_annotation_state(self) -> None:
         _app()

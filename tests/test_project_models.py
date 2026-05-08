@@ -6,7 +6,14 @@ import unittest
 from pathlib import Path
 
 from magicborder.io_utils import load_project, save_project
-from magicborder.models import PROJECT_FORMAT_VERSION, Annotation, Point, ProjectDocument, ProjectImageRecord
+from magicborder.models import (
+    PROJECT_FORMAT_VERSION,
+    Annotation,
+    Point,
+    ProjectDocument,
+    ProjectImageRecord,
+    ProjectInfo,
+)
 
 
 class ProjectModelsTest(unittest.TestCase):
@@ -56,6 +63,34 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertIsNotNone(loaded_record.annotation)
         self.assertEqual(loaded_record.annotation.image_width, 10)
         self.assertEqual(len(loaded_record.annotation.points), 3)
+
+    def test_project_info_round_trip_uses_grouped_json(self) -> None:
+        project = ProjectDocument(
+            name="leaves",
+            images=[],
+            project_info=ProjectInfo(general_info="Полевой эксперимент"),
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_path = Path(temp_dir) / "leaves.json"
+            save_project(project_path, project)
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+
+            loaded_project = load_project(project_path)
+
+        self.assertEqual(payload["project_info"], {"general_info": "Полевой эксперимент"})
+        self.assertEqual(loaded_project.project_info.general_info, "Полевой эксперимент")
+
+    def test_project_info_defaults_for_old_json(self) -> None:
+        project = ProjectDocument.from_dict(
+            {
+                "version": PROJECT_FORMAT_VERSION,
+                "name": "old",
+                "images": [],
+            }
+        )
+
+        self.assertEqual(project.project_info.general_info, "")
 
     def test_project_keeps_corrupt_annotation_payload(self) -> None:
         project = ProjectDocument.from_dict(
