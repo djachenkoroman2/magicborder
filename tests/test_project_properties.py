@@ -187,6 +187,22 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Зелёный",
                 "Синий",
                 "Средний цвет",
+                "--- Цветовое пространство Lab",
+                "L",
+                "a",
+                "b",
+                "--- Цветовое пространство HSV",
+                "H",
+                "S",
+                "V",
+                "--- Цветовое пространство YUV",
+                "Y",
+                "U",
+                "V",
+                "--- Цветовое пространство LMS",
+                "L",
+                "M",
+                "S",
                 "--- Локация",
                 "Освещённость",
                 "Влажность, %",
@@ -217,6 +233,22 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Средний R",
                 "Средний G",
                 "Средний B",
+                "--- Цветовое пространство Lab",
+                "Средний L",
+                "Средний a",
+                "Средний b",
+                "--- Цветовое пространство HSV",
+                "Средний H",
+                "Средний S",
+                "Средний V",
+                "--- Цветовое пространство YUV",
+                "Средний Y",
+                "Средний U",
+                "Средний V",
+                "--- Цветовое пространство LMS",
+                "Средний L",
+                "Средний M",
+                "Средний S",
             ],
         )
 
@@ -432,6 +464,140 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.property_annotation.text(), "нет")
             self.assertEqual(window.property_points.text(), "-")
             self.assertEqual(window.property_contour_pixels.text(), "-")
+            self.assertEqual(window.property_lab_l.text(), "-")
+            self.assertEqual(window.property_lab_a.text(), "-")
+            self.assertEqual(window.property_lab_b.text(), "-")
+            self.assertEqual(window.property_hsv_h.text(), "-")
+            self.assertEqual(window.property_hsv_s.text(), "-")
+            self.assertEqual(window.property_hsv_v.text(), "-")
+            self.assertEqual(window.property_yuv_y.text(), "-")
+            self.assertEqual(window.property_yuv_u.text(), "-")
+            self.assertEqual(window.property_yuv_v.text(), "-")
+            self.assertEqual(window.property_lms_l.text(), "-")
+            self.assertEqual(window.property_lms_m.text(), "-")
+            self.assertEqual(window.property_lms_s.text(), "-")
+
+    def test_image_properties_lab_values_update_export_and_stay_out_of_json(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            image = Image.new("RGB", (20, 20), (10, 20, 30))
+            for x in range(10):
+                for y in range(20):
+                    image.putpixel((x, y), (120, 80, 40))
+            image.save(image_dir / "leaf.png")
+
+            left_contour = [
+                Point(1, 1),
+                Point(8, 1),
+                Point(8, 18),
+                Point(1, 18),
+            ]
+            project = ProjectDocument(
+                name="lab_values",
+                images=[
+                    ProjectImageRecord(
+                        id="leaf-1",
+                        relative_path="images/leaf.png",
+                        display_name="leaf.png",
+                        image_width=20,
+                        image_height=20,
+                        annotation=Annotation(
+                            image_path="images/leaf.png",
+                            image_width=20,
+                            image_height=20,
+                            points=left_contour,
+                        ),
+                    )
+                ],
+            )
+            project_path = root / "lab_values.json"
+            save_project(project_path, project)
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertEqual(window.property_lab_l.text(), "38")
+            self.assertEqual(window.property_lab_a.text(), "12")
+            self.assertEqual(window.property_lab_b.text(), "30")
+            self.assertEqual(window.property_hsv_h.text(), "30")
+            self.assertEqual(window.property_hsv_s.text(), "170")
+            self.assertEqual(window.property_hsv_v.text(), "120")
+            self.assertEqual(window.property_yuv_y.text(), "87")
+            self.assertEqual(window.property_yuv_u.text(), "105")
+            self.assertEqual(window.property_yuv_v.text(), "157")
+            self.assertEqual(window.property_lms_l.text(), "255")
+            self.assertEqual(window.property_lms_m.text(), "255")
+            self.assertEqual(window.property_lms_s.text(), "255")
+
+            window.canvas.set_contour(
+                [
+                    Point(11, 1),
+                    Point(18, 1),
+                    Point(18, 18),
+                    Point(11, 18),
+                ]
+            )
+
+            self.assertEqual(window.property_lab_l.text(), "6")
+            self.assertEqual(window.property_lab_a.text(), "0")
+            self.assertEqual(window.property_lab_b.text(), "-8")
+            self.assertEqual(window.property_hsv_h.text(), "210")
+            self.assertEqual(window.property_hsv_s.text(), "170")
+            self.assertEqual(window.property_hsv_v.text(), "30")
+            self.assertEqual(window.property_yuv_y.text(), "18")
+            self.assertEqual(window.property_yuv_u.text(), "134")
+            self.assertEqual(window.property_yuv_v.text(), "121")
+            self.assertEqual(window.property_lms_l.text(), "255")
+            self.assertEqual(window.property_lms_m.text(), "255")
+            self.assertEqual(window.property_lms_s.text(), "255")
+
+            export_path = root / "lab_properties.xlsx"
+            window._write_image_properties_excel(
+                export_path,
+                [
+                    "lab_l",
+                    "lab_a",
+                    "lab_b",
+                    "hsv_h",
+                    "hsv_s",
+                    "hsv_v",
+                    "yuv_y",
+                    "yuv_u",
+                    "yuv_v",
+                    "lms_l",
+                    "lms_m",
+                    "lms_s",
+                ],
+            )
+            self.assertEqual(
+                _read_xlsx_dict_rows(export_path),
+                [
+                    {"Свойство": "L", "Значение": "6"},
+                    {"Свойство": "a", "Значение": "0"},
+                    {"Свойство": "b", "Значение": "-8"},
+                    {"Свойство": "H", "Значение": "210"},
+                    {"Свойство": "S", "Значение": "170"},
+                    {"Свойство": "V", "Значение": "30"},
+                    {"Свойство": "Y", "Значение": "18"},
+                    {"Свойство": "U", "Значение": "134"},
+                    {"Свойство": "V", "Значение": "121"},
+                    {"Свойство": "L", "Значение": "255"},
+                    {"Свойство": "M", "Значение": "255"},
+                    {"Свойство": "S", "Значение": "255"},
+                ],
+            )
+
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            self.assertNotIn("lab_l", json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn("lab_a", json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn("lab_b", json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn("hsv_h", json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn("yuv_y", json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn("lms_l", json.dumps(payload, ensure_ascii=False))
 
     def test_project_properties_save_general_info_and_count_images(self) -> None:
         _app()
@@ -469,6 +635,18 @@ class ProjectPropertiesTest(unittest.TestCase):
             reopened._set_project(project_path, load_project(project_path))
             self.assertEqual(reopened.project_general_info.toPlainText(), "Серия измерений 2026")
             self.assertEqual(reopened.project_image_count.text(), "2")
+            self.assertEqual(reopened.project_mean_lab_l.text(), "-")
+            self.assertEqual(reopened.project_mean_lab_a.text(), "-")
+            self.assertEqual(reopened.project_mean_lab_b.text(), "-")
+            self.assertEqual(reopened.project_mean_hsv_h.text(), "-")
+            self.assertEqual(reopened.project_mean_hsv_s.text(), "-")
+            self.assertEqual(reopened.project_mean_hsv_v.text(), "-")
+            self.assertEqual(reopened.project_mean_yuv_y.text(), "-")
+            self.assertEqual(reopened.project_mean_yuv_u.text(), "-")
+            self.assertEqual(reopened.project_mean_yuv_v.text(), "-")
+            self.assertEqual(reopened.project_mean_lms_l.text(), "-")
+            self.assertEqual(reopened.project_mean_lms_m.text(), "-")
+            self.assertEqual(reopened.project_mean_lms_s.text(), "-")
 
     def test_project_properties_average_rgb_uses_all_available_contours(self) -> None:
         _app()
@@ -542,6 +720,18 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.project_mean_red.text(), "55")
             self.assertEqual(window.project_mean_green.text(), "35")
             self.assertEqual(window.project_mean_blue.text(), "15")
+            self.assertEqual(window.project_mean_lab_l.text(), "16")
+            self.assertEqual(window.project_mean_lab_a.text(), "10")
+            self.assertEqual(window.project_mean_lab_b.text(), "14")
+            self.assertEqual(window.project_mean_hsv_h.text(), "120")
+            self.assertEqual(window.project_mean_hsv_s.text(), "212")
+            self.assertEqual(window.project_mean_hsv_v.text(), "65")
+            self.assertEqual(window.project_mean_yuv_y.text(), "38")
+            self.assertEqual(window.project_mean_yuv_u.text(), "116")
+            self.assertEqual(window.project_mean_yuv_v.text(), "142")
+            self.assertEqual(window.project_mean_lms_l.text(), "137")
+            self.assertEqual(window.project_mean_lms_m.text(), "152")
+            self.assertEqual(window.project_mean_lms_s.text(), "180")
 
             window.canvas.set_contour(
                 [
@@ -555,6 +745,27 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.project_mean_red.text(), "14")
             self.assertEqual(window.project_mean_green.text(), "21")
             self.assertEqual(window.project_mean_blue.text(), "29")
+            self.assertEqual(window.project_mean_lab_l.text(), "7")
+            self.assertEqual(window.project_mean_lab_a.text(), "1")
+            self.assertEqual(window.project_mean_lab_b.text(), "-6")
+            self.assertEqual(window.project_mean_hsv_h.text(), "202")
+            self.assertEqual(window.project_mean_hsv_s.text(), "174")
+            self.assertEqual(window.project_mean_hsv_v.text(), "33")
+            self.assertEqual(window.project_mean_yuv_y.text(), "20")
+            self.assertEqual(window.project_mean_yuv_u.text(), "132")
+            self.assertEqual(window.project_mean_yuv_v.text(), "123")
+            self.assertEqual(window.project_mean_lms_l.text(), "30")
+            self.assertEqual(window.project_mean_lms_m.text(), "58")
+            self.assertEqual(window.project_mean_lms_s.text(), "248")
+
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            self.assertNotIn("project_mean_lab_l", json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn("project_mean_lab_a", json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn("project_mean_lab_b", json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn("project_mean_hsv_h", json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn("project_mean_yuv_y", json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn("project_mean_lms_l", json.dumps(payload, ensure_ascii=False))
 
     def test_project_list_item_color_tracks_annotation_state(self) -> None:
         _app()

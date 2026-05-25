@@ -414,8 +414,8 @@ def build_lms_histogram(rgb_pixels: np.ndarray) -> HistogramPlotData | None:
     if rgb_pixels.size == 0:
         return None
 
-    lms_pixels = _rgb_to_lms(rgb_pixels)
-    lms_normalized = _normalize_lms_for_display(lms_pixels)
+    lms_pixels = rgb_to_lms(rgb_pixels)
+    lms_normalized = normalize_lms_for_display(lms_pixels)
 
     series = (
         HistogramSeries(
@@ -442,7 +442,7 @@ def build_lms_histogram(rgb_pixels: np.ndarray) -> HistogramPlotData | None:
     )
 
 
-def _rgb_to_lms(rgb_pixels: np.ndarray) -> np.ndarray:
+def rgb_to_lms(rgb_pixels: np.ndarray) -> np.ndarray:
     rgb = rgb_pixels.astype(np.float32) / 255.0
     linear_rgb = np.where(
         rgb <= 0.04045,
@@ -473,7 +473,7 @@ def _rgb_to_lms(rgb_pixels: np.ndarray) -> np.ndarray:
     return np.clip(lms, 0.0, None)
 
 
-def _normalize_lms_for_display(lms_pixels: np.ndarray) -> np.ndarray:
+def normalize_lms_for_display(lms_pixels: np.ndarray) -> np.ndarray:
     max_values = np.maximum(lms_pixels.max(axis=0), 1e-9)
     normalized = np.rint((lms_pixels / max_values) * 255.0)
     return np.clip(normalized, 0, 255).astype(np.uint8)

@@ -44,6 +44,7 @@ from .histograms import (
     build_lms_histogram,
     build_rgb_histogram,
     build_yuv_histogram,
+    rgb_to_lms,
 )
 from .icons import ACTION_VISUALS, TOOLBAR_ICON_SIZE, apply_action_visual, load_icon
 from .io_utils import (
@@ -107,6 +108,38 @@ IMAGE_PROPERTY_GROUPS = [
             ("green", "Зелёный"),
             ("blue", "Синий"),
             ("average_color", "Средний цвет"),
+        ],
+    ),
+    (
+        "Цветовое пространство Lab",
+        [
+            ("lab_l", "L"),
+            ("lab_a", "a"),
+            ("lab_b", "b"),
+        ],
+    ),
+    (
+        "Цветовое пространство HSV",
+        [
+            ("hsv_h", "H"),
+            ("hsv_s", "S"),
+            ("hsv_v", "V"),
+        ],
+    ),
+    (
+        "Цветовое пространство YUV",
+        [
+            ("yuv_y", "Y"),
+            ("yuv_u", "U"),
+            ("yuv_v", "V"),
+        ],
+    ),
+    (
+        "Цветовое пространство LMS",
+        [
+            ("lms_l", "L"),
+            ("lms_m", "M"),
+            ("lms_s", "S"),
         ],
     ),
     (
@@ -333,6 +366,18 @@ class MainWindow(QMainWindow):
         self.project_mean_red = self._property_value_label()
         self.project_mean_green = self._property_value_label()
         self.project_mean_blue = self._property_value_label()
+        self.project_mean_lab_l = self._property_value_label()
+        self.project_mean_lab_a = self._property_value_label()
+        self.project_mean_lab_b = self._property_value_label()
+        self.project_mean_hsv_h = self._property_value_label()
+        self.project_mean_hsv_s = self._property_value_label()
+        self.project_mean_hsv_v = self._property_value_label()
+        self.project_mean_yuv_y = self._property_value_label()
+        self.project_mean_yuv_u = self._property_value_label()
+        self.project_mean_yuv_v = self._property_value_label()
+        self.project_mean_lms_l = self._property_value_label()
+        self.project_mean_lms_m = self._property_value_label()
+        self.project_mean_lms_s = self._property_value_label()
 
         self.project_properties_browser = PropertyBrowser(properties_widget)
         self._add_property_browser_group(
@@ -350,6 +395,42 @@ class MainWindow(QMainWindow):
                 ("Средний R", self.project_mean_red),
                 ("Средний G", self.project_mean_green),
                 ("Средний B", self.project_mean_blue),
+            ],
+        )
+        self._add_property_browser_group(
+            self.project_properties_browser,
+            "Цветовое пространство Lab",
+            [
+                ("Средний L", self.project_mean_lab_l),
+                ("Средний a", self.project_mean_lab_a),
+                ("Средний b", self.project_mean_lab_b),
+            ],
+        )
+        self._add_property_browser_group(
+            self.project_properties_browser,
+            "Цветовое пространство HSV",
+            [
+                ("Средний H", self.project_mean_hsv_h),
+                ("Средний S", self.project_mean_hsv_s),
+                ("Средний V", self.project_mean_hsv_v),
+            ],
+        )
+        self._add_property_browser_group(
+            self.project_properties_browser,
+            "Цветовое пространство YUV",
+            [
+                ("Средний Y", self.project_mean_yuv_y),
+                ("Средний U", self.project_mean_yuv_u),
+                ("Средний V", self.project_mean_yuv_v),
+            ],
+        )
+        self._add_property_browser_group(
+            self.project_properties_browser,
+            "Цветовое пространство LMS",
+            [
+                ("Средний L", self.project_mean_lms_l),
+                ("Средний M", self.project_mean_lms_m),
+                ("Средний S", self.project_mean_lms_s),
             ],
         )
 
@@ -402,6 +483,18 @@ class MainWindow(QMainWindow):
         self.property_red = self._property_value_label()
         self.property_green = self._property_value_label()
         self.property_blue = self._property_value_label()
+        self.property_lab_l = self._property_value_label()
+        self.property_lab_a = self._property_value_label()
+        self.property_lab_b = self._property_value_label()
+        self.property_hsv_h = self._property_value_label()
+        self.property_hsv_s = self._property_value_label()
+        self.property_hsv_v = self._property_value_label()
+        self.property_yuv_y = self._property_value_label()
+        self.property_yuv_u = self._property_value_label()
+        self.property_yuv_v = self._property_value_label()
+        self.property_lms_l = self._property_value_label()
+        self.property_lms_m = self._property_value_label()
+        self.property_lms_s = self._property_value_label()
         self.property_status = self._property_value_label()
         self.average_color_swatch = QFrame(properties_widget)
         self.average_color_swatch.setObjectName("averageColorSwatch")
@@ -484,6 +577,42 @@ class MainWindow(QMainWindow):
                 ("Зелёный", self.property_green),
                 ("Синий", self.property_blue),
                 ("Средний цвет", self.average_color_swatch),
+            ],
+        )
+        self._add_property_browser_group(
+            self.properties_browser,
+            "Цветовое пространство Lab",
+            [
+                ("L", self.property_lab_l),
+                ("a", self.property_lab_a),
+                ("b", self.property_lab_b),
+            ],
+        )
+        self._add_property_browser_group(
+            self.properties_browser,
+            "Цветовое пространство HSV",
+            [
+                ("H", self.property_hsv_h),
+                ("S", self.property_hsv_s),
+                ("V", self.property_hsv_v),
+            ],
+        )
+        self._add_property_browser_group(
+            self.properties_browser,
+            "Цветовое пространство YUV",
+            [
+                ("Y", self.property_yuv_y),
+                ("U", self.property_yuv_u),
+                ("V", self.property_yuv_v),
+            ],
+        )
+        self._add_property_browser_group(
+            self.properties_browser,
+            "Цветовое пространство LMS",
+            [
+                ("L", self.property_lms_l),
+                ("M", self.property_lms_m),
+                ("S", self.property_lms_s),
             ],
         )
         self._add_property_browser_group(
@@ -1402,6 +1531,18 @@ class MainWindow(QMainWindow):
             "green": green,
             "blue": blue,
             "average_color": average_color,
+            "lab_l": self.property_lab_l.text(),
+            "lab_a": self.property_lab_a.text(),
+            "lab_b": self.property_lab_b.text(),
+            "hsv_h": self.property_hsv_h.text(),
+            "hsv_s": self.property_hsv_s.text(),
+            "hsv_v": self.property_hsv_v.text(),
+            "yuv_y": self.property_yuv_y.text(),
+            "yuv_u": self.property_yuv_u.text(),
+            "yuv_v": self.property_yuv_v.text(),
+            "lms_l": self.property_lms_l.text(),
+            "lms_m": self.property_lms_m.text(),
+            "lms_s": self.property_lms_s.text(),
             "status": self.property_status.text(),
             "added_at": self.metadata_added_at.text().strip(),
             "captured_at": self.metadata_captured_at.text().strip(),
@@ -1928,6 +2069,18 @@ class MainWindow(QMainWindow):
             self.project_mean_red.setText("-")
             self.project_mean_green.setText("-")
             self.project_mean_blue.setText("-")
+            self.project_mean_lab_l.setText("-")
+            self.project_mean_lab_a.setText("-")
+            self.project_mean_lab_b.setText("-")
+            self.project_mean_hsv_h.setText("-")
+            self.project_mean_hsv_s.setText("-")
+            self.project_mean_hsv_v.setText("-")
+            self.project_mean_yuv_y.setText("-")
+            self.project_mean_yuv_u.setText("-")
+            self.project_mean_yuv_v.setText("-")
+            self.project_mean_lms_l.setText("-")
+            self.project_mean_lms_m.setText("-")
+            self.project_mean_lms_s.setText("-")
             self._updating_project_info_fields = True
             try:
                 with QSignalBlocker(self.project_general_info):
@@ -1944,23 +2097,69 @@ class MainWindow(QMainWindow):
             self._updating_project_info_fields = False
 
         self.project_image_count.setText(str(len(self.project_document.images)))
-        mean_rgb = self._project_contours_mean_rgb()
-        if mean_rgb is None:
+        color_stats = self._project_contours_mean_color_stats()
+        if color_stats is None:
             red_text = green_text = blue_text = "-"
+            lab_l_text = lab_a_text = lab_b_text = "-"
+            hsv_h_text = hsv_s_text = hsv_v_text = "-"
+            yuv_y_text = yuv_u_text = yuv_v_text = "-"
+            lms_l_text = lms_m_text = lms_s_text = "-"
         else:
+            mean_rgb, mean_lab, mean_hsv, mean_yuv, mean_lms = color_stats
             red, green, blue = mean_rgb
+            lab_l, lab_a, lab_b = mean_lab
+            hsv_h, hsv_s, hsv_v = mean_hsv
+            yuv_y, yuv_u, yuv_v = mean_yuv
+            lms_l, lms_m, lms_s = mean_lms
             red_text = str(red)
             green_text = str(green)
             blue_text = str(blue)
+            lab_l_text = str(lab_l)
+            lab_a_text = str(lab_a)
+            lab_b_text = str(lab_b)
+            hsv_h_text = str(hsv_h)
+            hsv_s_text = str(hsv_s)
+            hsv_v_text = str(hsv_v)
+            yuv_y_text = str(yuv_y)
+            yuv_u_text = str(yuv_u)
+            yuv_v_text = str(yuv_v)
+            lms_l_text = str(lms_l)
+            lms_m_text = str(lms_m)
+            lms_s_text = str(lms_s)
         self.project_mean_red.setText(red_text)
         self.project_mean_green.setText(green_text)
         self.project_mean_blue.setText(blue_text)
+        self.project_mean_lab_l.setText(lab_l_text)
+        self.project_mean_lab_a.setText(lab_a_text)
+        self.project_mean_lab_b.setText(lab_b_text)
+        self.project_mean_hsv_h.setText(hsv_h_text)
+        self.project_mean_hsv_s.setText(hsv_s_text)
+        self.project_mean_hsv_v.setText(hsv_v_text)
+        self.project_mean_yuv_y.setText(yuv_y_text)
+        self.project_mean_yuv_u.setText(yuv_u_text)
+        self.project_mean_yuv_v.setText(yuv_v_text)
+        self.project_mean_lms_l.setText(lms_l_text)
+        self.project_mean_lms_m.setText(lms_m_text)
+        self.project_mean_lms_s.setText(lms_s_text)
 
-    def _project_contours_mean_rgb(self) -> tuple[int, int, int] | None:
+    def _project_contours_mean_color_stats(
+        self,
+    ) -> tuple[
+        tuple[int, int, int],
+        tuple[int, int, int],
+        tuple[int, int, int],
+        tuple[int, int, int],
+        tuple[int, int, int],
+    ] | None:
         if self.project_document is None:
             return None
 
-        total = np.zeros(3, dtype=np.float64)
+        rgb_total = np.zeros(3, dtype=np.float64)
+        lab_total = np.zeros(3, dtype=np.float64)
+        hsv_total = np.zeros(3, dtype=np.float64)
+        yuv_total = np.zeros(3, dtype=np.float64)
+        lms_total = np.zeros(3, dtype=np.float64)
+        lms_max = np.zeros(3, dtype=np.float64)
         pixel_count = 0
         for record in self.project_document.images:
             if record.annotation is None or record.annotation_error:
@@ -1985,14 +2184,28 @@ class MainWindow(QMainWindow):
             if pixels.size == 0:
                 continue
 
-            total += pixels.sum(axis=0)
+            rgb_total += pixels.sum(axis=0)
+            lab_total += _lab_values_from_rgb_pixels(pixels).sum(axis=0)
+            hsv_total += _hsv_values_from_rgb_pixels(pixels).sum(axis=0)
+            yuv_total += _yuv_values_from_rgb_pixels(pixels).sum(axis=0)
+            lms_values = rgb_to_lms(pixels)
+            lms_total += lms_values.sum(axis=0)
+            lms_max = np.maximum(lms_max, lms_values.max(axis=0))
             pixel_count += int(pixels.shape[0])
 
         if pixel_count == 0:
             return None
 
-        mean_values = np.rint(total / pixel_count).astype(int)
-        return int(mean_values[0]), int(mean_values[1]), int(mean_values[2])
+        mean_rgb_values = np.rint(rgb_total / pixel_count).astype(int)
+        mean_lab_values = np.rint(lab_total / pixel_count).astype(int)
+        mean_hsv_values = np.rint(hsv_total / pixel_count).astype(int)
+        mean_yuv_values = np.rint(yuv_total / pixel_count).astype(int)
+        mean_lms_values = _mean_lms_values_from_total(lms_total, lms_max, pixel_count)
+        mean_rgb = int(mean_rgb_values[0]), int(mean_rgb_values[1]), int(mean_rgb_values[2])
+        mean_lab = int(mean_lab_values[0]), int(mean_lab_values[1]), int(mean_lab_values[2])
+        mean_hsv = int(mean_hsv_values[0]), int(mean_hsv_values[1]), int(mean_hsv_values[2])
+        mean_yuv = int(mean_yuv_values[0]), int(mean_yuv_values[1]), int(mean_yuv_values[2])
+        return mean_rgb, mean_lab, mean_hsv, mean_yuv, mean_lms_values
 
     def _update_project_properties(self, *_args) -> None:
         record = self._selected_project_image()
@@ -2030,14 +2243,34 @@ class MainWindow(QMainWindow):
         contour_stats = self._current_contour_stats(record)
         if contour_stats is None:
             red_text = green_text = blue_text = "-"
+            lab_l_text = lab_a_text = lab_b_text = "-"
+            hsv_h_text = hsv_s_text = hsv_v_text = "-"
+            yuv_y_text = yuv_u_text = yuv_v_text = "-"
+            lms_l_text = lms_m_text = lms_s_text = "-"
             contour_pixels_text = "-"
             mean_rgb = None
         else:
-            mean_rgb, contour_pixel_count = contour_stats
+            mean_rgb, mean_lab, mean_hsv, mean_yuv, mean_lms, contour_pixel_count = contour_stats
             red, green, blue = mean_rgb
+            lab_l, lab_a, lab_b = mean_lab
+            hsv_h, hsv_s, hsv_v = mean_hsv
+            yuv_y, yuv_u, yuv_v = mean_yuv
+            lms_l, lms_m, lms_s = mean_lms
             red_text = str(red)
             green_text = str(green)
             blue_text = str(blue)
+            lab_l_text = str(lab_l)
+            lab_a_text = str(lab_a)
+            lab_b_text = str(lab_b)
+            hsv_h_text = str(hsv_h)
+            hsv_s_text = str(hsv_s)
+            hsv_v_text = str(hsv_v)
+            yuv_y_text = str(yuv_y)
+            yuv_u_text = str(yuv_u)
+            yuv_v_text = str(yuv_v)
+            lms_l_text = str(lms_l)
+            lms_m_text = str(lms_m)
+            lms_s_text = str(lms_s)
             contour_pixels_text = str(contour_pixel_count)
 
         self.property_file_name.setText(record.display_name)
@@ -2049,6 +2282,18 @@ class MainWindow(QMainWindow):
         self.property_red.setText(red_text)
         self.property_green.setText(green_text)
         self.property_blue.setText(blue_text)
+        self.property_lab_l.setText(lab_l_text)
+        self.property_lab_a.setText(lab_a_text)
+        self.property_lab_b.setText(lab_b_text)
+        self.property_hsv_h.setText(hsv_h_text)
+        self.property_hsv_s.setText(hsv_s_text)
+        self.property_hsv_v.setText(hsv_v_text)
+        self.property_yuv_y.setText(yuv_y_text)
+        self.property_yuv_u.setText(yuv_u_text)
+        self.property_yuv_v.setText(yuv_v_text)
+        self.property_lms_l.setText(lms_l_text)
+        self.property_lms_m.setText(lms_m_text)
+        self.property_lms_s.setText(lms_s_text)
         self.property_status.setText("найден" if file_exists else "отсутствует")
         self._set_average_color_swatch(mean_rgb)
         self._load_metadata_fields(record)
@@ -2381,7 +2626,14 @@ class MainWindow(QMainWindow):
     def _current_contour_stats(
         self,
         record: ProjectImageRecord,
-    ) -> tuple[tuple[int, int, int], int] | None:
+    ) -> tuple[
+        tuple[int, int, int],
+        tuple[int, int, int],
+        tuple[int, int, int],
+        tuple[int, int, int],
+        tuple[int, int, int],
+        int,
+    ] | None:
         if record.id != self._current_project_image_id:
             return None
         if not self.canvas.has_image() or not self.canvas.has_contour():
@@ -2394,7 +2646,11 @@ class MainWindow(QMainWindow):
             return None
         mean_values = np.rint(pixels.mean(axis=0)).astype(int)
         mean_rgb = int(mean_values[0]), int(mean_values[1]), int(mean_values[2])
-        return mean_rgb, int(pixels.shape[0])
+        mean_lab = _mean_lab_values(pixels)
+        mean_hsv = _mean_hsv_values(pixels)
+        mean_yuv = _mean_yuv_values(pixels)
+        mean_lms = _mean_lms_values(pixels)
+        return mean_rgb, mean_lab, mean_hsv, mean_yuv, mean_lms, int(pixels.shape[0])
 
     def _set_average_color_swatch(self, rgb: tuple[int, int, int] | None) -> None:
         if rgb is None:
@@ -2528,6 +2784,69 @@ def _annotation_rgb_pixels(rgb_array: np.ndarray, annotation: Annotation) -> np.
     cv2.fillPoly(mask, [polygon], 255)
     pixels = rgb_array[mask > 0]
     return np.ascontiguousarray(pixels.reshape((-1, 3)))
+
+
+def _mean_lab_values(rgb_pixels: np.ndarray) -> tuple[int, int, int]:
+    lab_values = _lab_values_from_rgb_pixels(rgb_pixels)
+    mean_values = np.rint(lab_values.mean(axis=0)).astype(int)
+    return int(mean_values[0]), int(mean_values[1]), int(mean_values[2])
+
+
+def _mean_hsv_values(rgb_pixels: np.ndarray) -> tuple[int, int, int]:
+    hsv_values = _hsv_values_from_rgb_pixels(rgb_pixels)
+    mean_values = np.rint(hsv_values.mean(axis=0)).astype(int)
+    return int(mean_values[0]), int(mean_values[1]), int(mean_values[2])
+
+
+def _mean_yuv_values(rgb_pixels: np.ndarray) -> tuple[int, int, int]:
+    yuv_values = _yuv_values_from_rgb_pixels(rgb_pixels)
+    mean_values = np.rint(yuv_values.mean(axis=0)).astype(int)
+    return int(mean_values[0]), int(mean_values[1]), int(mean_values[2])
+
+
+def _mean_lms_values(rgb_pixels: np.ndarray) -> tuple[int, int, int]:
+    lms_values = rgb_to_lms(rgb_pixels)
+    return _mean_lms_values_from_total(
+        lms_values.sum(axis=0),
+        lms_values.max(axis=0),
+        int(lms_values.shape[0]),
+    )
+
+
+def _lab_values_from_rgb_pixels(rgb_pixels: np.ndarray) -> np.ndarray:
+    lab_pixels = cv2.cvtColor(rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2LAB).reshape((-1, 3))
+    lab_pixels = lab_pixels.astype(np.float32)
+    return np.column_stack(
+        (
+            lab_pixels[:, 0] * (100.0 / 255.0),
+            lab_pixels[:, 1] - 128.0,
+            lab_pixels[:, 2] - 128.0,
+        )
+    )
+
+
+def _hsv_values_from_rgb_pixels(rgb_pixels: np.ndarray) -> np.ndarray:
+    hsv_pixels = cv2.cvtColor(rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2HSV).reshape((-1, 3))
+    hsv_values = hsv_pixels.astype(np.float32)
+    hsv_values[:, 0] *= 2.0
+    return hsv_values
+
+
+def _yuv_values_from_rgb_pixels(rgb_pixels: np.ndarray) -> np.ndarray:
+    yuv_pixels = cv2.cvtColor(rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2YUV).reshape((-1, 3))
+    return yuv_pixels.astype(np.float32)
+
+
+def _mean_lms_values_from_total(
+    lms_total: np.ndarray,
+    lms_max: np.ndarray,
+    pixel_count: int,
+) -> tuple[int, int, int]:
+    max_values = np.maximum(lms_max, 1e-9)
+    normalized_mean = (lms_total / max(1, pixel_count)) / max_values * 255.0
+    mean_values = np.rint(normalized_mean).astype(int)
+    mean_values = np.clip(mean_values, 0, 255)
+    return int(mean_values[0]), int(mean_values[1]), int(mean_values[2])
 
 
 def _circle_contour_points(width: int, height: int, node_count: int) -> list[Point]:
