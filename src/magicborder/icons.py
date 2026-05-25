@@ -119,6 +119,16 @@ ACTION_VISUALS: dict[str, ActionVisual] = {
         tool_tip="Выровнять фон",
         status_tip="Сделать область вне текущего контура белой.",
     ),
+    "calibrate_scale": ActionVisual(
+        icon_name="actual-size",
+        tool_tip="Калибровать масштаб",
+        status_tip="Задать калибровочный отрезок известной длины для выбранного изображения.",
+    ),
+    "reset_calibration": ActionVisual(
+        icon_name="delete-contour",
+        tool_tip="Сбросить калибровку",
+        status_tip="Удалить калибровочный отрезок и масштаб выбранного изображения.",
+    ),
     "save_annotation": ActionVisual(
         icon_name="save-annotation",
         tool_tip="Сохранить аннотацию",

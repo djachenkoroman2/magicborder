@@ -14,7 +14,7 @@ from PIL import Image
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import Qt  # noqa: E402
+from PyQt5.QtCore import QPointF, Qt  # noqa: E402
 from PyQt5.QtWidgets import (  # noqa: E402
     QAction,
     QApplication,
@@ -33,7 +33,13 @@ from magicborder.main_window import (  # noqa: E402
     _circle_contour_points,
     _qdatetime_from_text,
 )
-from magicborder.models import Annotation, Point, ProjectDocument, ProjectImageRecord  # noqa: E402
+from magicborder.models import (  # noqa: E402
+    Annotation,
+    ImageCalibration,
+    Point,
+    ProjectDocument,
+    ProjectImageRecord,
+)
 from magicborder.property_browser import PropertyBrowser  # noqa: E402
 
 _APP: QApplication | None = None
@@ -182,6 +188,7 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Аннотация",
                 "Количество узлов контура",
                 "Количество пикселов контура",
+                "Масштаб",
                 "--- Цветовое пространство RGB",
                 "Красный",
                 "Зелёный",
@@ -443,6 +450,7 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertTrue(window.canvas.has_image())
             self.assertEqual(window.canvas.current_image_path(), image_dir / "leaf.png")
             self.assertEqual(window.property_points.text(), "5")
+            self.assertEqual(window.property_calibration_scale.text(), "-")
 
             window.canvas.set_contour(
                 [
@@ -464,6 +472,7 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.property_annotation.text(), "нет")
             self.assertEqual(window.property_points.text(), "-")
             self.assertEqual(window.property_contour_pixels.text(), "-")
+            self.assertEqual(window.property_calibration_scale.text(), "-")
             self.assertEqual(window.property_lab_l.text(), "-")
             self.assertEqual(window.property_lab_a.text(), "-")
             self.assertEqual(window.property_lab_b.text(), "-")
@@ -476,6 +485,105 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.property_lms_l.text(), "-")
             self.assertEqual(window.property_lms_m.text(), "-")
             self.assertEqual(window.property_lms_s.text(), "-")
+
+    def test_image_calibration_scale_round_trip_edit_reset_and_export(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            Image.new("RGB", (140, 30), (120, 80, 40)).save(image_dir / "leaf.png")
+
+            project = ProjectDocument(
+                name="calibration",
+                images=[
+                    ProjectImageRecord(
+                        id="leaf-1",
+                        relative_path="images/leaf.png",
+                        display_name="leaf.png",
+                        image_width=140,
+                        image_height=30,
+                        calibration=ImageCalibration(
+                            start=Point(1, 2),
+                            end=Point(121, 2),
+                            length_mm=10,
+                        ),
+                    )
+                ],
+            )
+            project_path = root / "calibration.json"
+            save_project(project_path, project)
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertTrue(window.canvas.has_calibration())
+            self.assertTrue(window.calibrate_scale_action.isEnabled())
+            self.assertTrue(window.reset_calibration_action.isEnabled())
+            self.assertEqual(
+                window.property_calibration_scale.text(),
+                "120 px = 10 мм; 12 px/мм; 0.0833 мм/px",
+            )
+
+            window.canvas.calibration_handle_moved(1, QPointF(61, 2))
+
+            record = window.project_document.images[0]
+            self.assertIsNotNone(record.calibration)
+            self.assertEqual(record.calibration.end, Point(61, 2))
+            self.assertEqual(
+                window.property_calibration_scale.text(),
+                "60 px = 10 мм; 6 px/мм; 0.1667 мм/px",
+            )
+
+            export_path = root / "calibration_properties.xlsx"
+            window._write_image_properties_excel(export_path, ["calibration_scale"])
+            self.assertEqual(
+                _read_xlsx_dict_rows(export_path),
+                [
+                    {
+                        "Свойство": "Масштаб",
+                        "Значение": "60 px = 10 мм; 6 px/мм; 0.1667 мм/px",
+                    },
+                ],
+            )
+
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                payload["images"][0]["calibration"],
+                {
+                    "start": {"x": 1.0, "y": 2.0},
+                    "end": {"x": 61.0, "y": 2.0},
+                    "length_mm": 10.0,
+                },
+            )
+
+            window.reset_current_calibration()
+
+            self.assertFalse(window.canvas.has_calibration())
+            self.assertIsNone(record.calibration)
+            self.assertFalse(window.reset_calibration_action.isEnabled())
+            self.assertEqual(window.property_calibration_scale.text(), "-")
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            self.assertNotIn("calibration", payload["images"][0])
+
+            with patch("magicborder.main_window.QInputDialog.getDouble", return_value=(5.0, False)):
+                window._handle_calibration_segment_selected([Point(2, 2), Point(22, 2)])
+
+            self.assertFalse(window.canvas.has_calibration())
+            self.assertIsNone(record.calibration)
+
+            with patch("magicborder.main_window.QInputDialog.getDouble", return_value=(5.0, True)):
+                window._handle_calibration_segment_selected([Point(2, 2), Point(22, 2)])
+
+            self.assertTrue(window.canvas.has_calibration())
+            self.assertIsNotNone(record.calibration)
+            self.assertEqual(record.calibration.length_mm, 5.0)
+            self.assertEqual(
+                window.property_calibration_scale.text(),
+                "20 px = 5 мм; 4 px/мм; 0.25 мм/px",
+            )
 
     def test_image_properties_lab_values_update_export_and_stay_out_of_json(self) -> None:
         _app()

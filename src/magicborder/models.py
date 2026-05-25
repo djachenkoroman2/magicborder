@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -39,6 +40,51 @@ class Point:
         return cls(
             x=_require_number(data.get("x"), "x"),
             y=_require_number(data.get("y"), "y"),
+        )
+
+
+@dataclass(slots=True)
+class ImageCalibration:
+    start: Point
+    end: Point
+    length_mm: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.start, Point):
+            self.start = Point.from_dict(self.start)
+        if not isinstance(self.end, Point):
+            self.end = Point.from_dict(self.end)
+
+        self.length_mm = _require_number(self.length_mm, "length_mm")
+        if self.length_mm <= 0:
+            raise ValueError("Длина калибровочного отрезка должна быть положительной.")
+        if self.pixel_length() <= 1e-6:
+            raise ValueError("Калибровочный отрезок должен иметь ненулевую длину.")
+
+    def pixel_length(self) -> float:
+        return math.hypot(self.end.x - self.start.x, self.end.y - self.start.y)
+
+    def pixels_per_mm(self) -> float:
+        return self.pixel_length() / self.length_mm
+
+    def mm_per_pixel(self) -> float:
+        return self.length_mm / self.pixel_length()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "start": self.start.to_dict(),
+            "end": self.end.to_dict(),
+            "length_mm": float(self.length_mm),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "ImageCalibration":
+        if not isinstance(data, dict):
+            raise ValueError("Калибровка должна быть объектом.")
+        return cls(
+            start=Point.from_dict(data.get("start")),
+            end=Point.from_dict(data.get("end")),
+            length_mm=_require_number(data.get("length_mm"), "length_mm"),
         )
 
 
@@ -315,6 +361,9 @@ class ProjectImageRecord:
     contour: ProjectImageContourInfo
     location: ProjectImageLocationInfo
     details: ProjectImageDetailsInfo
+    calibration: ImageCalibration | None
+    calibration_error: str | None
+    raw_calibration: Any | None
     extra_groups: dict[str, Any]
 
     def __init__(
@@ -333,6 +382,9 @@ class ProjectImageRecord:
         contour: ProjectImageContourInfo | None = None,
         location: ProjectImageLocationInfo | None = None,
         details: ProjectImageDetailsInfo | None = None,
+        calibration: ImageCalibration | None = None,
+        calibration_error: str | None = None,
+        raw_calibration: Any | None = None,
         extra_groups: dict[str, Any] | None = None,
     ) -> None:
         metadata = metadata if isinstance(metadata, dict) else {}
@@ -357,6 +409,9 @@ class ProjectImageRecord:
             diagnosis=str(metadata.get("diagnosis", "Не указано")),
             notes=str(metadata.get("notes", "")),
         )
+        self.calibration = calibration
+        self.calibration_error = calibration_error
+        self.raw_calibration = raw_calibration
         self.extra_groups = dict(extra_groups or {})
         extra_metadata = {
             key: value
@@ -496,6 +551,10 @@ class ProjectImageRecord:
             "location": self.location.to_dict(),
             "details": self.details.to_dict(),
         }
+        if self.calibration is not None:
+            payload["calibration"] = self.calibration.to_dict()
+        elif self.raw_calibration is not None:
+            payload["calibration"] = self.raw_calibration
         payload.update(self.extra_groups)
         return payload
 
@@ -504,12 +563,27 @@ class ProjectImageRecord:
         if not isinstance(data, dict):
             raise ValueError("Запись изображения в проекте должна быть объектом.")
 
-        known_groups = {"file", "contour", "location", "details"}
+        calibration_payload = data.get("calibration")
+        calibration = None
+        calibration_error = None
+        raw_calibration = None
+        if calibration_payload is not None:
+            raw_calibration = calibration_payload
+            try:
+                calibration = ImageCalibration.from_dict(calibration_payload)
+                raw_calibration = None
+            except ValueError as exc:
+                calibration_error = str(exc)
+
+        known_groups = {"file", "contour", "location", "details", "calibration"}
         return cls(
             file=ProjectImageFileInfo.from_dict(data.get("file")),
             contour=ProjectImageContourInfo.from_dict(data.get("contour", {})),
             location=ProjectImageLocationInfo.from_dict(data.get("location", {})),
             details=ProjectImageDetailsInfo.from_dict(data.get("details", {})),
+            calibration=calibration,
+            calibration_error=calibration_error,
+            raw_calibration=raw_calibration,
             extra_groups={key: value for key, value in data.items() if key not in known_groups},
         )
 

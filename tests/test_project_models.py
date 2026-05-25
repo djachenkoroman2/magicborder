@@ -9,6 +9,7 @@ from magicborder.io_utils import load_project, save_project
 from magicborder.models import (
     PROJECT_FORMAT_VERSION,
     Annotation,
+    ImageCalibration,
     Point,
     ProjectDocument,
     ProjectImageRecord,
@@ -63,6 +64,86 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertIsNotNone(loaded_record.annotation)
         self.assertEqual(loaded_record.annotation.image_width, 10)
         self.assertEqual(len(loaded_record.annotation.points), 3)
+
+    def test_project_round_trip_preserves_image_calibration(self) -> None:
+        calibration = ImageCalibration(
+            start=Point(1, 2),
+            end=Point(121, 2),
+            length_mm=10,
+        )
+        project = ProjectDocument(
+            name="calibration",
+            images=[
+                ProjectImageRecord(
+                    id="leaf-1",
+                    relative_path="images/leaf.png",
+                    display_name="leaf.png",
+                    calibration=calibration,
+                )
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_path = Path(temp_dir) / "calibration.json"
+            save_project(project_path, project)
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+
+            loaded_project = load_project(project_path)
+
+        record_payload = payload["images"][0]
+        self.assertEqual(
+            record_payload["calibration"],
+            {
+                "start": {"x": 1.0, "y": 2.0},
+                "end": {"x": 121.0, "y": 2.0},
+                "length_mm": 10.0,
+            },
+        )
+        loaded_calibration = loaded_project.images[0].calibration
+        self.assertIsNotNone(loaded_calibration)
+        self.assertEqual(loaded_calibration.start, Point(1, 2))
+        self.assertEqual(loaded_calibration.end, Point(121, 2))
+        self.assertEqual(loaded_calibration.length_mm, 10.0)
+        self.assertEqual(loaded_calibration.pixel_length(), 120.0)
+        self.assertEqual(loaded_calibration.pixels_per_mm(), 12.0)
+
+    def test_project_keeps_corrupt_calibration_payload_without_breaking_load(self) -> None:
+        project = ProjectDocument.from_dict(
+            {
+                "version": PROJECT_FORMAT_VERSION,
+                "name": "broken_calibration",
+                "images": [
+                    {
+                        "file": {
+                            "id": "leaf-1",
+                            "path": "images/leaf.png",
+                            "display_name": "leaf.png",
+                        },
+                        "contour": {},
+                        "location": {},
+                        "details": {},
+                        "calibration": {
+                            "start": {"x": 1, "y": 1},
+                            "end": {"x": 1, "y": 1},
+                            "length_mm": 10,
+                        },
+                    }
+                ],
+            }
+        )
+
+        record = project.images[0]
+
+        self.assertIsNone(record.calibration)
+        self.assertIsNotNone(record.calibration_error)
+        self.assertEqual(
+            record.to_dict()["calibration"],
+            {
+                "start": {"x": 1, "y": 1},
+                "end": {"x": 1, "y": 1},
+                "length_mm": 10,
+            },
+        )
 
     def test_project_info_round_trip_uses_grouped_json(self) -> None:
         project = ProjectDocument(

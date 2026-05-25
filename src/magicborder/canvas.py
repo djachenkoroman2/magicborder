@@ -10,6 +10,7 @@ from PyQt5.QtGui import QBrush, QColor, QKeyEvent, QPainter, QPainterPath, QPen,
 from PyQt5.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
+    QGraphicsLineItem,
     QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsScene,
@@ -51,11 +52,37 @@ class NodeHandleItem(QGraphicsEllipseItem):
         super().mousePressEvent(event)
 
 
+class CalibrationHandleItem(QGraphicsEllipseItem):
+    def __init__(self, canvas: "ImageCanvas", index: int, position: QPointF) -> None:
+        radius = 6.0
+        super().__init__(-radius, -radius, radius * 2.0, radius * 2.0)
+        self.canvas = canvas
+        self.index = index
+        self.setFlag(QGraphicsItem.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
+        self.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+        self.setBrush(QColor("#2a9d8f"))
+        self.setPen(QPen(QColor("white"), 1.5))
+        self.setZValue(26)
+        self.setToolTip("Перетащите для редактирования калибровочного отрезка.")
+        self.setPos(position)
+
+    def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: object) -> object:
+        if change == QGraphicsItem.ItemPositionChange and isinstance(value, QPointF):
+            return self.canvas.constrain_point(value)
+        if change == QGraphicsItem.ItemPositionHasChanged:
+            self.canvas.calibration_handle_moved(self.index, self.pos())
+        return super().itemChange(change, value)
+
+
 class ImageCanvas(QGraphicsView):
     message_changed = pyqtSignal(str)
     image_state_changed = pyqtSignal(bool)
     contour_state_changed = pyqtSignal(bool)
     contour_geometry_changed = pyqtSignal()
+    calibration_segment_selected = pyqtSignal(object)
+    calibration_geometry_changed = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -74,10 +101,24 @@ class ImageCanvas(QGraphicsView):
         self._path_item.setZValue(10)
         self._scene.addItem(self._path_item)
 
+        self._calibration_line_item = QGraphicsLineItem()
+        calibration_pen = QPen(QColor("#d9467f"), 2.0)
+        calibration_pen.setCosmetic(True)
+        calibration_pen.setStyle(Qt.DashLine)
+        self._calibration_line_item.setPen(calibration_pen)
+        self._calibration_line_item.setZValue(16)
+        self._calibration_line_item.setVisible(False)
+        self._scene.addItem(self._calibration_line_item)
+
         self._loaded_image: LoadedImage | None = None
         self._contour_points: list[QPointF] = []
         self._handles: list[NodeHandleItem] = []
         self._suppress_handle_events = False
+        self._calibration_points: list[QPointF] = []
+        self._calibration_handles: list[CalibrationHandleItem] = []
+        self._suppress_calibration_handle_events = False
+        self._calibration_capture_active = False
+        self._calibration_capture_points: list[QPointF] = []
 
         self.setRenderHints(
             QPainter.Antialiasing
@@ -96,6 +137,9 @@ class ImageCanvas(QGraphicsView):
     def has_contour(self) -> bool:
         return len(self._contour_points) >= 3
 
+    def has_calibration(self) -> bool:
+        return len(self._calibration_points) == 2
+
     def current_image_path(self) -> Path | None:
         return self._loaded_image.path if self._loaded_image else None
 
@@ -112,6 +156,9 @@ class ImageCanvas(QGraphicsView):
     def contour_points(self) -> list[Point]:
         return [Point(point.x(), point.y()) for point in self._contour_points]
 
+    def calibration_points(self) -> list[Point]:
+        return [Point(point.x(), point.y()) for point in self._calibration_points]
+
     def contour_rgb_pixels(self) -> np.ndarray:
         if not self._loaded_image or len(self._contour_points) < 3:
             return np.empty((0, 3), dtype=np.uint8)
@@ -126,6 +173,7 @@ class ImageCanvas(QGraphicsView):
         self._image_item.setOffset(0, 0)
         self._scene.setSceneRect(QRectF(0, 0, image.width, image.height))
         self.clear_contour()
+        self.clear_calibration()
         self.fit_to_image()
         self.image_state_changed.emit(True)
         self.message_changed.emit(f"Открыто изображение: {image.path.name}")
@@ -135,6 +183,7 @@ class ImageCanvas(QGraphicsView):
         self._image_item.setPixmap(QPixmap())
         self._scene.setSceneRect(QRectF())
         self.clear_contour()
+        self.clear_calibration()
         self.resetTransform()
         self.image_state_changed.emit(False)
         self.message_changed.emit("Изображение очищено.")
@@ -186,6 +235,45 @@ class ImageCanvas(QGraphicsView):
         self.contour_geometry_changed.emit()
         self.message_changed.emit(f"Контур загружен: {len(self._contour_points)} узлов.")
 
+    def begin_calibration(self) -> None:
+        if not self.has_image():
+            self.message_changed.emit("Сначала выберите изображение проекта.")
+            return
+        self._calibration_capture_active = True
+        self._calibration_capture_points.clear()
+        self.setDragMode(QGraphicsView.NoDrag)
+        self.message_changed.emit("Калибровка: укажите начало отрезка.")
+
+    def cancel_calibration(self) -> None:
+        if not self._calibration_capture_active:
+            return
+        self._calibration_capture_active = False
+        self._calibration_capture_points.clear()
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.message_changed.emit("Калибровка отменена.")
+
+    def set_calibration(self, start: Point, end: Point) -> None:
+        if not self._loaded_image:
+            raise ValueError("Нельзя задать калибровку без загруженного изображения.")
+        self._calibration_capture_active = False
+        self._calibration_capture_points.clear()
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self._calibration_points = [
+            self.constrain_point(QPointF(float(start.x), float(start.y))),
+            self.constrain_point(QPointF(float(end.x), float(end.y))),
+        ]
+        self._refresh_calibration_line()
+        self._rebuild_calibration_handles()
+        self.message_changed.emit("Калибровочный отрезок задан.")
+
+    def clear_calibration(self) -> None:
+        self._calibration_capture_active = False
+        self._calibration_capture_points.clear()
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self._calibration_points.clear()
+        self._refresh_calibration_line()
+        self._clear_calibration_handles()
+
     def constrain_point(self, point: QPointF) -> QPointF:
         if not self._loaded_image:
             return QPointF(point)
@@ -200,6 +288,13 @@ class ImageCanvas(QGraphicsView):
         self._contour_points[index] = self.constrain_point(position)
         self._refresh_path()
         self.contour_geometry_changed.emit()
+
+    def calibration_handle_moved(self, index: int, position: QPointF) -> None:
+        if self._suppress_calibration_handle_events or index >= len(self._calibration_points):
+            return
+        self._calibration_points[index] = self.constrain_point(position)
+        self._refresh_calibration_line()
+        self.calibration_geometry_changed.emit()
 
     def remove_node(self, index: int) -> bool:
         if len(self._contour_points) <= 3:
@@ -295,6 +390,27 @@ class ImageCanvas(QGraphicsView):
         self.fitInView(self._image_item, Qt.KeepAspectRatio)
         self.message_changed.emit("Изображение вписано в окно.")
 
+    def mousePressEvent(self, event) -> None:
+        if self._calibration_capture_active and event.button() == Qt.LeftButton:
+            scene_pos = self.mapToScene(event.pos())
+            if not self._image_item.boundingRect().contains(scene_pos):
+                self.message_changed.emit("Калибровка: укажите точку внутри изображения.")
+                event.accept()
+                return
+
+            self._calibration_capture_points.append(self.constrain_point(scene_pos))
+            if len(self._calibration_capture_points) == 1:
+                self.message_changed.emit("Калибровка: укажите конец отрезка.")
+            else:
+                points = [Point(point.x(), point.y()) for point in self._calibration_capture_points[:2]]
+                self._calibration_capture_active = False
+                self._calibration_capture_points.clear()
+                self.setDragMode(QGraphicsView.ScrollHandDrag)
+                self.calibration_segment_selected.emit(points)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
     def mouseDoubleClickEvent(self, event) -> None:
         if event.button() == Qt.LeftButton and self.has_contour():
             item = self.itemAt(event.pos())
@@ -307,6 +423,10 @@ class ImageCanvas(QGraphicsView):
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key_Escape and self._calibration_capture_active:
+            self.cancel_calibration()
+            event.accept()
+            return
         if event.key() in (Qt.Key_Delete, Qt.Key_Backspace) and self.delete_selected_nodes():
             event.accept()
             return
@@ -347,6 +467,16 @@ class ImageCanvas(QGraphicsView):
             path.closeSubpath()
         self._path_item.setPath(path)
 
+    def _refresh_calibration_line(self) -> None:
+        if len(self._calibration_points) != 2:
+            self._calibration_line_item.setVisible(False)
+            self._calibration_line_item.setLine(0.0, 0.0, 0.0, 0.0)
+            return
+
+        start, end = self._calibration_points
+        self._calibration_line_item.setLine(start.x(), start.y(), end.x(), end.y())
+        self._calibration_line_item.setVisible(True)
+
     def _clear_handles(self) -> None:
         for handle in self._handles:
             self._scene.removeItem(handle)
@@ -362,6 +492,22 @@ class ImageCanvas(QGraphicsView):
                 self._handles.append(handle)
         finally:
             self._suppress_handle_events = False
+
+    def _clear_calibration_handles(self) -> None:
+        for handle in self._calibration_handles:
+            self._scene.removeItem(handle)
+        self._calibration_handles.clear()
+
+    def _rebuild_calibration_handles(self) -> None:
+        self._clear_calibration_handles()
+        self._suppress_calibration_handle_events = True
+        try:
+            for index, point in enumerate(self._calibration_points):
+                handle = CalibrationHandleItem(self, index, point)
+                self._scene.addItem(handle)
+                self._calibration_handles.append(handle)
+        finally:
+            self._suppress_calibration_handle_events = False
 
     def _contour_mask(self) -> np.ndarray:
         if not self._loaded_image:

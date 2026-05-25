@@ -58,7 +58,14 @@ from .io_utils import (
     SUPPORTED_RASTER_SUFFIXES,
     write_xlsx_table,
 )
-from .models import Annotation, Point, ProjectDocument, ProjectImageRecord, default_project_image_metadata
+from .models import (
+    Annotation,
+    ImageCalibration,
+    Point,
+    ProjectDocument,
+    ProjectImageRecord,
+    default_project_image_metadata,
+)
 from .path_utils import portable_path_reference
 from .property_browser import PropertyBrowser
 
@@ -99,6 +106,7 @@ IMAGE_PROPERTY_GROUPS = [
             ("annotation", "Аннотация"),
             ("point_count", "Количество узлов контура"),
             ("contour_pixel_count", "Количество пикселов контура"),
+            ("calibration_scale", "Масштаб"),
         ],
     ),
     (
@@ -239,6 +247,8 @@ class MainWindow(QMainWindow):
         self.canvas.contour_state_changed.connect(self._update_action_states)
         self.canvas.contour_geometry_changed.connect(self._schedule_histogram_refresh)
         self.canvas.contour_geometry_changed.connect(self._handle_contour_geometry_changed)
+        self.canvas.calibration_segment_selected.connect(self._handle_calibration_segment_selected)
+        self.canvas.calibration_geometry_changed.connect(self._handle_calibration_geometry_changed)
         self._update_action_states()
         self._refresh_histograms()
         self._update_project_panel()
@@ -480,6 +490,7 @@ class MainWindow(QMainWindow):
         self.property_annotation = self._property_value_label()
         self.property_points = self._property_value_label()
         self.property_contour_pixels = self._property_value_label()
+        self.property_calibration_scale = self._property_value_label()
         self.property_red = self._property_value_label()
         self.property_green = self._property_value_label()
         self.property_blue = self._property_value_label()
@@ -567,6 +578,7 @@ class MainWindow(QMainWindow):
                 ("Аннотация", self.property_annotation),
                 ("Количество узлов контура", self.property_points),
                 ("Количество пикселов контура", self.property_contour_pixels),
+                ("Масштаб", self.property_calibration_scale),
             ],
         )
         self._add_property_browser_group(
@@ -833,6 +845,12 @@ class MainWindow(QMainWindow):
         self.flatten_background_action.setShortcut("F6")
         self.flatten_background_action.triggered.connect(self.flatten_background)
 
+        self.calibrate_scale_action = QAction("Калибровать масштаб", self)
+        self.calibrate_scale_action.triggered.connect(self.start_scale_calibration)
+
+        self.reset_calibration_action = QAction("Сбросить калибровку", self)
+        self.reset_calibration_action.triggered.connect(self.reset_current_calibration)
+
         self.save_annotation_action = QAction("Сохранить аннотацию...", self)
         self.save_annotation_action.setShortcut("Ctrl+Alt+S")
         self.save_annotation_action.triggered.connect(self.save_annotation_file)
@@ -865,6 +883,8 @@ class MainWindow(QMainWindow):
             "detect_contour": self.detect_contour_action,
             "delete_contour": self.delete_contour_action,
             "flatten_background": self.flatten_background_action,
+            "calibrate_scale": self.calibrate_scale_action,
+            "reset_calibration": self.reset_calibration_action,
             "save_annotation": self.save_annotation_action,
             "open_annotation": self.open_annotation_action,
             "about": self.about_action,
@@ -901,6 +921,9 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(self.detect_contour_action)
         tools_menu.addAction(self.delete_contour_action)
         tools_menu.addAction(self.flatten_background_action)
+        tools_menu.addSeparator()
+        tools_menu.addAction(self.calibrate_scale_action)
+        tools_menu.addAction(self.reset_calibration_action)
         tools_menu.addSeparator()
         tools_menu.addAction(self.save_annotation_action)
         tools_menu.addAction(self.open_annotation_action)
@@ -940,6 +963,8 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.detect_contour_action)
         toolbar.addAction(self.delete_contour_action)
         toolbar.addAction(self.flatten_background_action)
+        toolbar.addAction(self.calibrate_scale_action)
+        toolbar.addAction(self.reset_calibration_action)
         toolbar.addAction(self.save_annotation_action)
         toolbar.addAction(self.open_annotation_action)
         toolbar.addSeparator()
@@ -962,6 +987,13 @@ class MainWindow(QMainWindow):
                 or selected_project_image.raw_annotation is not None
             )
         )
+        has_calibration = (
+            selected_project_image is not None
+            and (
+                selected_project_image.calibration is not None
+                or selected_project_image.raw_calibration is not None
+            )
+        )
 
         self.save_project_action.setEnabled(has_project)
         self.close_project_action.setEnabled(has_project)
@@ -980,6 +1012,8 @@ class MainWindow(QMainWindow):
         self.detect_contour_action.setEnabled(has_project_image and has_image)
         self.delete_contour_action.setEnabled(has_project_image and (has_contour or has_project_contour))
         self.flatten_background_action.setEnabled(has_project_image and has_image and has_contour)
+        self.calibrate_scale_action.setEnabled(has_project_image and has_image)
+        self.reset_calibration_action.setEnabled(has_project_image and has_calibration)
         self.save_annotation_action.setEnabled(has_project_image and has_contour)
         self.open_annotation_action.setEnabled(has_project_image)
 
@@ -1527,6 +1561,7 @@ class MainWindow(QMainWindow):
             "annotation": self.property_annotation.text(),
             "point_count": self.property_points.text(),
             "contour_pixel_count": self.property_contour_pixels.text(),
+            "calibration_scale": self.property_calibration_scale.text(),
             "red": red,
             "green": green,
             "blue": blue,
@@ -1715,6 +1750,110 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
 
         self.statusBar().showMessage("Фон за пределами контура выровнен до белого.")
+
+    def start_scale_calibration(self) -> None:
+        if self._selected_project_image() is None or not self.canvas.has_image():
+            self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
+            return
+        self.canvas.begin_calibration()
+
+    def reset_current_calibration(self) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            self._show_warning("Изображение не выбрано", "Выберите изображение в списке проекта.")
+            return
+
+        if (
+            record.calibration is None
+            and record.raw_calibration is None
+            and record.calibration_error is None
+        ):
+            return
+
+        record.calibration = None
+        record.raw_calibration = None
+        record.calibration_error = None
+        if self._current_project_image_id == record.id and self.canvas.has_image():
+            self.canvas.clear_calibration()
+        self._update_project_properties()
+        self._update_action_states()
+        self._schedule_project_save()
+        self.statusBar().showMessage(f"Калибровка сброшена: {record.display_name}")
+
+    def _handle_calibration_segment_selected(self, raw_points: object) -> None:
+        record = self._selected_project_image()
+        if record is None or not self.canvas.has_image():
+            return
+
+        points = _calibration_points_from_signal(raw_points)
+        if points is None:
+            return
+
+        try:
+            ImageCalibration(points[0], points[1], 1.0)
+        except ValueError as exc:
+            self._show_warning("Некорректная калибровка", str(exc))
+            return
+
+        length_mm, accepted = QInputDialog.getDouble(
+            self,
+            "Калибровка масштаба",
+            "Длина отрезка, мм:",
+            10.0,
+            0.0001,
+            1_000_000.0,
+            4,
+        )
+        if not accepted:
+            return
+
+        try:
+            calibration = ImageCalibration(points[0], points[1], length_mm)
+        except ValueError as exc:
+            self._show_warning("Некорректная калибровка", str(exc))
+            return
+
+        record.calibration = calibration
+        record.calibration_error = None
+        record.raw_calibration = None
+        self.canvas.set_calibration(calibration.start, calibration.end)
+        self._update_project_properties()
+        self._update_action_states()
+        self._schedule_project_save()
+        self.statusBar().showMessage(
+            f"Калибровка задана: {_calibration_scale_text(calibration)}"
+        )
+
+    def _handle_calibration_geometry_changed(self) -> None:
+        if self._loading_project_image:
+            return
+
+        record = self._current_project_image()
+        if record is None or record.calibration is None or not self.canvas.has_calibration():
+            return
+
+        points = self.canvas.calibration_points()
+        if len(points) != 2:
+            return
+
+        try:
+            calibration = ImageCalibration(points[0], points[1], record.calibration.length_mm)
+        except ValueError as exc:
+            self.statusBar().showMessage(str(exc))
+            return
+
+        if (
+            calibration.start == record.calibration.start
+            and calibration.end == record.calibration.end
+        ):
+            return
+
+        record.calibration = calibration
+        record.calibration_error = None
+        record.raw_calibration = None
+        self._update_project_properties()
+        self._update_action_states()
+        self._schedule_project_save()
 
     def save_annotation_file(self) -> None:
         if not self.canvas.has_contour():
@@ -1956,6 +2095,19 @@ class MainWindow(QMainWindow):
                                 self.statusBar().showMessage("Аннотация повреждена и не загружена.")
                     elif record.annotation_error:
                         self.statusBar().showMessage("У выбранного изображения повреждена аннотация.")
+
+                    if record.calibration is not None:
+                        try:
+                            self.canvas.set_calibration(
+                                record.calibration.start,
+                                record.calibration.end,
+                            )
+                        except ValueError as exc:
+                            record.calibration = None
+                            record.calibration_error = str(exc)
+                            self.statusBar().showMessage("Калибровка повреждена и не загружена.")
+                    elif record.calibration_error:
+                        self.statusBar().showMessage("У выбранного изображения повреждена калибровка.")
         finally:
             self._loading_project_image = False
 
@@ -2240,6 +2392,11 @@ class MainWindow(QMainWindow):
         elif record.annotation_error:
             annotation_text = f"ошибка: {record.annotation_error}"
 
+        if record.calibration_error:
+            calibration_scale_text = f"ошибка: {record.calibration_error}"
+        else:
+            calibration_scale_text = _calibration_scale_text(record.calibration)
+
         contour_stats = self._current_contour_stats(record)
         if contour_stats is None:
             red_text = green_text = blue_text = "-"
@@ -2279,6 +2436,7 @@ class MainWindow(QMainWindow):
         self.property_annotation.setText(annotation_text)
         self.property_points.setText(point_count_text)
         self.property_contour_pixels.setText(contour_pixels_text)
+        self.property_calibration_scale.setText(calibration_scale_text)
         self.property_red.setText(red_text)
         self.property_green.setText(green_text)
         self.property_blue.setText(blue_text)
@@ -2770,6 +2928,32 @@ def _ensure_xlsx_suffix(path: Path) -> Path:
     if path.suffix:
         return path.with_suffix(".xlsx")
     return path.with_suffix(".xlsx")
+
+
+def _calibration_points_from_signal(raw_points: object) -> tuple[Point, Point] | None:
+    if not isinstance(raw_points, (list, tuple)) or len(raw_points) != 2:
+        return None
+    if not all(isinstance(point, Point) for point in raw_points):
+        return None
+    return raw_points[0], raw_points[1]
+
+
+def _calibration_scale_text(calibration: ImageCalibration | None) -> str:
+    if calibration is None:
+        return "-"
+
+    return (
+        f"{_compact_float(calibration.pixel_length(), 2)} px = "
+        f"{_compact_float(calibration.length_mm, 4)} мм; "
+        f"{_compact_float(calibration.pixels_per_mm(), 2)} px/мм; "
+        f"{_compact_float(calibration.mm_per_pixel(), 4)} мм/px"
+    )
+
+
+def _compact_float(value: float, decimals: int) -> str:
+    text = f"{float(value):.{decimals}f}"
+    text = text.rstrip("0").rstrip(".")
+    return text or "0"
 
 
 def _annotation_rgb_pixels(rgb_array: np.ndarray, annotation: Annotation) -> np.ndarray:
