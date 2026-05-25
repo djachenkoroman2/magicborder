@@ -17,7 +17,6 @@ from PyQt5.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
-    QFormLayout,
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -27,7 +26,6 @@ from PyQt5.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
-    QScrollArea,
     QSizePolicy,
     QSplitter,
     QTextEdit,
@@ -61,6 +59,7 @@ from .io_utils import (
 )
 from .models import Annotation, Point, ProjectDocument, ProjectImageRecord, default_project_image_metadata
 from .path_utils import portable_path_reference
+from .property_browser import PropertyBrowser
 
 APP_TITLE = "MagicBorder"
 WORKSPACE_DEFAULT_SIZES = [260, 860, 280]
@@ -298,18 +297,14 @@ class MainWindow(QMainWindow):
             "QListWidget#projectImageList::item { padding: 7px 8px; border-bottom: 1px solid #e5eaf2; }"
             "QListWidget#projectImageList::item:selected { background: #d8edf3; color: #102a32; }"
             "QListWidget#projectImageList::item:alternate { background: #f7f9fc; }"
-            "QLabel#propertyName { color: #5f6b7a; }"
-            "QWidget#propertyGroup { background: transparent; }"
-            "QWidget#propertyGroupBody { background: transparent; }"
-            "QToolButton#propertyGroupTitle { border: none; color: #1f2937; font-size: 12px; font-weight: 600; padding: 4px 0 3px 0; text-align: left; }"
-            "QToolButton#propertyGroupTitle:hover { background: transparent; border: none; color: #0f766e; }"
-            "QToolButton#propertyGroupTitle:pressed { background: transparent; }"
+            "QTreeWidget#propertyBrowser { background: transparent; border: none; outline: none; color: #1f2937; }"
+            "QTreeWidget#propertyBrowser::item { padding: 2px 0; }"
+            "QTreeWidget#propertyBrowser::item:hover { color: #0f766e; }"
             "QLabel#propertyValue { color: #18202c; }"
             "QLabel#propertyEmpty { color: #7a8696; padding: 12px; }"
             "QLineEdit, QTextEdit { background: #ffffff; color: #1f2937; border: 1px solid #ccd6e1; border-radius: 4px; padding: 4px; selection-background-color: #cdeaf2; selection-color: #102a32; }"
             "QLineEdit:focus, QTextEdit:focus { border-color: #2A9D8F; }"
             "QLineEdit:read-only { color: #5f6b7a; background: #f1f4f8; }"
-            "QScrollArea#propertiesScrollArea { background: transparent; border: none; }"
             "QFrame#averageColorSwatch { border: 1px solid #95a3b8; border-radius: 4px; background: transparent; }"
             "QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 4px; color: #1f2937; }"
             "QToolButton:hover { background: #e9eef5; border-color: #c6d1de; }"
@@ -339,20 +334,17 @@ class MainWindow(QMainWindow):
         self.project_mean_green = self._property_value_label()
         self.project_mean_blue = self._property_value_label()
 
-        self.project_properties_form_widget = QWidget(properties_widget)
-        form_layout = QVBoxLayout(self.project_properties_form_widget)
-        form_layout.setContentsMargins(0, 0, 0, 0)
-        form_layout.setSpacing(2)
-        self._add_property_group(
-            form_layout,
+        self.project_properties_browser = PropertyBrowser(properties_widget)
+        self._add_property_browser_group(
+            self.project_properties_browser,
             "Общие свойства",
             [
                 ("Общая информация", self.project_general_info),
                 ("Количество изображений", self.project_image_count),
             ],
         )
-        self._add_property_group(
-            form_layout,
+        self._add_property_browser_group(
+            self.project_properties_browser,
             "Цветовое пространство RGB",
             [
                 ("Средний R", self.project_mean_red),
@@ -361,17 +353,12 @@ class MainWindow(QMainWindow):
             ],
         )
 
-        self.project_properties_scroll_area = QScrollArea(properties_widget)
-        self.project_properties_scroll_area.setObjectName("propertiesScrollArea")
-        self.project_properties_scroll_area.setWidgetResizable(True)
-        self.project_properties_scroll_area.setWidget(self.project_properties_form_widget)
-
         layout = QVBoxLayout(properties_widget)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
         layout.addWidget(title)
         layout.addWidget(self.project_properties_empty_label, 1)
-        layout.addWidget(self.project_properties_scroll_area, 1)
+        layout.addWidget(self.project_properties_browser, 1)
         return properties_widget
 
     def _create_image_properties_panel(self, parent: QWidget) -> QWidget:
@@ -466,12 +453,9 @@ class MainWindow(QMainWindow):
                 lambda key=metadata_key, editor=field: self._handle_metadata_line_edit_finished(key, editor)
             )
 
-        self.properties_form_widget = QWidget(properties_widget)
-        form_layout = QVBoxLayout(self.properties_form_widget)
-        form_layout.setContentsMargins(0, 0, 0, 0)
-        form_layout.setSpacing(2)
-        self._add_property_group(
-            form_layout,
+        self.properties_browser = PropertyBrowser(properties_widget)
+        self._add_property_browser_group(
+            self.properties_browser,
             "Общая информация о файле",
             [
                 ("ID", self.image_id_widget),
@@ -483,8 +467,8 @@ class MainWindow(QMainWindow):
                 ("Дата съёмки", self.metadata_captured_at_widget),
             ],
         )
-        self._add_property_group(
-            form_layout,
+        self._add_property_browser_group(
+            self.properties_browser,
             "Информация о контуре",
             [
                 ("Аннотация", self.property_annotation),
@@ -492,8 +476,8 @@ class MainWindow(QMainWindow):
                 ("Количество пикселов контура", self.property_contour_pixels),
             ],
         )
-        self._add_property_group(
-            form_layout,
+        self._add_property_browser_group(
+            self.properties_browser,
             "Цветовое пространство RGB",
             [
                 ("Красный", self.property_red),
@@ -502,8 +486,8 @@ class MainWindow(QMainWindow):
                 ("Средний цвет", self.average_color_swatch),
             ],
         )
-        self._add_property_group(
-            form_layout,
+        self._add_property_browser_group(
+            self.properties_browser,
             "Локация",
             [
                 ("Освещённость", self.metadata_illumination),
@@ -514,8 +498,8 @@ class MainWindow(QMainWindow):
                 ("Долгота", self.metadata_longitude),
             ],
         )
-        self._add_property_group(
-            form_layout,
+        self._add_property_browser_group(
+            self.properties_browser,
             "Дополнительно",
             [
                 ("Диагноз", self.metadata_diagnosis),
@@ -523,91 +507,23 @@ class MainWindow(QMainWindow):
             ],
         )
 
-        self.properties_scroll_area = QScrollArea(properties_widget)
-        self.properties_scroll_area.setObjectName("propertiesScrollArea")
-        self.properties_scroll_area.setWidgetResizable(True)
-        self.properties_scroll_area.setWidget(self.properties_form_widget)
-
         layout = QVBoxLayout(properties_widget)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
         layout.addLayout(header_layout)
         layout.addWidget(self.properties_empty_label, 1)
-        layout.addWidget(self.properties_scroll_area, 1)
+        layout.addWidget(self.properties_browser, 1)
         return properties_widget
 
-    def _add_property_group(
+    def _add_property_browser_group(
         self,
-        form_layout: QVBoxLayout,
+        browser: PropertyBrowser,
         title: str,
         rows: list[tuple[str, QWidget]],
     ) -> None:
-        group_widget = QWidget()
-        group_widget.setObjectName("propertyGroup")
-
-        group_layout = QVBoxLayout(group_widget)
-        group_layout.setContentsMargins(0, 0, 0, 0)
-        group_layout.setSpacing(0)
-
-        group_button = self._property_group_button(title)
-        group_layout.addWidget(group_button)
-
-        body_widget = QWidget(group_widget)
-        body_widget.setObjectName("propertyGroupBody")
-        body_layout = QFormLayout(body_widget)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(7)
-        body_layout.setLabelAlignment(Qt.AlignLeft)
+        browser.add_group(title, expanded=False)
         for label, widget in rows:
-            label_widget = self._property_name_label(label)
-            body_layout.addRow(label_widget, widget)
-        group_layout.addWidget(body_widget)
-        form_layout.addWidget(group_widget)
-
-        group_button.toggled.connect(
-            lambda expanded, button=group_button, body=body_widget: self._set_property_group_expanded(
-                button,
-                body,
-                expanded,
-            )
-        )
-        self._set_property_group_expanded(group_button, body_widget, False)
-
-    def _property_group_button(self, text: str) -> QToolButton:
-        button = QToolButton()
-        button.setObjectName("propertyGroupTitle")
-        button.setText(text)
-        button.setCheckable(True)
-        button.setChecked(False)
-        button.setArrowType(Qt.RightArrow)
-        button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        button.setToolTip("Развернуть или свернуть группу")
-        return button
-
-    def _set_property_group_expanded(
-        self,
-        button: QToolButton,
-        body_widget: QWidget,
-        expanded: bool,
-    ) -> None:
-        button.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
-        body_widget.setVisible(expanded)
-        group_widget = body_widget.parentWidget()
-        if group_widget is not None and group_widget.layout() is not None:
-            group_widget.layout().invalidate()
-            group_widget.layout().activate()
-            group_widget.updateGeometry()
-            form_widget = group_widget.parentWidget()
-            if form_widget is not None and form_widget.layout() is not None:
-                form_widget.layout().invalidate()
-                form_widget.layout().activate()
-                form_widget.updateGeometry()
-
-    def _property_name_label(self, text: str) -> QLabel:
-        label = QLabel(text)
-        label.setObjectName("propertyName")
-        return label
+            browser.add_property(title, label, widget)
 
     def _property_value_label(self) -> QLabel:
         label = QLabel("-")
@@ -2003,7 +1919,7 @@ class MainWindow(QMainWindow):
     def _update_project_summary_properties(self) -> None:
         has_project = self.project_document is not None
         self.project_properties_empty_label.setVisible(not has_project)
-        self.project_properties_scroll_area.setVisible(has_project)
+        self.project_properties_browser.setVisible(has_project)
         self.project_general_info.setEnabled(has_project)
 
         if self.project_document is None:
@@ -2082,7 +1998,7 @@ class MainWindow(QMainWindow):
         record = self._selected_project_image()
         has_record = record is not None
         self.properties_empty_label.setVisible(not has_record)
-        self.properties_scroll_area.setVisible(has_record)
+        self.properties_browser.setVisible(has_record)
         self.export_image_properties_excel_button.setEnabled(has_record)
         self.rename_file_as_id_button.setEnabled(has_record)
         self.generate_image_id_button.setEnabled(has_record)

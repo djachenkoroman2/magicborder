@@ -19,13 +19,9 @@ from PyQt5.QtWidgets import (  # noqa: E402
     QAction,
     QApplication,
     QDialog,
-    QFormLayout,
-    QLabel,
     QSizePolicy,
     QToolBar,
     QToolButton,
-    QVBoxLayout,
-    QWidget,
     QWidgetAction,
 )
 
@@ -38,6 +34,7 @@ from magicborder.main_window import (  # noqa: E402
     _qdatetime_from_text,
 )
 from magicborder.models import Annotation, Point, ProjectDocument, ProjectImageRecord  # noqa: E402
+from magicborder.property_browser import PropertyBrowser  # noqa: E402
 
 _APP: QApplication | None = None
 
@@ -118,79 +115,16 @@ def _list_item_color_name(window: MainWindow, row: int = 0) -> str:
     return window.project_list.item(row).foreground().color().name()
 
 
-def _form_rows(form_widget) -> list[str]:
-    layout = form_widget.layout()
-    rows: list[str] = []
-
-    def add_form_layout_rows(form_layout: QFormLayout) -> None:
-        for row in range(form_layout.rowCount()):
-            spanning_item = form_layout.itemAt(row, QFormLayout.SpanningRole)
-            if spanning_item is not None and spanning_item.widget() is not None:
-                rows.append(f"--- {spanning_item.widget().text()}")
-                continue
-
-            label_item = form_layout.itemAt(row, QFormLayout.LabelRole)
-            if label_item is not None and label_item.widget() is not None:
-                rows.append(label_item.widget().text())
-
-    if isinstance(layout, QFormLayout):
-        add_form_layout_rows(layout)
-        return rows
-
-    assert isinstance(layout, QVBoxLayout)
-    for index in range(layout.count()):
-        group_widget = layout.itemAt(index).widget()
-        if group_widget is None:
-            continue
-        group_button = _property_group_button(group_widget, "")
-        rows.append(f"--- {group_button.text()}")
-        body_widget = group_widget.findChild(QWidget, "propertyGroupBody")
-        if body_widget is None:
-            continue
-        body_layout = body_widget.layout()
-        assert isinstance(body_layout, QFormLayout)
-        add_form_layout_rows(body_layout)
-    return rows
-
-
 def _property_panel_rows(window: MainWindow) -> list[str]:
-    return _form_rows(window.properties_form_widget)
+    return window.properties_browser.rows()
 
 
 def _project_property_panel_rows(window: MainWindow) -> list[str]:
-    return _form_rows(window.project_properties_form_widget)
+    return window.project_properties_browser.rows()
 
 
-def _property_group_button(form_widget, title: str) -> QToolButton:
-    for button in form_widget.findChildren(QToolButton):
-        if button.objectName() == "propertyGroupTitle" and (not title or button.text() == title):
-            return button
-    raise AssertionError(f"Группа свойств не найдена: {title}")
-
-
-def _property_row_label(form_widget, label_text: str):
-    for label_widget in form_widget.findChildren(QLabel):
-        if label_widget.objectName() == "propertyName" and label_widget.text() == label_text:
-            return label_widget
-    raise AssertionError(f"Строка свойства не найдена: {label_text}")
-
-
-def _property_group_body(form_widget, title: str) -> QWidget:
-    group_button = _property_group_button(form_widget, title)
-    group_widget = group_button.parentWidget()
-    assert group_widget is not None
-    body_widget = group_widget.findChild(QWidget, "propertyGroupBody")
-    if body_widget is None:
-        raise AssertionError(f"Тело группы свойств не найдено: {title}")
-    return body_widget
-
-
-def _collapsed_group_button_height(form_widget) -> int:
-    return sum(
-        button.sizeHint().height()
-        for button in form_widget.findChildren(QToolButton)
-        if button.objectName() == "propertyGroupTitle"
-    )
+def _property_group(browser: PropertyBrowser, title: str):
+    return browser.group_item(title)
 
 
 def _main_toolbar(window: MainWindow) -> QToolBar:
@@ -299,78 +233,52 @@ class ProjectPropertiesTest(unittest.TestCase):
         _app()
         window = MainWindow()
 
-        file_group = _property_group_button(window.properties_form_widget, "Общая информация о файле")
-        contour_group = _property_group_button(window.properties_form_widget, "Информация о контуре")
-        file_body = _property_group_body(window.properties_form_widget, "Общая информация о файле")
-        id_label = _property_row_label(window.properties_form_widget, "ID")
-        annotation_label = _property_row_label(window.properties_form_widget, "Аннотация")
-        collapsed_height = window.properties_form_widget.sizeHint().height()
+        browser = window.properties_browser
+        self.assertIsInstance(browser, PropertyBrowser)
+        file_group = _property_group(browser, "Общая информация о файле")
+        contour_group = _property_group(browser, "Информация о контуре")
 
-        self.assertFalse(file_group.isChecked())
-        self.assertEqual(file_group.arrowType(), Qt.RightArrow)
-        self.assertTrue(file_body.isHidden())
-        self.assertLessEqual(
-            collapsed_height,
-            _collapsed_group_button_height(window.properties_form_widget) + 24,
-        )
-        self.assertFalse(id_label.isVisibleTo(window.properties_form_widget))
-        self.assertFalse(annotation_label.isVisibleTo(window.properties_form_widget))
+        self.assertFalse(file_group.isExpanded())
+        self.assertFalse(browser.is_property_visible("ID"))
+        self.assertFalse(browser.is_property_visible("Аннотация"))
 
-        file_group.click()
+        file_group.setExpanded(True)
 
-        self.assertTrue(file_group.isChecked())
-        self.assertEqual(file_group.arrowType(), Qt.DownArrow)
-        self.assertFalse(file_body.isHidden())
-        self.assertGreater(window.properties_form_widget.sizeHint().height(), collapsed_height)
-        self.assertTrue(id_label.isVisibleTo(window.properties_form_widget))
-        self.assertFalse(contour_group.isChecked())
-        self.assertEqual(contour_group.arrowType(), Qt.RightArrow)
-        self.assertFalse(annotation_label.isVisibleTo(window.properties_form_widget))
+        self.assertTrue(file_group.isExpanded())
+        self.assertTrue(browser.is_property_visible("ID"))
+        self.assertFalse(contour_group.isExpanded())
+        self.assertFalse(browser.is_property_visible("Аннотация"))
 
-        file_group.click()
+        file_group.setExpanded(False)
 
-        self.assertFalse(file_group.isChecked())
-        self.assertEqual(file_group.arrowType(), Qt.RightArrow)
-        self.assertTrue(file_body.isHidden())
-        self.assertEqual(window.properties_form_widget.sizeHint().height(), collapsed_height)
-        self.assertFalse(id_label.isVisibleTo(window.properties_form_widget))
+        self.assertFalse(file_group.isExpanded())
+        self.assertFalse(browser.is_property_visible("ID"))
 
     def test_project_property_groups_are_collapsed_by_default_and_toggle(self) -> None:
         _app()
         window = MainWindow()
 
-        general_group = _property_group_button(window.project_properties_form_widget, "Общие свойства")
-        rgb_group = _property_group_button(window.project_properties_form_widget, "Цветовое пространство RGB")
-        general_body = _property_group_body(window.project_properties_form_widget, "Общие свойства")
-        general_info_label = _property_row_label(window.project_properties_form_widget, "Общая информация")
-        red_label = _property_row_label(window.project_properties_form_widget, "Средний R")
-        collapsed_height = window.project_properties_form_widget.sizeHint().height()
+        browser = window.project_properties_browser
+        self.assertIsInstance(browser, PropertyBrowser)
+        general_group = _property_group(browser, "Общие свойства")
+        rgb_group = _property_group(browser, "Цветовое пространство RGB")
 
-        self.assertFalse(general_group.isChecked())
-        self.assertEqual(general_group.arrowType(), Qt.RightArrow)
-        self.assertTrue(general_body.isHidden())
-        self.assertLessEqual(
-            collapsed_height,
-            _collapsed_group_button_height(window.project_properties_form_widget) + 12,
-        )
-        self.assertFalse(general_info_label.isVisibleTo(window.project_properties_form_widget))
-        self.assertFalse(red_label.isVisibleTo(window.project_properties_form_widget))
+        self.assertFalse(general_group.isExpanded())
+        self.assertFalse(browser.is_property_visible("Общая информация"))
+        self.assertFalse(browser.is_property_visible("Средний R"))
 
-        general_group.click()
+        general_group.setExpanded(True)
 
-        self.assertTrue(general_group.isChecked())
-        self.assertEqual(general_group.arrowType(), Qt.DownArrow)
-        self.assertFalse(general_body.isHidden())
-        self.assertGreater(window.project_properties_form_widget.sizeHint().height(), collapsed_height)
-        self.assertTrue(general_info_label.isVisibleTo(window.project_properties_form_widget))
-        self.assertFalse(rgb_group.isChecked())
-        self.assertFalse(red_label.isVisibleTo(window.project_properties_form_widget))
+        self.assertTrue(general_group.isExpanded())
+        self.assertTrue(browser.is_property_visible("Общая информация"))
+        self.assertFalse(rgb_group.isExpanded())
+        self.assertFalse(browser.is_property_visible("Средний R"))
 
     def test_image_properties_panel_has_no_refresh_button(self) -> None:
         _app()
         window = MainWindow()
 
-        property_buttons = window.properties_form_widget.parentWidget().findChildren(QToolButton)
+        property_buttons = window.image_properties_panel.findChildren(QToolButton)
         button_texts = {button.text() for button in property_buttons}
         button_tooltips = {button.toolTip() for button in property_buttons}
 
