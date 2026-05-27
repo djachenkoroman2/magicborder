@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
@@ -14,11 +16,27 @@ from PyQt5.QtWidgets import (
     QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsScene,
+    QGraphicsTextItem,
     QGraphicsView,
 )
 
 from .io_utils import LoadedImage, loaded_image_from_rgb_array
 from .models import Point
+
+
+@dataclass
+class AngleMeasurement:
+    first: QPointF
+    vertex: QPointF
+    second: QPointF
+
+
+@dataclass
+class AngleGraphics:
+    first_line: QGraphicsLineItem
+    second_line: QGraphicsLineItem
+    label: QGraphicsTextItem
+    handles: list["AngleHandleItem"]
 
 
 class NodeHandleItem(QGraphicsEllipseItem):
@@ -76,6 +94,44 @@ class CalibrationHandleItem(QGraphicsEllipseItem):
         return super().itemChange(change, value)
 
 
+class AngleHandleItem(QGraphicsEllipseItem):
+    def __init__(
+        self,
+        canvas: "ImageCanvas",
+        angle_index: int,
+        point_index: int,
+        position: QPointF,
+    ) -> None:
+        is_vertex = point_index == 1
+        radius = 6.5 if is_vertex else 5.3
+        super().__init__(-radius, -radius, radius * 2.0, radius * 2.0)
+        self.canvas = canvas
+        self.angle_index = angle_index
+        self.point_index = point_index
+        self.setFlag(QGraphicsItem.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
+        self.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+        self.setBrush(QColor("#7c3aed") if is_vertex else QColor("#22c55e"))
+        self.setPen(QPen(QColor("white"), 1.6))
+        self.setZValue(34 if is_vertex else 32)
+        self.setToolTip(
+            "Вершина угла. Выберите её, чтобы удалить измерение."
+            if is_vertex
+            else "Перетащите точку луча, чтобы изменить угол."
+        )
+        self.setPos(position)
+
+    def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: object) -> object:
+        if change == QGraphicsItem.ItemPositionChange and isinstance(value, QPointF):
+            return self.canvas.constrain_point(value)
+        if change == QGraphicsItem.ItemPositionHasChanged:
+            self.canvas.angle_handle_moved(self.angle_index, self.point_index, self.pos())
+        if change == QGraphicsItem.ItemSelectedHasChanged:
+            self.canvas.angle_selection_changed()
+        return super().itemChange(change, value)
+
+
 class ImageCanvas(QGraphicsView):
     message_changed = pyqtSignal(str)
     image_state_changed = pyqtSignal(bool)
@@ -83,6 +139,7 @@ class ImageCanvas(QGraphicsView):
     contour_geometry_changed = pyqtSignal()
     calibration_segment_selected = pyqtSignal(object)
     calibration_geometry_changed = pyqtSignal()
+    angle_state_changed = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -110,15 +167,78 @@ class ImageCanvas(QGraphicsView):
         self._calibration_line_item.setVisible(False)
         self._scene.addItem(self._calibration_line_item)
 
+        self._calibration_label_item = QGraphicsTextItem()
+        self._calibration_label_item.setDefaultTextColor(QColor("#9d174d"))
+        label_font = self._calibration_label_item.font()
+        label_font.setBold(True)
+        label_font.setPointSize(9)
+        self._calibration_label_item.setFont(label_font)
+        self._calibration_label_item.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+        self._calibration_label_item.setZValue(30)
+        self._calibration_label_item.setVisible(False)
+        self._scene.addItem(self._calibration_label_item)
+
+        self._calibration_preview_line_item = QGraphicsLineItem()
+        calibration_preview_pen = QPen(QColor(217, 70, 127, 170), 1.8)
+        calibration_preview_pen.setCosmetic(True)
+        calibration_preview_pen.setStyle(Qt.DotLine)
+        self._calibration_preview_line_item.setPen(calibration_preview_pen)
+        self._calibration_preview_line_item.setZValue(24)
+        self._calibration_preview_line_item.setVisible(False)
+        self._scene.addItem(self._calibration_preview_line_item)
+
+        preview_radius = 5.5
+        self._calibration_preview_start_item = QGraphicsEllipseItem(
+            -preview_radius,
+            -preview_radius,
+            preview_radius * 2.0,
+            preview_radius * 2.0,
+        )
+        self._calibration_preview_start_item.setFlag(
+            QGraphicsItem.ItemIgnoresTransformations,
+            True,
+        )
+        self._calibration_preview_start_item.setBrush(QColor("#d9467f"))
+        self._calibration_preview_start_item.setPen(QPen(QColor("white"), 1.4))
+        self._calibration_preview_start_item.setZValue(28)
+        self._calibration_preview_start_item.setVisible(False)
+        self._scene.addItem(self._calibration_preview_start_item)
+
+        angle_preview_pen = QPen(QColor(34, 197, 94, 180), 1.7)
+        angle_preview_pen.setCosmetic(True)
+        angle_preview_pen.setStyle(Qt.DotLine)
+        self._angle_preview_line_item = QGraphicsLineItem()
+        self._angle_preview_line_item.setPen(angle_preview_pen)
+        self._angle_preview_line_item.setZValue(25)
+        self._angle_preview_line_item.setVisible(False)
+        self._scene.addItem(self._angle_preview_line_item)
+
+        self._angle_preview_fixed_line_item = QGraphicsLineItem()
+        fixed_angle_preview_pen = QPen(QColor("#22c55e"), 1.8)
+        fixed_angle_preview_pen.setCosmetic(True)
+        self._angle_preview_fixed_line_item.setPen(fixed_angle_preview_pen)
+        self._angle_preview_fixed_line_item.setZValue(25)
+        self._angle_preview_fixed_line_item.setVisible(False)
+        self._scene.addItem(self._angle_preview_fixed_line_item)
+
+        self._angle_preview_first_item = self._create_angle_preview_marker("#22c55e", 29)
+        self._angle_preview_vertex_item = self._create_angle_preview_marker("#7c3aed", 30)
+
         self._loaded_image: LoadedImage | None = None
         self._contour_points: list[QPointF] = []
         self._handles: list[NodeHandleItem] = []
         self._suppress_handle_events = False
         self._calibration_points: list[QPointF] = []
         self._calibration_handles: list[CalibrationHandleItem] = []
+        self._calibration_label_text = ""
         self._suppress_calibration_handle_events = False
         self._calibration_capture_active = False
         self._calibration_capture_points: list[QPointF] = []
+        self._angle_measurements: list[AngleMeasurement] = []
+        self._angle_graphics: list[AngleGraphics] = []
+        self._suppress_angle_handle_events = False
+        self._angle_capture_active = False
+        self._angle_capture_points: list[QPointF] = []
 
         self.setRenderHints(
             QPainter.Antialiasing
@@ -130,6 +250,8 @@ class ImageCanvas(QGraphicsView):
         self.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self.setBackgroundBrush(QColor("#eef2f7"))
+        self.setMouseTracking(True)
+        self.viewport().setMouseTracking(True)
 
     def has_image(self) -> bool:
         return self._loaded_image is not None
@@ -139,6 +261,15 @@ class ImageCanvas(QGraphicsView):
 
     def has_calibration(self) -> bool:
         return len(self._calibration_points) == 2
+
+    def has_angle_measurements(self) -> bool:
+        return bool(self._angle_measurements)
+
+    def has_selected_angle_vertex(self) -> bool:
+        return any(
+            len(graphics.handles) > 1 and graphics.handles[1].isSelected()
+            for graphics in self._angle_graphics
+        )
 
     def current_image_path(self) -> Path | None:
         return self._loaded_image.path if self._loaded_image else None
@@ -159,6 +290,19 @@ class ImageCanvas(QGraphicsView):
     def calibration_points(self) -> list[Point]:
         return [Point(point.x(), point.y()) for point in self._calibration_points]
 
+    def calibration_label_text(self) -> str:
+        return self._calibration_label_text
+
+    def angle_measurements(self) -> list[tuple[Point, Point, Point]]:
+        return [
+            (
+                Point(measurement.first.x(), measurement.first.y()),
+                Point(measurement.vertex.x(), measurement.vertex.y()),
+                Point(measurement.second.x(), measurement.second.y()),
+            )
+            for measurement in self._angle_measurements
+        ]
+
     def contour_rgb_pixels(self) -> np.ndarray:
         if not self._loaded_image or len(self._contour_points) < 3:
             return np.empty((0, 3), dtype=np.uint8)
@@ -174,6 +318,7 @@ class ImageCanvas(QGraphicsView):
         self._scene.setSceneRect(QRectF(0, 0, image.width, image.height))
         self.clear_contour()
         self.clear_calibration()
+        self.clear_angles()
         self.fit_to_image()
         self.image_state_changed.emit(True)
         self.message_changed.emit(f"Открыто изображение: {image.path.name}")
@@ -184,6 +329,7 @@ class ImageCanvas(QGraphicsView):
         self._scene.setSceneRect(QRectF())
         self.clear_contour()
         self.clear_calibration()
+        self.clear_angles()
         self.resetTransform()
         self.image_state_changed.emit(False)
         self.message_changed.emit("Изображение очищено.")
@@ -239,8 +385,11 @@ class ImageCanvas(QGraphicsView):
         if not self.has_image():
             self.message_changed.emit("Сначала выберите изображение проекта.")
             return
+        if self._angle_capture_active:
+            self.cancel_angle_measurement(show_message=False)
         self._calibration_capture_active = True
         self._calibration_capture_points.clear()
+        self._clear_calibration_preview()
         self.setDragMode(QGraphicsView.NoDrag)
         self.message_changed.emit("Калибровка: укажите начало отрезка.")
 
@@ -249,30 +398,107 @@ class ImageCanvas(QGraphicsView):
             return
         self._calibration_capture_active = False
         self._calibration_capture_points.clear()
+        self._clear_calibration_preview()
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self.message_changed.emit("Калибровка отменена.")
 
-    def set_calibration(self, start: Point, end: Point) -> None:
+    def set_calibration(self, start: Point, end: Point, label_text: str = "") -> None:
         if not self._loaded_image:
             raise ValueError("Нельзя задать калибровку без загруженного изображения.")
         self._calibration_capture_active = False
         self._calibration_capture_points.clear()
+        self._clear_calibration_preview()
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self._calibration_points = [
             self.constrain_point(QPointF(float(start.x), float(start.y))),
             self.constrain_point(QPointF(float(end.x), float(end.y))),
         ]
+        self._calibration_label_text = label_text
         self._refresh_calibration_line()
         self._rebuild_calibration_handles()
         self.message_changed.emit("Калибровочный отрезок задан.")
 
+    def set_calibration_label_text(self, label_text: str) -> None:
+        self._calibration_label_text = label_text
+        self._refresh_calibration_label()
+
     def clear_calibration(self) -> None:
         self._calibration_capture_active = False
         self._calibration_capture_points.clear()
+        self._clear_calibration_preview()
         self.setDragMode(QGraphicsView.ScrollHandDrag)
         self._calibration_points.clear()
+        self._calibration_label_text = ""
         self._refresh_calibration_line()
         self._clear_calibration_handles()
+
+    def begin_angle_measurement(self) -> None:
+        if not self.has_image():
+            self.message_changed.emit("Сначала выберите изображение проекта.")
+            return
+        if self._calibration_capture_active:
+            self.cancel_calibration()
+        self._angle_capture_active = True
+        self._angle_capture_points.clear()
+        self._clear_angle_preview()
+        self.setDragMode(QGraphicsView.NoDrag)
+        self.message_changed.emit("Угол: укажите точку первого луча.")
+        self.angle_state_changed.emit()
+
+    def cancel_angle_measurement(self, *, show_message: bool = True) -> None:
+        if not self._angle_capture_active:
+            return
+        self._angle_capture_active = False
+        self._angle_capture_points.clear()
+        self._clear_angle_preview()
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        if show_message:
+            self.message_changed.emit("Измерение угла отменено.")
+        self.angle_state_changed.emit()
+
+    def set_angle_measurements(self, measurements: Sequence[Sequence[Point]]) -> None:
+        if not self._loaded_image:
+            self.clear_angles()
+            return
+
+        self.cancel_angle_measurement(show_message=False)
+        self._angle_measurements = []
+        for measurement in measurements:
+            points = list(measurement)
+            if len(points) != 3:
+                continue
+            first = self.constrain_point(QPointF(float(points[0].x), float(points[0].y)))
+            vertex = self.constrain_point(QPointF(float(points[1].x), float(points[1].y)))
+            second = self.constrain_point(QPointF(float(points[2].x), float(points[2].y)))
+            if _angle_degrees(first, vertex, second) is None:
+                continue
+            self._angle_measurements.append(AngleMeasurement(first, vertex, second))
+
+        self._rebuild_angle_graphics()
+        self.angle_state_changed.emit()
+
+    def clear_angles(self) -> None:
+        was_active = self._angle_capture_active
+        self._angle_capture_active = False
+        self._angle_capture_points.clear()
+        self._clear_angle_preview()
+        if was_active:
+            self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self._angle_measurements.clear()
+        self._clear_angle_graphics()
+        self.angle_state_changed.emit()
+
+    def delete_selected_angle(self) -> bool:
+        selected_index = self._selected_angle_vertex_index()
+        if selected_index is None:
+            self.message_changed.emit("Выберите вершину угла, чтобы удалить измерение.")
+            return False
+
+        del self._angle_measurements[selected_index]
+        self._rebuild_angle_graphics()
+        self.message_changed.emit("Измерение угла удалено.")
+        self.angle_state_changed.emit()
+        return True
 
     def constrain_point(self, point: QPointF) -> QPointF:
         if not self._loaded_image:
@@ -295,6 +521,28 @@ class ImageCanvas(QGraphicsView):
         self._calibration_points[index] = self.constrain_point(position)
         self._refresh_calibration_line()
         self.calibration_geometry_changed.emit()
+
+    def angle_handle_moved(self, angle_index: int, point_index: int, position: QPointF) -> None:
+        if (
+            self._suppress_angle_handle_events
+            or angle_index >= len(self._angle_measurements)
+            or point_index not in (0, 1, 2)
+        ):
+            return
+
+        measurement = self._angle_measurements[angle_index]
+        point = self.constrain_point(position)
+        if point_index == 0:
+            measurement.first = point
+        elif point_index == 1:
+            measurement.vertex = point
+        else:
+            measurement.second = point
+        self._refresh_angle_graphic(angle_index)
+        self.angle_state_changed.emit()
+
+    def angle_selection_changed(self) -> None:
+        self.angle_state_changed.emit()
 
     def remove_node(self, index: int) -> bool:
         if len(self._contour_points) <= 3:
@@ -372,25 +620,76 @@ class ImageCanvas(QGraphicsView):
 
     def zoom_in(self) -> None:
         self.scale(1.2, 1.2)
+        self._refresh_calibration_label()
+        self._refresh_angle_labels()
         self.message_changed.emit("Масштаб увеличен.")
 
     def zoom_out(self) -> None:
         self.scale(1 / 1.2, 1 / 1.2)
+        self._refresh_calibration_label()
+        self._refresh_angle_labels()
         self.message_changed.emit("Масштаб уменьшен.")
 
     def reset_zoom(self) -> None:
         self.resetTransform()
         if self.has_image():
             self.centerOn(self._image_item)
+        self._refresh_calibration_label()
+        self._refresh_angle_labels()
         self.message_changed.emit("Масштаб: 100%.")
 
     def fit_to_image(self) -> None:
         if not self.has_image():
             return
         self.fitInView(self._image_item, Qt.KeepAspectRatio)
+        self._refresh_calibration_label()
+        self._refresh_angle_labels()
         self.message_changed.emit("Изображение вписано в окно.")
 
     def mousePressEvent(self, event) -> None:
+        if self._angle_capture_active and event.button() == Qt.RightButton:
+            self.cancel_angle_measurement()
+            event.accept()
+            return
+
+        if self._angle_capture_active and event.button() == Qt.LeftButton:
+            scene_pos = self.mapToScene(event.pos())
+            if not self._image_item.boundingRect().contains(scene_pos):
+                self.message_changed.emit("Угол: укажите точку внутри изображения.")
+                event.accept()
+                return
+
+            self._angle_capture_points.append(self.constrain_point(scene_pos))
+            if len(self._angle_capture_points) == 1:
+                self._refresh_angle_preview(self._angle_capture_points[0])
+                self.message_changed.emit("Угол: укажите вершину угла.")
+            elif len(self._angle_capture_points) == 2:
+                self._refresh_angle_preview(self._angle_capture_points[1])
+                self.message_changed.emit("Угол: укажите точку второго луча.")
+            else:
+                first, vertex, second = self._angle_capture_points[:3]
+                if _angle_degrees(first, vertex, second) is None:
+                    self._angle_capture_points = self._angle_capture_points[:2]
+                    self._refresh_angle_preview(vertex)
+                    self.message_changed.emit("Угол некорректен: точки лучей должны отличаться от вершины.")
+                    event.accept()
+                    return
+
+                self._angle_measurements.append(AngleMeasurement(first, vertex, second))
+                self._angle_capture_points.clear()
+                self._clear_angle_preview()
+                self._rebuild_angle_graphics()
+                self.setDragMode(QGraphicsView.NoDrag)
+                self.message_changed.emit("Угол задан. Укажите точку первого луча для следующего угла.")
+                self.angle_state_changed.emit()
+            event.accept()
+            return
+
+        if self._calibration_capture_active and event.button() == Qt.RightButton:
+            self.cancel_calibration()
+            event.accept()
+            return
+
         if self._calibration_capture_active and event.button() == Qt.LeftButton:
             scene_pos = self.mapToScene(event.pos())
             if not self._image_item.boundingRect().contains(scene_pos):
@@ -400,18 +699,34 @@ class ImageCanvas(QGraphicsView):
 
             self._calibration_capture_points.append(self.constrain_point(scene_pos))
             if len(self._calibration_capture_points) == 1:
+                self._refresh_calibration_preview(self._calibration_capture_points[0])
                 self.message_changed.emit("Калибровка: укажите конец отрезка.")
             else:
                 points = [Point(point.x(), point.y()) for point in self._calibration_capture_points[:2]]
                 self._calibration_capture_active = False
                 self._calibration_capture_points.clear()
+                self._clear_calibration_preview()
                 self.setDragMode(QGraphicsView.ScrollHandDrag)
                 self.calibration_segment_selected.emit(points)
             event.accept()
             return
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event) -> None:
+        if self._angle_capture_active and self._angle_capture_points:
+            self._refresh_angle_preview(self.mapToScene(event.pos()))
+            event.accept()
+            return
+        if self._calibration_capture_active and self._calibration_capture_points:
+            self._refresh_calibration_preview(self.mapToScene(event.pos()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
     def mouseDoubleClickEvent(self, event) -> None:
+        if self._angle_capture_active or self._calibration_capture_active:
+            event.accept()
+            return
         if event.button() == Qt.LeftButton and self.has_contour():
             item = self.itemAt(event.pos())
             if not isinstance(item, NodeHandleItem):
@@ -423,8 +738,19 @@ class ImageCanvas(QGraphicsView):
         super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key_Escape and self._angle_capture_active:
+            self.cancel_angle_measurement()
+            event.accept()
+            return
         if event.key() == Qt.Key_Escape and self._calibration_capture_active:
             self.cancel_calibration()
+            event.accept()
+            return
+        if (
+            event.key() in (Qt.Key_Delete, Qt.Key_Backspace)
+            and self.has_selected_angle_vertex()
+            and self.delete_selected_angle()
+        ):
             event.accept()
             return
         if event.key() in (Qt.Key_Delete, Qt.Key_Backspace) and self.delete_selected_nodes():
@@ -471,11 +797,231 @@ class ImageCanvas(QGraphicsView):
         if len(self._calibration_points) != 2:
             self._calibration_line_item.setVisible(False)
             self._calibration_line_item.setLine(0.0, 0.0, 0.0, 0.0)
+            self._refresh_calibration_label()
             return
 
         start, end = self._calibration_points
         self._calibration_line_item.setLine(start.x(), start.y(), end.x(), end.y())
         self._calibration_line_item.setVisible(True)
+        self._refresh_calibration_label()
+
+    def _refresh_calibration_label(self) -> None:
+        if (
+            len(self._calibration_points) != 2
+            or not self._calibration_label_text
+            or self._calibration_capture_active
+        ):
+            self._calibration_label_item.setVisible(False)
+            return
+
+        start, end = self._calibration_points
+        self._calibration_label_item.setPlainText(self._calibration_label_text)
+        midpoint = QPointF((start.x() + end.x()) / 2.0, (start.y() + end.y()) / 2.0)
+        text_rect = self._calibration_label_item.boundingRect()
+        scale_x = abs(self.transform().m11()) or 1.0
+        scale_y = abs(self.transform().m22()) or scale_x
+        self._calibration_label_item.setPos(
+            midpoint.x() - text_rect.center().x() / scale_x,
+            midpoint.y() - text_rect.center().y() / scale_y,
+        )
+        self._calibration_label_item.setVisible(True)
+
+    def _refresh_calibration_preview(self, end: QPointF) -> None:
+        if not self._loaded_image or not self._calibration_capture_points:
+            self._clear_calibration_preview()
+            return
+
+        start = self._calibration_capture_points[0]
+        preview_end = self.constrain_point(end)
+        self._calibration_preview_start_item.setPos(start)
+        self._calibration_preview_start_item.setVisible(True)
+        self._calibration_preview_line_item.setLine(
+            start.x(),
+            start.y(),
+            preview_end.x(),
+            preview_end.y(),
+        )
+        self._calibration_preview_line_item.setVisible(True)
+
+    def _clear_calibration_preview(self) -> None:
+        self._calibration_preview_start_item.setVisible(False)
+        self._calibration_preview_line_item.setVisible(False)
+        self._calibration_preview_line_item.setLine(0.0, 0.0, 0.0, 0.0)
+
+    def _create_angle_preview_marker(self, color_name: str, z_value: float) -> QGraphicsEllipseItem:
+        radius = 5.4
+        marker = QGraphicsEllipseItem(-radius, -radius, radius * 2.0, radius * 2.0)
+        marker.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+        marker.setBrush(QColor(color_name))
+        marker.setPen(QPen(QColor("white"), 1.4))
+        marker.setZValue(z_value)
+        marker.setVisible(False)
+        self._scene.addItem(marker)
+        return marker
+
+    def _refresh_angle_preview(self, end: QPointF) -> None:
+        if not self._loaded_image or not self._angle_capture_points:
+            self._clear_angle_preview()
+            return
+
+        preview_end = self.constrain_point(end)
+        first = self._angle_capture_points[0]
+        self._angle_preview_first_item.setPos(first)
+        self._angle_preview_first_item.setVisible(True)
+
+        if len(self._angle_capture_points) == 1:
+            self._angle_preview_vertex_item.setVisible(False)
+            self._angle_preview_fixed_line_item.setVisible(False)
+            self._angle_preview_fixed_line_item.setLine(0.0, 0.0, 0.0, 0.0)
+            self._angle_preview_line_item.setLine(
+                first.x(),
+                first.y(),
+                preview_end.x(),
+                preview_end.y(),
+            )
+            self._angle_preview_line_item.setVisible(True)
+            return
+
+        vertex = self._angle_capture_points[1]
+        self._angle_preview_vertex_item.setPos(vertex)
+        self._angle_preview_vertex_item.setVisible(True)
+        self._angle_preview_fixed_line_item.setLine(
+            vertex.x(),
+            vertex.y(),
+            first.x(),
+            first.y(),
+        )
+        self._angle_preview_fixed_line_item.setVisible(True)
+        self._angle_preview_line_item.setLine(
+            vertex.x(),
+            vertex.y(),
+            preview_end.x(),
+            preview_end.y(),
+        )
+        self._angle_preview_line_item.setVisible(True)
+
+    def _clear_angle_preview(self) -> None:
+        self._angle_preview_first_item.setVisible(False)
+        self._angle_preview_vertex_item.setVisible(False)
+        self._angle_preview_line_item.setVisible(False)
+        self._angle_preview_line_item.setLine(0.0, 0.0, 0.0, 0.0)
+        self._angle_preview_fixed_line_item.setVisible(False)
+        self._angle_preview_fixed_line_item.setLine(0.0, 0.0, 0.0, 0.0)
+
+    def _clear_angle_graphics(self) -> None:
+        for graphics in self._angle_graphics:
+            for handle in graphics.handles:
+                self._scene.removeItem(handle)
+            self._scene.removeItem(graphics.first_line)
+            self._scene.removeItem(graphics.second_line)
+            self._scene.removeItem(graphics.label)
+        self._angle_graphics.clear()
+
+    def _rebuild_angle_graphics(self) -> None:
+        self._clear_angle_graphics()
+        self._suppress_angle_handle_events = True
+        try:
+            for index, measurement in enumerate(self._angle_measurements):
+                self._angle_graphics.append(self._create_angle_graphic(index, measurement))
+                self._refresh_angle_graphic(index)
+        finally:
+            self._suppress_angle_handle_events = False
+
+    def _create_angle_graphic(
+        self,
+        angle_index: int,
+        measurement: AngleMeasurement,
+    ) -> AngleGraphics:
+        line_pen = QPen(QColor("#22c55e"), 2.0)
+        line_pen.setCosmetic(True)
+
+        first_line = QGraphicsLineItem()
+        first_line.setPen(line_pen)
+        first_line.setZValue(22)
+        self._scene.addItem(first_line)
+
+        second_line = QGraphicsLineItem()
+        second_line.setPen(line_pen)
+        second_line.setZValue(22)
+        self._scene.addItem(second_line)
+
+        label = QGraphicsTextItem()
+        label.setDefaultTextColor(QColor("#166534"))
+        label_font = label.font()
+        label_font.setBold(True)
+        label_font.setPointSize(9)
+        label.setFont(label_font)
+        label.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+        label.setZValue(33)
+        self._scene.addItem(label)
+
+        handles = [
+            AngleHandleItem(self, angle_index, 0, measurement.first),
+            AngleHandleItem(self, angle_index, 1, measurement.vertex),
+            AngleHandleItem(self, angle_index, 2, measurement.second),
+        ]
+        for handle in handles:
+            self._scene.addItem(handle)
+
+        return AngleGraphics(first_line, second_line, label, handles)
+
+    def _refresh_angle_graphic(self, angle_index: int) -> None:
+        if angle_index >= len(self._angle_measurements) or angle_index >= len(self._angle_graphics):
+            return
+
+        measurement = self._angle_measurements[angle_index]
+        graphics = self._angle_graphics[angle_index]
+        graphics.first_line.setLine(
+            measurement.vertex.x(),
+            measurement.vertex.y(),
+            measurement.first.x(),
+            measurement.first.y(),
+        )
+        graphics.second_line.setLine(
+            measurement.vertex.x(),
+            measurement.vertex.y(),
+            measurement.second.x(),
+            measurement.second.y(),
+        )
+        angle_degrees = _angle_degrees(measurement.first, measurement.vertex, measurement.second)
+        graphics.label.setPlainText("-" if angle_degrees is None else _format_angle_degrees(angle_degrees))
+        self._position_angle_label(graphics.label, measurement.vertex)
+
+        self._suppress_angle_handle_events = True
+        try:
+            points = (measurement.first, measurement.vertex, measurement.second)
+            for handle, point in zip(graphics.handles, points):
+                handle.setPos(point)
+        finally:
+            self._suppress_angle_handle_events = False
+
+    def _refresh_angle_labels(self) -> None:
+        for index in range(len(self._angle_measurements)):
+            self._refresh_angle_graphic(index)
+
+    def _position_angle_label(self, label: QGraphicsTextItem, vertex: QPointF) -> None:
+        text_rect = label.boundingRect()
+        scale_x = abs(self.transform().m11()) or 1.0
+        scale_y = abs(self.transform().m22()) or scale_x
+        vertical_offset = 18.0 / scale_y
+        x = vertex.x() - text_rect.center().x() / scale_x
+        y = vertex.y() - vertical_offset - text_rect.height() / scale_y
+        if self._loaded_image is not None:
+            image_rect = self._image_item.boundingRect()
+            label_width = text_rect.width() / scale_x
+            label_height = text_rect.height() / scale_y
+            max_x = max(image_rect.left(), image_rect.right() - label_width)
+            max_y = max(image_rect.top(), image_rect.bottom() - label_height)
+            x = min(max(x, image_rect.left()), max_x)
+            y = min(max(y, image_rect.top()), max_y)
+        label.setPos(x, y)
+        label.setVisible(True)
+
+    def _selected_angle_vertex_index(self) -> int | None:
+        for index, graphics in enumerate(self._angle_graphics):
+            if len(graphics.handles) > 1 and graphics.handles[1].isSelected():
+                return index
+        return None
 
     def _clear_handles(self) -> None:
         for handle in self._handles:
@@ -551,3 +1097,25 @@ def _distance_to_segment(point: QPointF, start: QPointF, end: QPointF) -> tuple[
     projected_y = start_y + projection_factor * delta_y
     distance = ((point_x - projected_x) ** 2 + (point_y - projected_y) ** 2) ** 0.5
     return distance, QPointF(projected_x, projected_y)
+
+
+def _angle_degrees(first: QPointF, vertex: QPointF, second: QPointF) -> float | None:
+    first_x = first.x() - vertex.x()
+    first_y = first.y() - vertex.y()
+    second_x = second.x() - vertex.x()
+    second_y = second.y() - vertex.y()
+    first_length = math.hypot(first_x, first_y)
+    second_length = math.hypot(second_x, second_y)
+    if first_length <= 1e-6 or second_length <= 1e-6:
+        return None
+
+    cosine = (first_x * second_x + first_y * second_y) / (first_length * second_length)
+    cosine = max(-1.0, min(1.0, cosine))
+    return math.degrees(math.acos(cosine))
+
+
+def _format_angle_degrees(value: float) -> str:
+    rounded = round(value, 1)
+    if math.isclose(rounded, round(rounded), abs_tol=1e-9):
+        return f"{int(round(rounded))}°"
+    return f"{rounded:.1f}°"

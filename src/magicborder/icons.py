@@ -129,6 +129,16 @@ ACTION_VISUALS: dict[str, ActionVisual] = {
         tool_tip="Сбросить калибровку",
         status_tip="Удалить калибровочный отрезок и масштаб выбранного изображения.",
     ),
+    "measure_angle": ActionVisual(
+        icon_name="actual-size",
+        tool_tip="Угол",
+        status_tip="Измерить угол тремя точками на выбранном изображении.",
+    ),
+    "delete_angle": ActionVisual(
+        icon_name="delete-contour",
+        tool_tip="Удалить угол",
+        status_tip="Удалить выбранное временное измерение угла.",
+    ),
     "save_annotation": ActionVisual(
         icon_name="save-annotation",
         tool_tip="Сохранить аннотацию",

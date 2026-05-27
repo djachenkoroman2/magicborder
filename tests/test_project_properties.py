@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (  # noqa: E402
     QApplication,
     QDialog,
     QSizePolicy,
+    QHeaderView,
     QToolBar,
     QToolButton,
     QWidgetAction,
@@ -40,7 +41,7 @@ from magicborder.models import (  # noqa: E402
     ProjectDocument,
     ProjectImageRecord,
 )
-from magicborder.property_browser import PropertyBrowser  # noqa: E402
+from magicborder.property_browser import PropertyBrowser, PropertyValueLabel  # noqa: E402
 
 _APP: QApplication | None = None
 
@@ -188,6 +189,8 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Аннотация",
                 "Количество узлов контура",
                 "Количество пикселов контура",
+                "Площадь контура, мм²",
+                "Длина калибровки, мм",
                 "Масштаб",
                 "--- Цветовое пространство RGB",
                 "Красный",
@@ -312,6 +315,45 @@ class ProjectPropertiesTest(unittest.TestCase):
         self.assertTrue(browser.is_property_visible("Общая информация"))
         self.assertFalse(rgb_group.isExpanded())
         self.assertFalse(browser.is_property_visible("Средний R"))
+
+    def test_property_browsers_allow_key_column_width_adjustment(self) -> None:
+        _app()
+        window = MainWindow()
+
+        for browser in (window.project_properties_browser, window.properties_browser):
+            browser.resize(320, 220)
+
+            self.assertIsInstance(browser, PropertyBrowser)
+            self.assertFalse(browser.isHeaderHidden())
+            self.assertEqual(browser.header().sectionResizeMode(0), QHeaderView.Interactive)
+            self.assertEqual(browser.header().sectionResizeMode(1), QHeaderView.Stretch)
+
+            browser.set_key_column_width(110)
+            self.assertEqual(browser.key_column_width(), 110)
+            browser.set_key_column_width(180)
+            self.assertEqual(browser.key_column_width(), 180)
+
+        self.assertIsInstance(window.project_image_count, PropertyValueLabel)
+        self.assertIsInstance(window.property_path, PropertyValueLabel)
+
+    def test_property_browser_long_values_remain_available_and_resize_rows(self) -> None:
+        _app()
+        browser = PropertyBrowser()
+        browser.resize(260, 220)
+        browser.add_group("Группа", expanded=True)
+        label = PropertyValueLabel()
+        item = browser.add_property("Группа", "Длинное свойство", label)
+
+        browser.set_key_column_width(96)
+        compact_height = item.sizeHint(1).height()
+        long_text = "длинное значение свойства " * 20
+        label.setText(long_text)
+        browser.refresh_layout()
+
+        self.assertTrue(label.wordWrap())
+        self.assertTrue(label.textInteractionFlags() & Qt.TextSelectableByMouse)
+        self.assertEqual(label.toolTip(), long_text)
+        self.assertGreater(item.sizeHint(1).height(), compact_height)
 
     def test_image_properties_panel_has_no_refresh_button(self) -> None:
         _app()
@@ -450,6 +492,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertTrue(window.canvas.has_image())
             self.assertEqual(window.canvas.current_image_path(), image_dir / "leaf.png")
             self.assertEqual(window.property_points.text(), "5")
+            self.assertEqual(window.property_contour_area_mm2.text(), "калибровка не произведена")
+            self.assertEqual(window.property_calibration_length.text(), "калибровка не произведена")
+            self.assertFalse(window.property_calibration_length.isEnabled())
             self.assertEqual(window.property_calibration_scale.text(), "-")
 
             window.canvas.set_contour(
@@ -463,6 +508,8 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             self.assertEqual(window.property_points.text(), "4")
             self.assertEqual(window.property_contour_pixels.text(), "324")
+            self.assertEqual(window.property_contour_area_mm2.text(), "калибровка не произведена")
+            self.assertEqual(window.property_calibration_length.text(), "калибровка не произведена")
             self.assertEqual(len(window.project_document.images[0].annotation.points), 4)
 
             window.delete_current_contour()
@@ -472,6 +519,8 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.property_annotation.text(), "нет")
             self.assertEqual(window.property_points.text(), "-")
             self.assertEqual(window.property_contour_pixels.text(), "-")
+            self.assertEqual(window.property_contour_area_mm2.text(), "-")
+            self.assertEqual(window.property_calibration_length.text(), "калибровка не произведена")
             self.assertEqual(window.property_calibration_scale.text(), "-")
             self.assertEqual(window.property_lab_l.text(), "-")
             self.assertEqual(window.property_lab_a.text(), "-")
@@ -485,6 +534,79 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.property_lms_l.text(), "-")
             self.assertEqual(window.property_lms_m.text(), "-")
             self.assertEqual(window.property_lms_s.text(), "-")
+
+    def test_angle_measurements_are_session_scoped_and_not_saved(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            Image.new("RGB", (20, 20), (120, 80, 40)).save(image_dir / "leaf_a.png")
+            Image.new("RGB", (20, 20), (10, 20, 30)).save(image_dir / "leaf_b.png")
+
+            project = ProjectDocument(
+                name="measurements",
+                images=[
+                    ProjectImageRecord(
+                        id="leaf-a",
+                        relative_path="images/leaf_a.png",
+                        display_name="leaf_a.png",
+                        image_width=20,
+                        image_height=20,
+                    ),
+                    ProjectImageRecord(
+                        id="leaf-b",
+                        relative_path="images/leaf_b.png",
+                        display_name="leaf_b.png",
+                        image_width=20,
+                        image_height=20,
+                    ),
+                ],
+            )
+            project_path = root / "angles.json"
+            save_project(project_path, project)
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertTrue(window.measure_angle_action.isEnabled())
+            self.assertFalse(window.delete_angle_action.isEnabled())
+
+            window.canvas.set_angle_measurements(
+                [
+                    (
+                        Point(2, 10),
+                        Point(2, 2),
+                        Point(10, 2),
+                    )
+                ]
+            )
+
+            self.assertFalse(window._project_autosave_timer.isActive())
+            self.assertEqual(len(window._angle_measurements_by_image_id["leaf-a"]), 1)
+
+            window.canvas._angle_graphics[0].handles[1].setSelected(True)
+
+            self.assertTrue(window.delete_angle_action.isEnabled())
+
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            self.assertNotIn("angle", json.dumps(payload, ensure_ascii=False).lower())
+
+            window.project_list.setCurrentRow(1)
+
+            self.assertEqual(window.canvas.angle_measurements(), [])
+
+            window.project_list.setCurrentRow(0)
+
+            self.assertEqual(len(window.canvas.angle_measurements()), 1)
+
+            window.canvas._angle_graphics[0].handles[1].setSelected(True)
+            window.delete_selected_angle()
+
+            self.assertEqual(window.canvas.angle_measurements(), [])
+            self.assertEqual(window._angle_measurements_by_image_id["leaf-a"], [])
+            self.assertFalse(window.delete_angle_action.isEnabled())
 
     def test_image_calibration_scale_round_trip_edit_reset_and_export(self) -> None:
         _app()
@@ -584,6 +706,139 @@ class ProjectPropertiesTest(unittest.TestCase):
                 window.property_calibration_scale.text(),
                 "20 px = 5 мм; 4 px/мм; 0.25 мм/px",
             )
+
+    def test_image_contour_area_mm2_updates_with_contour_and_calibration(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            Image.new("RGB", (30, 30), (120, 80, 40)).save(image_dir / "leaf.png")
+
+            project = ProjectDocument(
+                name="area_mm2",
+                images=[
+                    ProjectImageRecord(
+                        id="leaf-1",
+                        relative_path="images/leaf.png",
+                        display_name="leaf.png",
+                        image_width=30,
+                        image_height=30,
+                        annotation=Annotation(
+                            image_path="images/leaf.png",
+                            image_width=30,
+                            image_height=30,
+                            points=[
+                                Point(1, 1),
+                                Point(18, 1),
+                                Point(18, 18),
+                                Point(1, 18),
+                            ],
+                        ),
+                        calibration=ImageCalibration(
+                            start=Point(1, 1),
+                            end=Point(19, 1),
+                            length_mm=6,
+                        ),
+                    )
+                ],
+            )
+            project_path = root / "area_mm2.json"
+            save_project(project_path, project)
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertEqual(window.property_contour_pixels.text(), "324")
+            self.assertEqual(window.property_contour_area_mm2.text(), "36 мм²")
+            self.assertEqual(window.property_calibration_length.text(), "6 мм")
+            self.assertTrue(window.property_calibration_length.isEnabled())
+            self.assertEqual(window.canvas.calibration_label_text(), "6 мм")
+            self.assertTrue(window.canvas._calibration_label_item.isVisible())
+
+            window.canvas.set_contour(
+                [
+                    Point(1, 1),
+                    Point(9, 1),
+                    Point(9, 9),
+                    Point(1, 9),
+                ]
+            )
+
+            self.assertEqual(window.property_contour_pixels.text(), "81")
+            self.assertEqual(window.property_contour_area_mm2.text(), "9 мм²")
+
+            window.property_calibration_length.setText("3,0")
+            window._handle_calibration_length_edit_finished()
+
+            record = window.project_document.images[0]
+            self.assertIsNotNone(record.calibration)
+            self.assertEqual(record.calibration.start, Point(1, 1))
+            self.assertEqual(record.calibration.end, Point(19, 1))
+            self.assertEqual(record.calibration.length_mm, 3.0)
+            self.assertEqual(window.property_calibration_length.text(), "3 мм")
+            self.assertEqual(
+                window.property_calibration_scale.text(),
+                "18 px = 3 мм; 6 px/мм; 0.1667 мм/px",
+            )
+            self.assertEqual(window.property_contour_area_mm2.text(), "2.25 мм²")
+            self.assertEqual(window.canvas.calibration_label_text(), "3 мм")
+
+            with patch.object(window, "_show_warning") as show_warning:
+                window.property_calibration_length.setText("0")
+                window._handle_calibration_length_edit_finished()
+
+            show_warning.assert_called_once_with(
+                "Некорректная калибровка",
+                "Длина калибровочного отрезка должна быть положительным числом.",
+            )
+            self.assertEqual(record.calibration.length_mm, 3.0)
+            self.assertEqual(window.property_calibration_length.text(), "3 мм")
+
+            label_position = window.canvas._calibration_label_item.pos()
+
+            window.canvas.calibration_handle_moved(1, QPointF(10, 1))
+
+            self.assertNotEqual(window.canvas._calibration_label_item.pos(), label_position)
+            self.assertEqual(window.canvas.calibration_label_text(), "3 мм")
+            self.assertEqual(window.property_contour_area_mm2.text(), "9 мм²")
+
+            export_path = root / "area_properties.xlsx"
+            window._write_image_properties_excel(
+                export_path,
+                ["calibration_length_mm", "contour_area_mm2"],
+            )
+            self.assertEqual(
+                _read_xlsx_dict_rows(export_path),
+                [
+                    {
+                        "Свойство": "Длина калибровки, мм",
+                        "Значение": "3 мм",
+                    },
+                    {
+                        "Свойство": "Площадь контура, мм²",
+                        "Значение": "9 мм²",
+                    },
+                ],
+            )
+
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            self.assertNotIn("contour_area_mm2", payload["images"][0])
+            self.assertEqual(payload["images"][0]["calibration"]["length_mm"], 3.0)
+
+            window.reset_current_calibration()
+
+            self.assertEqual(
+                window.property_contour_area_mm2.text(),
+                "калибровка не произведена",
+            )
+            self.assertEqual(
+                window.property_calibration_length.text(),
+                "калибровка не произведена",
+            )
+            self.assertFalse(window.property_calibration_length.isEnabled())
+            self.assertFalse(window.canvas._calibration_label_item.isVisible())
 
     def test_image_properties_lab_values_update_export_and_stay_out_of_json(self) -> None:
         _app()

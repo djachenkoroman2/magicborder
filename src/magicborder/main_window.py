@@ -67,7 +67,7 @@ from .models import (
     default_project_image_metadata,
 )
 from .path_utils import portable_path_reference
-from .property_browser import PropertyBrowser
+from .property_browser import PropertyBrowser, PropertyValueLabel
 
 APP_TITLE = "MagicBorder"
 WORKSPACE_DEFAULT_SIZES = [260, 860, 280]
@@ -106,6 +106,8 @@ IMAGE_PROPERTY_GROUPS = [
             ("annotation", "Аннотация"),
             ("point_count", "Количество узлов контура"),
             ("contour_pixel_count", "Количество пикселов контура"),
+            ("contour_area_mm2", "Площадь контура, мм²"),
+            ("calibration_length_mm", "Длина калибровки, мм"),
             ("calibration_scale", "Масштаб"),
         ],
     ),
@@ -222,10 +224,12 @@ class MainWindow(QMainWindow):
         self.project_document: ProjectDocument | None = None
         self.project_path: Path | None = None
         self._current_project_image_id: str | None = None
+        self._angle_measurements_by_image_id: dict[str, list[tuple[Point, Point, Point]]] = {}
         self._loading_project_image = False
         self._updating_project_list = False
         self._updating_project_info_fields = False
         self._updating_metadata_fields = False
+        self._updating_calibration_length_field = False
         self._project_autosave_timer = QTimer(self)
         self._project_autosave_timer.setSingleShot(True)
         self._project_autosave_timer.timeout.connect(self._save_project_silently)
@@ -249,6 +253,7 @@ class MainWindow(QMainWindow):
         self.canvas.contour_geometry_changed.connect(self._handle_contour_geometry_changed)
         self.canvas.calibration_segment_selected.connect(self._handle_calibration_segment_selected)
         self.canvas.calibration_geometry_changed.connect(self._handle_calibration_geometry_changed)
+        self.canvas.angle_state_changed.connect(self._handle_angle_state_changed)
         self._update_action_states()
         self._refresh_histograms()
         self._update_project_panel()
@@ -341,6 +346,7 @@ class MainWindow(QMainWindow):
             "QListWidget#projectImageList::item:selected { background: #d8edf3; color: #102a32; }"
             "QListWidget#projectImageList::item:alternate { background: #f7f9fc; }"
             "QTreeWidget#propertyBrowser { background: transparent; border: none; outline: none; color: #1f2937; }"
+            "QTreeWidget#propertyBrowser QHeaderView::section { background: rgba(255, 255, 255, 120); color: #64748b; border: none; border-bottom: 1px solid #d5dbe5; padding: 3px 4px; font-size: 11px; font-weight: 600; }"
             "QTreeWidget#propertyBrowser::item { padding: 2px 0; }"
             "QTreeWidget#propertyBrowser::item:hover { color: #0f766e; }"
             "QLabel#propertyValue { color: #18202c; }"
@@ -490,6 +496,8 @@ class MainWindow(QMainWindow):
         self.property_annotation = self._property_value_label()
         self.property_points = self._property_value_label()
         self.property_contour_pixels = self._property_value_label()
+        self.property_contour_area_mm2 = self._property_value_label()
+        self.property_calibration_length = self._calibration_length_field()
         self.property_calibration_scale = self._property_value_label()
         self.property_red = self._property_value_label()
         self.property_green = self._property_value_label()
@@ -578,6 +586,8 @@ class MainWindow(QMainWindow):
                 ("Аннотация", self.property_annotation),
                 ("Количество узлов контура", self.property_points),
                 ("Количество пикселов контура", self.property_contour_pixels),
+                ("Площадь контура, мм²", self.property_contour_area_mm2),
+                ("Длина калибровки, мм", self.property_calibration_length),
                 ("Масштаб", self.property_calibration_scale),
             ],
         )
@@ -667,15 +677,20 @@ class MainWindow(QMainWindow):
             browser.add_property(title, label, widget)
 
     def _property_value_label(self) -> QLabel:
-        label = QLabel("-")
+        label = PropertyValueLabel("-")
         label.setObjectName("propertyValue")
-        label.setWordWrap(True)
-        label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         return label
 
     def _metadata_line_edit(self) -> QLineEdit:
         field = QLineEdit()
         field.setClearButtonEnabled(True)
+        return field
+
+    def _calibration_length_field(self) -> QLineEdit:
+        field = QLineEdit()
+        field.setClearButtonEnabled(False)
+        field.setToolTip("Реальная длина калибровочного отрезка в миллиметрах.")
+        field.editingFinished.connect(self._handle_calibration_length_edit_finished)
         return field
 
     def _file_name_widget(self, parent: QWidget) -> tuple[QWidget, QToolButton]:
@@ -851,6 +866,12 @@ class MainWindow(QMainWindow):
         self.reset_calibration_action = QAction("Сбросить калибровку", self)
         self.reset_calibration_action.triggered.connect(self.reset_current_calibration)
 
+        self.measure_angle_action = QAction("Угол", self)
+        self.measure_angle_action.triggered.connect(self.start_angle_measurement)
+
+        self.delete_angle_action = QAction("Удалить угол", self)
+        self.delete_angle_action.triggered.connect(self.delete_selected_angle)
+
         self.save_annotation_action = QAction("Сохранить аннотацию...", self)
         self.save_annotation_action.setShortcut("Ctrl+Alt+S")
         self.save_annotation_action.triggered.connect(self.save_annotation_file)
@@ -885,6 +906,8 @@ class MainWindow(QMainWindow):
             "flatten_background": self.flatten_background_action,
             "calibrate_scale": self.calibrate_scale_action,
             "reset_calibration": self.reset_calibration_action,
+            "measure_angle": self.measure_angle_action,
+            "delete_angle": self.delete_angle_action,
             "save_annotation": self.save_annotation_action,
             "open_annotation": self.open_annotation_action,
             "about": self.about_action,
@@ -924,6 +947,8 @@ class MainWindow(QMainWindow):
         tools_menu.addSeparator()
         tools_menu.addAction(self.calibrate_scale_action)
         tools_menu.addAction(self.reset_calibration_action)
+        tools_menu.addAction(self.measure_angle_action)
+        tools_menu.addAction(self.delete_angle_action)
         tools_menu.addSeparator()
         tools_menu.addAction(self.save_annotation_action)
         tools_menu.addAction(self.open_annotation_action)
@@ -965,6 +990,8 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.flatten_background_action)
         toolbar.addAction(self.calibrate_scale_action)
         toolbar.addAction(self.reset_calibration_action)
+        toolbar.addAction(self.measure_angle_action)
+        toolbar.addAction(self.delete_angle_action)
         toolbar.addAction(self.save_annotation_action)
         toolbar.addAction(self.open_annotation_action)
         toolbar.addSeparator()
@@ -1014,6 +1041,10 @@ class MainWindow(QMainWindow):
         self.flatten_background_action.setEnabled(has_project_image and has_image and has_contour)
         self.calibrate_scale_action.setEnabled(has_project_image and has_image)
         self.reset_calibration_action.setEnabled(has_project_image and has_calibration)
+        self.measure_angle_action.setEnabled(has_project_image and has_image)
+        self.delete_angle_action.setEnabled(
+            has_project_image and has_image and self.canvas.has_selected_angle_vertex()
+        )
         self.save_annotation_action.setEnabled(has_project_image and has_contour)
         self.open_annotation_action.setEnabled(has_project_image)
 
@@ -1339,6 +1370,7 @@ class MainWindow(QMainWindow):
         self.project_document.images = [
             item for item in self.project_document.images if item.id != record.id
         ]
+        self._angle_measurements_by_image_id.pop(record.id, None)
         if self._current_project_image_id == record.id:
             self._current_project_image_id = None
 
@@ -1561,6 +1593,8 @@ class MainWindow(QMainWindow):
             "annotation": self.property_annotation.text(),
             "point_count": self.property_points.text(),
             "contour_pixel_count": self.property_contour_pixels.text(),
+            "contour_area_mm2": self.property_contour_area_mm2.text(),
+            "calibration_length_mm": self.property_calibration_length.text().strip(),
             "calibration_scale": self.property_calibration_scale.text(),
             "red": red,
             "green": green,
@@ -1636,6 +1670,7 @@ class MainWindow(QMainWindow):
         if self._selected_project_image() is None or not self.canvas.has_image():
             self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
             return
+        self.canvas.cancel_angle_measurement(show_message=False)
 
         node_count, accepted = QInputDialog.getInt(
             self,
@@ -1688,6 +1723,7 @@ class MainWindow(QMainWindow):
         if self._selected_project_image() is None or not self.canvas.has_image():
             self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
             return
+        self.canvas.cancel_angle_measurement(show_message=False)
 
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
@@ -1780,6 +1816,30 @@ class MainWindow(QMainWindow):
         self._schedule_project_save()
         self.statusBar().showMessage(f"Калибровка сброшена: {record.display_name}")
 
+    def start_angle_measurement(self) -> None:
+        if self._selected_project_image() is None or not self.canvas.has_image():
+            self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
+            return
+        self.canvas.begin_angle_measurement()
+        self._update_action_states()
+
+    def delete_selected_angle(self) -> None:
+        if self.canvas.delete_selected_angle():
+            self._store_current_angle_measurements()
+        self._update_action_states()
+
+    def _handle_angle_state_changed(self) -> None:
+        if not self._loading_project_image:
+            self._store_current_angle_measurements()
+        self._update_action_states()
+
+    def _store_current_angle_measurements(self) -> None:
+        if self._current_project_image_id is None or not self.canvas.has_image():
+            return
+        self._angle_measurements_by_image_id[
+            self._current_project_image_id
+        ] = self.canvas.angle_measurements()
+
     def _handle_calibration_segment_selected(self, raw_points: object) -> None:
         record = self._selected_project_image()
         if record is None or not self.canvas.has_image():
@@ -1816,7 +1876,11 @@ class MainWindow(QMainWindow):
         record.calibration = calibration
         record.calibration_error = None
         record.raw_calibration = None
-        self.canvas.set_calibration(calibration.start, calibration.end)
+        self.canvas.set_calibration(
+            calibration.start,
+            calibration.end,
+            _calibration_length_text(calibration.length_mm),
+        )
         self._update_project_properties()
         self._update_action_states()
         self._schedule_project_save()
@@ -1930,6 +1994,7 @@ class MainWindow(QMainWindow):
         self.project_path = project_path.resolve()
         self.project_document = document
         self._current_project_image_id = None
+        self._angle_measurements_by_image_id.clear()
         self._current_annotation_path = None
         self._refresh_project_list()
         if document.images:
@@ -1944,6 +2009,7 @@ class MainWindow(QMainWindow):
         self.project_document = None
         self.project_path = None
         self._current_project_image_id = None
+        self._angle_measurements_by_image_id.clear()
         self._current_annotation_path = None
         self._refresh_project_list()
         self._clear_current_image_display()
@@ -2040,6 +2106,7 @@ class MainWindow(QMainWindow):
         if selected_id == self._current_project_image_id:
             return
 
+        self._store_current_angle_measurements()
         self._save_current_project_annotation()
         self._current_project_image_id = str(selected_id) if selected_id else None
         self._current_annotation_path = None
@@ -2101,6 +2168,7 @@ class MainWindow(QMainWindow):
                             self.canvas.set_calibration(
                                 record.calibration.start,
                                 record.calibration.end,
+                                _calibration_length_text(record.calibration.length_mm),
                             )
                         except ValueError as exc:
                             record.calibration = None
@@ -2108,6 +2176,10 @@ class MainWindow(QMainWindow):
                             self.statusBar().showMessage("Калибровка повреждена и не загружена.")
                     elif record.calibration_error:
                         self.statusBar().showMessage("У выбранного изображения повреждена калибровка.")
+
+                    self.canvas.set_angle_measurements(
+                        self._angle_measurements_by_image_id.get(record.id, [])
+                    )
         finally:
             self._loading_project_image = False
 
@@ -2374,6 +2446,7 @@ class MainWindow(QMainWindow):
                 if self.project_document is None
                 else "Изображение не выбрано."
             )
+            self._update_calibration_length_field(None)
             self._set_average_color_swatch(None)
             return
 
@@ -2392,6 +2465,7 @@ class MainWindow(QMainWindow):
         elif record.annotation_error:
             annotation_text = f"ошибка: {record.annotation_error}"
 
+        self._update_calibration_length_field(record)
         if record.calibration_error:
             calibration_scale_text = f"ошибка: {record.calibration_error}"
         else:
@@ -2405,6 +2479,7 @@ class MainWindow(QMainWindow):
             yuv_y_text = yuv_u_text = yuv_v_text = "-"
             lms_l_text = lms_m_text = lms_s_text = "-"
             contour_pixels_text = "-"
+            contour_area_mm2_text = "-"
             mean_rgb = None
         else:
             mean_rgb, mean_lab, mean_hsv, mean_yuv, mean_lms, contour_pixel_count = contour_stats
@@ -2429,6 +2504,11 @@ class MainWindow(QMainWindow):
             lms_m_text = str(lms_m)
             lms_s_text = str(lms_s)
             contour_pixels_text = str(contour_pixel_count)
+            contour_area_mm2_text = _contour_area_mm2_text(
+                contour_pixel_count,
+                record.calibration,
+                record.calibration_error,
+            )
 
         self.property_file_name.setText(record.display_name)
         self.property_path.setText(record.relative_path)
@@ -2436,6 +2516,7 @@ class MainWindow(QMainWindow):
         self.property_annotation.setText(annotation_text)
         self.property_points.setText(point_count_text)
         self.property_contour_pixels.setText(contour_pixels_text)
+        self.property_contour_area_mm2.setText(contour_area_mm2_text)
         self.property_calibration_scale.setText(calibration_scale_text)
         self.property_red.setText(red_text)
         self.property_green.setText(green_text)
@@ -2455,6 +2536,31 @@ class MainWindow(QMainWindow):
         self.property_status.setText("найден" if file_exists else "отсутствует")
         self._set_average_color_swatch(mean_rgb)
         self._load_metadata_fields(record)
+
+    def _update_calibration_length_field(self, record: ProjectImageRecord | None) -> None:
+        enabled = False
+        if record is None:
+            text = "-"
+            tooltip = "Выберите изображение проекта."
+        elif record.calibration_error:
+            text = "ошибка калибровки"
+            tooltip = record.calibration_error
+        elif record.calibration is None:
+            text = "калибровка не произведена"
+            tooltip = "Сначала задайте калибровочный отрезок."
+        else:
+            text = _calibration_length_text(record.calibration.length_mm)
+            tooltip = "Реальная длина калибровочного отрезка в миллиметрах."
+            enabled = True
+
+        self._updating_calibration_length_field = True
+        try:
+            with QSignalBlocker(self.property_calibration_length):
+                self.property_calibration_length.setText(text)
+                self.property_calibration_length.setEnabled(enabled)
+                self.property_calibration_length.setToolTip(tooltip)
+        finally:
+            self._updating_calibration_length_field = False
 
     def _normalize_record_metadata(self, record: ProjectImageRecord) -> None:
         normalized_metadata = default_project_image_metadata()
@@ -2500,6 +2606,56 @@ class MainWindow(QMainWindow):
             return
 
         self._store_record_id_value(self.image_id.text().strip(), self.image_id)
+
+    def _handle_calibration_length_edit_finished(self) -> None:
+        if self._updating_calibration_length_field:
+            return
+
+        record = self._selected_project_image()
+        if record is None or record.calibration is None or record.calibration_error:
+            self._update_calibration_length_field(record)
+            return
+
+        length_mm = _parse_calibration_length_mm(self.property_calibration_length.text())
+        if length_mm is None:
+            self._show_warning(
+                "Некорректная калибровка",
+                "Длина калибровочного отрезка должна быть положительным числом.",
+            )
+            self._update_calibration_length_field(record)
+            return
+
+        try:
+            calibration = ImageCalibration(
+                record.calibration.start,
+                record.calibration.end,
+                length_mm,
+            )
+        except ValueError as exc:
+            self._show_warning("Некорректная калибровка", str(exc))
+            self._update_calibration_length_field(record)
+            return
+
+        if math.isclose(
+            calibration.length_mm,
+            record.calibration.length_mm,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            self._update_calibration_length_field(record)
+            return
+
+        record.calibration = calibration
+        record.calibration_error = None
+        record.raw_calibration = None
+        if self._current_project_image_id == record.id and self.canvas.has_calibration():
+            self.canvas.set_calibration_label_text(_calibration_length_text(calibration.length_mm))
+        self._update_project_properties()
+        self._update_action_states()
+        self._schedule_project_save()
+        self.statusBar().showMessage(
+            f"Длина калибровки изменена: {_calibration_length_text(calibration.length_mm)}"
+        )
 
     def _store_metadata_text_value(
         self,
@@ -2948,6 +3104,47 @@ def _calibration_scale_text(calibration: ImageCalibration | None) -> str:
         f"{_compact_float(calibration.pixels_per_mm(), 2)} px/мм; "
         f"{_compact_float(calibration.mm_per_pixel(), 4)} мм/px"
     )
+
+
+def _calibration_length_text(length_mm: float) -> str:
+    return f"{_compact_float(length_mm, 4)} мм"
+
+
+def _parse_calibration_length_mm(text: str) -> float | None:
+    normalized = text.strip().lower().replace(",", ".")
+    for suffix in ("мм", "mm"):
+        if normalized.endswith(suffix):
+            normalized = normalized[: -len(suffix)].strip()
+            break
+    try:
+        value = float(normalized)
+    except ValueError:
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    return value
+
+
+def _contour_area_mm2_text(
+    contour_pixel_count: int,
+    calibration: ImageCalibration | None,
+    calibration_error: str | None = None,
+) -> str:
+    if contour_pixel_count <= 0:
+        return "-"
+    if calibration_error:
+        return "ошибка калибровки"
+    if calibration is None:
+        return "калибровка не произведена"
+
+    area_mm2 = contour_pixel_count * calibration.mm_per_pixel() * calibration.mm_per_pixel()
+    if area_mm2 >= 100:
+        decimals = 1
+    elif area_mm2 >= 1:
+        decimals = 2
+    else:
+        decimals = 4
+    return f"{_compact_float(area_mm2, decimals)} мм²"
 
 
 def _compact_float(value: float, decimals: int) -> str:

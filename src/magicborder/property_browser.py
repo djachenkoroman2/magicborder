@@ -1,15 +1,45 @@
 from __future__ import annotations
 
-from PyQt5.QtCore import QSize, Qt
-from PyQt5.QtGui import QFont
+from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QFont, QFontMetrics
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
+    QLabel,
     QSizePolicy,
     QTreeWidget,
     QTreeWidgetItem,
     QWidget,
 )
+
+
+PROPERTY_KEY_DEFAULT_WIDTH = 150
+PROPERTY_KEY_MIN_WIDTH = 72
+PROPERTY_VALUE_MIN_WIDTH = 90
+PROPERTY_ROW_MIN_HEIGHT = 24
+PROPERTY_ROW_VERTICAL_PADDING = 8
+
+
+class PropertyValueLabel(QLabel):
+    text_changed = pyqtSignal()
+
+    def __init__(self, text: str = "-", parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.setWordWrap(True)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self._sync_tooltip()
+
+    def setText(self, text: str) -> None:
+        super().setText(text)
+        self._sync_tooltip()
+        self.updateGeometry()
+        self.text_changed.emit()
+
+    def _sync_tooltip(self) -> None:
+        text = self.text()
+        self.setToolTip(text if text and text != "-" else "")
 
 
 class PropertyBrowser(QTreeWidget):
@@ -20,7 +50,7 @@ class PropertyBrowser(QTreeWidget):
         self.setObjectName("propertyBrowser")
         self.setColumnCount(2)
         self.setHeaderLabels(["Свойство", "Значение"])
-        self.setHeaderHidden(True)
+        self.setHeaderHidden(False)
         self.setRootIsDecorated(True)
         self.setAnimated(False)
         self.setIndentation(14)
@@ -33,11 +63,34 @@ class PropertyBrowser(QTreeWidget):
 
         header = self.header()
         header.setStretchLastSection(True)
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionsMovable(False)
+        header.setSectionsClickable(False)
+        header.setMinimumSectionSize(PROPERTY_KEY_MIN_WIDTH)
+        header.setSectionResizeMode(0, QHeaderView.Interactive)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
+        self.setColumnWidth(0, PROPERTY_KEY_DEFAULT_WIDTH)
 
         self._groups: dict[str, QTreeWidgetItem] = {}
         self._properties: dict[str, QTreeWidgetItem] = {}
+        self._property_rows: list[tuple[QTreeWidgetItem, QWidget]] = []
+        self._refresh_layout_pending = False
+        self._clamping_key_column = False
+        header.sectionResized.connect(self._handle_section_resized)
+
+    def key_column_width(self) -> int:
+        return self.columnWidth(0)
+
+    def set_key_column_width(self, width: int) -> None:
+        self.setColumnWidth(0, self._clamped_key_column_width(width))
+        self.refresh_layout()
+
+    def refresh_layout(self) -> None:
+        self._refresh_layout_pending = False
+        for item, editor in self._property_rows:
+            row_height = self._property_row_height(item, editor)
+            size_hint = QSize(120, row_height)
+            item.setSizeHint(0, size_hint)
+            item.setSizeHint(1, size_hint)
 
     def add_group(self, title: str, *, expanded: bool = False) -> QTreeWidgetItem:
         group_item = QTreeWidgetItem([title, ""])
@@ -67,14 +120,14 @@ class PropertyBrowser(QTreeWidget):
         property_item.setData(0, Qt.UserRole, "property")
         property_item.setData(0, Qt.UserRole + 1, key or label)
         property_item.setFlags(property_item.flags() & ~Qt.ItemIsEditable)
+        property_item.setToolTip(0, label)
         group_item.addChild(property_item)
+        self._configure_editor(editor)
         self.setItemWidget(property_item, 1, editor)
+        self._property_rows.append((property_item, editor))
 
-        if editor.minimumHeight() > 0:
-            row_height = max(24, editor.minimumSizeHint().height(), editor.minimumHeight())
-        else:
-            row_height = max(24, editor.minimumSizeHint().height(), editor.sizeHint().height())
-        size_hint = QSize(120, row_height + 4)
+        row_height = self._property_row_height(property_item, editor)
+        size_hint = QSize(120, row_height)
         property_item.setSizeHint(0, size_hint)
         property_item.setSizeHint(1, size_hint)
 
@@ -110,3 +163,85 @@ class PropertyBrowser(QTreeWidget):
                 return False
             parent = parent.parent()
         return not item.isHidden()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._clamp_current_key_column_width()
+        self._schedule_refresh_layout()
+
+    def eventFilter(self, watched: object, event: QEvent) -> bool:
+        if event.type() in (
+            QEvent.FontChange,
+            QEvent.LayoutRequest,
+            QEvent.Resize,
+            QEvent.Show,
+            QEvent.StyleChange,
+        ):
+            self._schedule_refresh_layout()
+        return super().eventFilter(watched, event)
+
+    def _configure_editor(self, editor: QWidget) -> None:
+        editor.setMinimumWidth(0)
+        editor.installEventFilter(self)
+        if isinstance(editor, QLabel):
+            editor.setWordWrap(True)
+            editor.setMinimumWidth(0)
+            editor.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            if editor.text() and editor.text() != "-":
+                editor.setToolTip(editor.text())
+        if isinstance(editor, PropertyValueLabel):
+            editor.text_changed.connect(self._schedule_refresh_layout)
+
+    def _handle_section_resized(self, index: int, _old_size: int, _new_size: int) -> None:
+        if index == 0:
+            self._clamp_current_key_column_width()
+        self._schedule_refresh_layout()
+
+    def _schedule_refresh_layout(self) -> None:
+        if self._refresh_layout_pending:
+            return
+        self._refresh_layout_pending = True
+        QTimer.singleShot(0, self.refresh_layout)
+
+    def _property_row_height(self, item: QTreeWidgetItem, editor: QWidget) -> int:
+        editor_height = max(
+            PROPERTY_ROW_MIN_HEIGHT,
+            editor.minimumSizeHint().height(),
+            editor.sizeHint().height(),
+            editor.minimumHeight(),
+        )
+        if editor.hasHeightForWidth():
+            value_width = max(PROPERTY_VALUE_MIN_WIDTH, self.columnWidth(1) - 8)
+            editor_height = max(editor_height, editor.heightForWidth(value_width))
+
+        key_width = max(1, self.columnWidth(0) - self.indentation() - 8)
+        key_rect = QFontMetrics(item.font(0)).boundingRect(
+            0,
+            0,
+            key_width,
+            10_000,
+            int(Qt.TextWordWrap),
+            item.text(0),
+        )
+        key_height = max(PROPERTY_ROW_MIN_HEIGHT, key_rect.height())
+        return max(editor_height, key_height) + PROPERTY_ROW_VERTICAL_PADDING
+
+    def _clamped_key_column_width(self, width: int) -> int:
+        width = max(PROPERTY_KEY_MIN_WIDTH, int(width))
+        viewport_width = self.viewport().width()
+        if viewport_width <= PROPERTY_KEY_MIN_WIDTH + PROPERTY_VALUE_MIN_WIDTH:
+            return width
+        return min(width, viewport_width - PROPERTY_VALUE_MIN_WIDTH)
+
+    def _clamp_current_key_column_width(self) -> None:
+        if self._clamping_key_column:
+            return
+        current_width = self.columnWidth(0)
+        clamped_width = self._clamped_key_column_width(current_width)
+        if clamped_width == current_width:
+            return
+        self._clamping_key_column = True
+        try:
+            self.setColumnWidth(0, clamped_width)
+        finally:
+            self._clamping_key_column = False
