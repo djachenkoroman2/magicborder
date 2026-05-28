@@ -62,6 +62,7 @@ from .models import (
     Annotation,
     ImageCalibration,
     Point,
+    ProjectAngleMeasurement,
     ProjectDocument,
     ProjectImageRecord,
     default_project_image_metadata,
@@ -101,14 +102,19 @@ IMAGE_PROPERTY_GROUPS = [
         ],
     ),
     (
-        "Информация о контуре",
+        "Калибровка",
+        [
+            ("calibration_length_mm", "Длина калибровки, мм"),
+            ("calibration_scale", "Масштаб"),
+        ],
+    ),
+    (
+        "Информация о главном контуре",
         [
             ("annotation", "Аннотация"),
             ("point_count", "Количество узлов контура"),
             ("contour_pixel_count", "Количество пикселов контура"),
             ("contour_area_mm2", "Площадь контура, мм²"),
-            ("calibration_length_mm", "Длина калибровки, мм"),
-            ("calibration_scale", "Масштаб"),
         ],
     ),
     (
@@ -224,7 +230,6 @@ class MainWindow(QMainWindow):
         self.project_document: ProjectDocument | None = None
         self.project_path: Path | None = None
         self._current_project_image_id: str | None = None
-        self._angle_measurements_by_image_id: dict[str, list[tuple[Point, Point, Point]]] = {}
         self._loading_project_image = False
         self._updating_project_list = False
         self._updating_project_info_fields = False
@@ -564,6 +569,7 @@ class MainWindow(QMainWindow):
             field.editingFinished.connect(
                 lambda key=metadata_key, editor=field: self._handle_metadata_line_edit_finished(key, editor)
             )
+        self._angle_note_fields: dict[str, QLineEdit] = {}
 
         self.properties_browser = PropertyBrowser(properties_widget)
         self._add_property_browser_group(
@@ -581,15 +587,32 @@ class MainWindow(QMainWindow):
         )
         self._add_property_browser_group(
             self.properties_browser,
-            "Информация о контуре",
+            "Калибровка",
+            [
+                ("Длина калибровки, мм", self.property_calibration_length),
+                ("Масштаб", self.property_calibration_scale),
+            ],
+        )
+        self._add_property_browser_group(
+            self.properties_browser,
+            "Информация о главном контуре",
             [
                 ("Аннотация", self.property_annotation),
                 ("Количество узлов контура", self.property_points),
                 ("Количество пикселов контура", self.property_contour_pixels),
                 ("Площадь контура, мм²", self.property_contour_area_mm2),
-                ("Длина калибровки, мм", self.property_calibration_length),
-                ("Масштаб", self.property_calibration_scale),
             ],
+        )
+        self.measurements_group_item = self.properties_browser.add_group(
+            "Измерения",
+            expanded=False,
+            key="measurements",
+        )
+        self.angles_group_item = self.properties_browser.add_group(
+            "Углы",
+            expanded=False,
+            parent=self.measurements_group_item,
+            key="measurements:angles",
         )
         self._add_property_browser_group(
             self.properties_browser,
@@ -676,8 +699,88 @@ class MainWindow(QMainWindow):
         for label, widget in rows:
             browser.add_property(title, label, widget)
 
-    def _property_value_label(self) -> QLabel:
-        label = PropertyValueLabel("-")
+    def _rebuild_angle_measurement_properties(self, record: ProjectImageRecord | None) -> None:
+        self._angle_note_fields.clear()
+        self.properties_browser.clear_children(self.angles_group_item)
+        if record is None or not record.measurements.angles:
+            self.properties_browser.add_property_to_item(
+                self.angles_group_item,
+                "Нет углов",
+                self._property_value_label(),
+                key="measurements:angles:empty",
+            )
+            return
+
+        for index, angle in enumerate(record.measurements.angles, start=1):
+            angle_group = self.properties_browser.add_group(
+                f"Угол {index}",
+                expanded=False,
+                parent=self.angles_group_item,
+                key=f"angle:{angle.id}",
+            )
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "ID",
+                self._property_value_label(angle.id),
+                key=f"angle:{angle.id}:id",
+            )
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "Значение",
+                self._property_value_label(_angle_measurement_value_text(angle)),
+                key=f"angle:{angle.id}:value",
+            )
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "Первая точка",
+                self._property_value_label(_point_text(angle.first)),
+                key=f"angle:{angle.id}:first",
+            )
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "Вершина",
+                self._property_value_label(_point_text(angle.vertex)),
+                key=f"angle:{angle.id}:vertex",
+            )
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "Вторая точка",
+                self._property_value_label(_point_text(angle.second)),
+                key=f"angle:{angle.id}:second",
+            )
+
+            note_field = QLineEdit(self.properties_browser)
+            note_field.setText(angle.note)
+            note_field.editingFinished.connect(
+                lambda angle_id=angle.id, editor=note_field: self._handle_angle_note_edit_finished(
+                    angle_id,
+                    editor,
+                )
+            )
+            self._angle_note_fields[angle.id] = note_field
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "Примечание",
+                note_field,
+                key=f"angle:{angle.id}:note",
+            )
+
+            delete_button = QToolButton(self.properties_browser)
+            delete_button.setText("Удалить")
+            delete_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            delete_button.setIcon(load_icon("delete-angle"))
+            delete_button.clicked.connect(
+                lambda _checked=False, angle_id=angle.id: self._delete_angle_by_id(angle_id)
+            )
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "Управление",
+                delete_button,
+                key=f"angle:{angle.id}:actions",
+            )
+
+    def _property_value_label(self, text: str = "-") -> QLabel:
+        label = PropertyValueLabel(text)
         label.setObjectName("propertyValue")
         return label
 
@@ -1183,6 +1286,7 @@ class MainWindow(QMainWindow):
         if self.project_document is None:
             self._show_warning("Нет проекта", "Сначала создайте или откройте проект.")
             return
+        self._store_current_angle_measurements()
         self._save_current_project_annotation()
         if self._save_project_silently(show_error=True):
             self.statusBar().showMessage("Проект сохранён.")
@@ -1190,6 +1294,7 @@ class MainWindow(QMainWindow):
     def close_project(self) -> None:
         if self.project_document is None:
             return
+        self._store_current_angle_measurements()
         self._save_current_project_annotation()
         if not self._save_project_silently(show_error=True):
             return
@@ -1370,7 +1475,6 @@ class MainWindow(QMainWindow):
         self.project_document.images = [
             item for item in self.project_document.images if item.id != record.id
         ]
-        self._angle_measurements_by_image_id.pop(record.id, None)
         if self._current_project_image_id == record.id:
             self._current_project_image_id = None
 
@@ -1834,11 +1938,57 @@ class MainWindow(QMainWindow):
         self._update_action_states()
 
     def _store_current_angle_measurements(self) -> None:
-        if self._current_project_image_id is None or not self.canvas.has_image():
+        record = self._current_project_image()
+        if record is None or not self.canvas.has_image():
             return
-        self._angle_measurements_by_image_id[
-            self._current_project_image_id
-        ] = self.canvas.angle_measurements()
+
+        existing_notes = {angle.id: angle.note for angle in record.measurements.angles}
+        new_angles = [
+            ProjectAngleMeasurement(
+                id=angle_id,
+                first=first,
+                vertex=vertex,
+                second=second,
+                note=existing_notes.get(angle_id, ""),
+            )
+            for angle_id, first, vertex, second in self.canvas.angle_measurement_records()
+        ]
+        if _angle_measurements_equal(record.measurements.angles, new_angles):
+            return
+
+        record.measurements.angles = new_angles
+        self._update_project_properties()
+        self._schedule_project_save()
+
+    def _handle_angle_note_edit_finished(self, angle_id: str, field: QLineEdit) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        angle = _angle_by_id(record, angle_id)
+        if angle is None:
+            return
+        note = field.text()
+        if angle.note == note:
+            return
+        angle.note = note
+        self._schedule_project_save()
+
+    def _delete_angle_by_id(self, angle_id: str) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        original_count = len(record.measurements.angles)
+        record.measurements.angles = [
+            angle for angle in record.measurements.angles if angle.id != angle_id
+        ]
+        if len(record.measurements.angles) == original_count:
+            return
+        if record.id == self._current_project_image_id:
+            self.canvas.set_angle_measurement_records(_angle_canvas_records(record))
+        self._update_project_properties()
+        self._update_action_states()
+        self._schedule_project_save()
+        self.statusBar().showMessage("Угол удалён.")
 
     def _handle_calibration_segment_selected(self, raw_points: object) -> None:
         record = self._selected_project_image()
@@ -1994,7 +2144,6 @@ class MainWindow(QMainWindow):
         self.project_path = project_path.resolve()
         self.project_document = document
         self._current_project_image_id = None
-        self._angle_measurements_by_image_id.clear()
         self._current_annotation_path = None
         self._refresh_project_list()
         if document.images:
@@ -2009,7 +2158,6 @@ class MainWindow(QMainWindow):
         self.project_document = None
         self.project_path = None
         self._current_project_image_id = None
-        self._angle_measurements_by_image_id.clear()
         self._current_annotation_path = None
         self._refresh_project_list()
         self._clear_current_image_display()
@@ -2177,9 +2325,7 @@ class MainWindow(QMainWindow):
                     elif record.calibration_error:
                         self.statusBar().showMessage("У выбранного изображения повреждена калибровка.")
 
-                    self.canvas.set_angle_measurements(
-                        self._angle_measurements_by_image_id.get(record.id, [])
-                    )
+                    self.canvas.set_angle_measurement_records(_angle_canvas_records(record))
         finally:
             self._loading_project_image = False
 
@@ -2447,6 +2593,7 @@ class MainWindow(QMainWindow):
                 else "Изображение не выбрано."
             )
             self._update_calibration_length_field(None)
+            self._rebuild_angle_measurement_properties(None)
             self._set_average_color_swatch(None)
             return
 
@@ -2536,6 +2683,7 @@ class MainWindow(QMainWindow):
         self.property_status.setText("найден" if file_exists else "отсутствует")
         self._set_average_color_swatch(mean_rgb)
         self._load_metadata_fields(record)
+        self._rebuild_angle_measurement_properties(record)
 
     def _update_calibration_length_field(self, record: ProjectImageRecord | None) -> None:
         enabled = False
@@ -3046,6 +3194,7 @@ class MainWindow(QMainWindow):
         return str(image_path.with_name(f"{image_path.stem}_{color_space}_histogram.png"))
 
     def closeEvent(self, event) -> None:
+        self._store_current_angle_measurements()
         self._save_current_project_annotation()
         if self._save_project_silently(show_error=True):
             event.accept()
@@ -3108,6 +3257,64 @@ def _calibration_scale_text(calibration: ImageCalibration | None) -> str:
 
 def _calibration_length_text(length_mm: float) -> str:
     return f"{_compact_float(length_mm, 4)} мм"
+
+
+def _angle_by_id(record: ProjectImageRecord, angle_id: str) -> ProjectAngleMeasurement | None:
+    for angle in record.measurements.angles:
+        if angle.id == angle_id:
+            return angle
+    return None
+
+
+def _angle_canvas_records(record: ProjectImageRecord) -> list[tuple[str, Point, Point, Point]]:
+    return [
+        (angle.id, angle.first, angle.vertex, angle.second)
+        for angle in record.measurements.angles
+    ]
+
+
+def _angle_measurements_equal(
+    left: list[ProjectAngleMeasurement],
+    right: list[ProjectAngleMeasurement],
+) -> bool:
+    if len(left) != len(right):
+        return False
+    return all(
+        left_angle.id == right_angle.id
+        and left_angle.first == right_angle.first
+        and left_angle.vertex == right_angle.vertex
+        and left_angle.second == right_angle.second
+        and left_angle.note == right_angle.note
+        for left_angle, right_angle in zip(left, right)
+    )
+
+
+def _angle_measurement_value_text(angle: ProjectAngleMeasurement) -> str:
+    value = _angle_degrees(angle.first, angle.vertex, angle.second)
+    if value is None:
+        return "-"
+    rounded = round(value, 1)
+    if math.isclose(rounded, round(rounded), abs_tol=1e-9):
+        return f"{int(round(rounded))}°"
+    return f"{rounded:.1f}°"
+
+
+def _angle_degrees(first: Point, vertex: Point, second: Point) -> float | None:
+    first_x = first.x - vertex.x
+    first_y = first.y - vertex.y
+    second_x = second.x - vertex.x
+    second_y = second.y - vertex.y
+    first_length = math.hypot(first_x, first_y)
+    second_length = math.hypot(second_x, second_y)
+    if first_length <= 1e-6 or second_length <= 1e-6:
+        return None
+    cosine = (first_x * second_x + first_y * second_y) / (first_length * second_length)
+    cosine = max(-1.0, min(1.0, cosine))
+    return math.degrees(math.acos(cosine))
+
+
+def _point_text(point: Point) -> str:
+    return f"x={_compact_float(point.x, 2)}, y={_compact_float(point.y, 2)}"
 
 
 def _parse_calibration_length_mm(text: str) -> float | None:

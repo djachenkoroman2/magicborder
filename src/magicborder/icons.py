@@ -120,22 +120,22 @@ ACTION_VISUALS: dict[str, ActionVisual] = {
         status_tip="Сделать область вне текущего контура белой.",
     ),
     "calibrate_scale": ActionVisual(
-        icon_name="actual-size",
+        icon_name="calibrate-scale",
         tool_tip="Калибровать масштаб",
         status_tip="Задать калибровочный отрезок известной длины для выбранного изображения.",
     ),
     "reset_calibration": ActionVisual(
-        icon_name="delete-contour",
+        icon_name="reset-calibration",
         tool_tip="Сбросить калибровку",
         status_tip="Удалить калибровочный отрезок и масштаб выбранного изображения.",
     ),
     "measure_angle": ActionVisual(
-        icon_name="actual-size",
+        icon_name="measure-angle",
         tool_tip="Угол",
         status_tip="Измерить угол тремя точками на выбранном изображении.",
     ),
     "delete_angle": ActionVisual(
-        icon_name="delete-contour",
+        icon_name="delete-angle",
         tool_tip="Удалить угол",
         status_tip="Удалить выбранное временное измерение угла.",
     ),

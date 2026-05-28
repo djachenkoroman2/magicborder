@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 
 PROJECT_FORMAT_VERSION = 2
@@ -85,6 +86,83 @@ class ImageCalibration:
             start=Point.from_dict(data.get("start")),
             end=Point.from_dict(data.get("end")),
             length_mm=_require_number(data.get("length_mm"), "length_mm"),
+        )
+
+
+def _new_angle_measurement_id() -> str:
+    return f"angle-{uuid4()}"
+
+
+@dataclass(slots=True)
+class ProjectAngleMeasurement:
+    id: str
+    first: Point
+    vertex: Point
+    second: Point
+    note: str = ""
+
+    def __post_init__(self) -> None:
+        self.id = str(self.id or "").strip() or _new_angle_measurement_id()
+        if not isinstance(self.first, Point):
+            self.first = Point.from_dict(self.first)
+        if not isinstance(self.vertex, Point):
+            self.vertex = Point.from_dict(self.vertex)
+        if not isinstance(self.second, Point):
+            self.second = Point.from_dict(self.second)
+        self.note = str(self.note or "")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "first": self.first.to_dict(),
+            "vertex": self.vertex.to_dict(),
+            "second": self.second.to_dict(),
+            "note": self.note,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "ProjectAngleMeasurement":
+        if not isinstance(data, dict):
+            raise ValueError("Измерение угла должно быть объектом.")
+        return cls(
+            id=str(data.get("id", "")),
+            first=Point.from_dict(data.get("first")),
+            vertex=Point.from_dict(data.get("vertex")),
+            second=Point.from_dict(data.get("second")),
+            note=str(data.get("note", "")),
+        )
+
+
+@dataclass(slots=True)
+class ProjectImageMeasurements:
+    angles: list[ProjectAngleMeasurement] = field(default_factory=list)
+    extra_groups: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = dict(self.extra_groups)
+        payload["angles"] = [angle.to_dict() for angle in self.angles]
+        return payload
+
+    def has_data(self) -> bool:
+        return bool(self.angles or self.extra_groups)
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "ProjectImageMeasurements":
+        if not isinstance(data, dict):
+            data = {}
+
+        raw_angles = data.get("angles", [])
+        angles: list[ProjectAngleMeasurement] = []
+        if isinstance(raw_angles, list):
+            for item in raw_angles:
+                try:
+                    angles.append(ProjectAngleMeasurement.from_dict(item))
+                except ValueError:
+                    continue
+
+        return cls(
+            angles=angles,
+            extra_groups={key: value for key, value in data.items() if key != "angles"},
         )
 
 
@@ -364,6 +442,7 @@ class ProjectImageRecord:
     calibration: ImageCalibration | None
     calibration_error: str | None
     raw_calibration: Any | None
+    measurements: ProjectImageMeasurements
     extra_groups: dict[str, Any]
 
     def __init__(
@@ -385,6 +464,7 @@ class ProjectImageRecord:
         calibration: ImageCalibration | None = None,
         calibration_error: str | None = None,
         raw_calibration: Any | None = None,
+        measurements: ProjectImageMeasurements | None = None,
         extra_groups: dict[str, Any] | None = None,
     ) -> None:
         metadata = metadata if isinstance(metadata, dict) else {}
@@ -412,6 +492,7 @@ class ProjectImageRecord:
         self.calibration = calibration
         self.calibration_error = calibration_error
         self.raw_calibration = raw_calibration
+        self.measurements = measurements or ProjectImageMeasurements()
         self.extra_groups = dict(extra_groups or {})
         extra_metadata = {
             key: value
@@ -555,6 +636,8 @@ class ProjectImageRecord:
             payload["calibration"] = self.calibration.to_dict()
         elif self.raw_calibration is not None:
             payload["calibration"] = self.raw_calibration
+        if self.measurements.has_data():
+            payload["measurements"] = self.measurements.to_dict()
         payload.update(self.extra_groups)
         return payload
 
@@ -575,7 +658,9 @@ class ProjectImageRecord:
             except ValueError as exc:
                 calibration_error = str(exc)
 
-        known_groups = {"file", "contour", "location", "details", "calibration"}
+        measurements = ProjectImageMeasurements.from_dict(data.get("measurements", {}))
+
+        known_groups = {"file", "contour", "location", "details", "calibration", "measurements"}
         return cls(
             file=ProjectImageFileInfo.from_dict(data.get("file")),
             contour=ProjectImageContourInfo.from_dict(data.get("contour", {})),
@@ -584,6 +669,7 @@ class ProjectImageRecord:
             calibration=calibration,
             calibration_error=calibration_error,
             raw_calibration=raw_calibration,
+            measurements=measurements,
             extra_groups={key: value for key, value in data.items() if key not in known_groups},
         )
 

@@ -92,9 +92,17 @@ class PropertyBrowser(QTreeWidget):
             item.setSizeHint(0, size_hint)
             item.setSizeHint(1, size_hint)
 
-    def add_group(self, title: str, *, expanded: bool = False) -> QTreeWidgetItem:
+    def add_group(
+        self,
+        title: str,
+        *,
+        expanded: bool = False,
+        parent: QTreeWidgetItem | None = None,
+        key: str | None = None,
+    ) -> QTreeWidgetItem:
         group_item = QTreeWidgetItem([title, ""])
         group_item.setData(0, Qt.UserRole, "group")
+        group_item.setData(0, Qt.UserRole + 1, key or title)
         group_item.setFirstColumnSpanned(True)
         group_item.setFlags(group_item.flags() & ~Qt.ItemIsEditable)
 
@@ -102,9 +110,12 @@ class PropertyBrowser(QTreeWidget):
         font.setBold(True)
         group_item.setFont(0, font)
 
-        self.addTopLevelItem(group_item)
+        if parent is None:
+            self.addTopLevelItem(group_item)
+        else:
+            parent.addChild(group_item)
         group_item.setExpanded(expanded)
-        self._groups[title] = group_item
+        self._groups[key or title] = group_item
         return group_item
 
     def add_property(
@@ -134,6 +145,38 @@ class PropertyBrowser(QTreeWidget):
         self._properties[key or label] = property_item
         return property_item
 
+    def add_property_to_item(
+        self,
+        parent: QTreeWidgetItem,
+        label: str,
+        editor: QWidget,
+        *,
+        key: str | None = None,
+    ) -> QTreeWidgetItem:
+        property_item = QTreeWidgetItem([label, ""])
+        property_item.setData(0, Qt.UserRole, "property")
+        property_item.setData(0, Qt.UserRole + 1, key or label)
+        property_item.setFlags(property_item.flags() & ~Qt.ItemIsEditable)
+        property_item.setToolTip(0, label)
+        parent.addChild(property_item)
+        self._configure_editor(editor)
+        self.setItemWidget(property_item, 1, editor)
+        self._property_rows.append((property_item, editor))
+
+        row_height = self._property_row_height(property_item, editor)
+        size_hint = QSize(120, row_height)
+        property_item.setSizeHint(0, size_hint)
+        property_item.setSizeHint(1, size_hint)
+
+        self._properties[key or label] = property_item
+        return property_item
+
+    def clear_children(self, parent: QTreeWidgetItem) -> None:
+        while parent.childCount():
+            child = parent.takeChild(0)
+            self._forget_item(child)
+        self.refresh_layout()
+
     def group_item(self, title: str) -> QTreeWidgetItem:
         try:
             return self._groups[title]
@@ -149,10 +192,7 @@ class PropertyBrowser(QTreeWidget):
     def rows(self) -> list[str]:
         rows: list[str] = []
         for group_index in range(self.topLevelItemCount()):
-            group_item = self.topLevelItem(group_index)
-            rows.append(f"--- {group_item.text(0)}")
-            for child_index in range(group_item.childCount()):
-                rows.append(group_item.child(child_index).text(0))
+            self._append_item_rows(self.topLevelItem(group_index), rows)
         return rows
 
     def is_property_visible(self, key_or_label: str) -> bool:
@@ -191,6 +231,40 @@ class PropertyBrowser(QTreeWidget):
                 editor.setToolTip(editor.text())
         if isinstance(editor, PropertyValueLabel):
             editor.text_changed.connect(self._schedule_refresh_layout)
+
+    def _append_item_rows(self, item: QTreeWidgetItem, rows: list[str]) -> None:
+        if item.data(0, Qt.UserRole) == "group":
+            rows.append(f"--- {item.text(0)}")
+        else:
+            rows.append(item.text(0))
+        for child_index in range(item.childCount()):
+            self._append_item_rows(item.child(child_index), rows)
+
+    def _forget_item(self, item: QTreeWidgetItem) -> None:
+        for child_index in reversed(range(item.childCount())):
+            child = item.takeChild(child_index)
+            self._forget_item(child)
+
+        key = item.data(0, Qt.UserRole + 1)
+        role = item.data(0, Qt.UserRole)
+        if role == "group":
+            for group_key, group_item in list(self._groups.items()):
+                if group_item is item or group_key == key:
+                    self._groups.pop(group_key, None)
+        elif role == "property":
+            for property_key, property_item in list(self._properties.items()):
+                if property_item is item or property_key == key:
+                    self._properties.pop(property_key, None)
+
+        editor = self.itemWidget(item, 1)
+        if editor is not None:
+            self.removeItemWidget(item, 1)
+            editor.deleteLater()
+        self._property_rows = [
+            (property_item, property_editor)
+            for property_item, property_editor in self._property_rows
+            if property_item is not item
+        ]
 
     def _handle_section_resized(self, index: int, _old_size: int, _new_size: int) -> None:
         if index == 0:

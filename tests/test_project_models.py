@@ -11,8 +11,10 @@ from magicborder.models import (
     Annotation,
     ImageCalibration,
     Point,
+    ProjectAngleMeasurement,
     ProjectDocument,
     ProjectImageRecord,
+    ProjectImageMeasurements,
     ProjectInfo,
 )
 
@@ -107,6 +109,56 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertEqual(loaded_calibration.pixel_length(), 120.0)
         self.assertEqual(loaded_calibration.pixels_per_mm(), 12.0)
 
+    def test_project_round_trip_preserves_image_angle_measurements(self) -> None:
+        project = ProjectDocument(
+            name="measurements",
+            images=[
+                ProjectImageRecord(
+                    id="leaf-1",
+                    relative_path="images/leaf.png",
+                    display_name="leaf.png",
+                    measurements=ProjectImageMeasurements(
+                        angles=[
+                            ProjectAngleMeasurement(
+                                id="angle-1",
+                                first=Point(2, 10),
+                                vertex=Point(2, 2),
+                                second=Point(10, 2),
+                                note="контрольный угол",
+                            )
+                        ]
+                    ),
+                )
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_path = Path(temp_dir) / "measurements.json"
+            save_project(project_path, project)
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+
+            loaded_project = load_project(project_path)
+
+        record_payload = payload["images"][0]
+        self.assertEqual(
+            record_payload["measurements"]["angles"],
+            [
+                {
+                    "id": "angle-1",
+                    "first": {"x": 2.0, "y": 10.0},
+                    "vertex": {"x": 2.0, "y": 2.0},
+                    "second": {"x": 10.0, "y": 2.0},
+                    "note": "контрольный угол",
+                }
+            ],
+        )
+        loaded_angle = loaded_project.images[0].measurements.angles[0]
+        self.assertEqual(loaded_angle.id, "angle-1")
+        self.assertEqual(loaded_angle.first, Point(2, 10))
+        self.assertEqual(loaded_angle.vertex, Point(2, 2))
+        self.assertEqual(loaded_angle.second, Point(10, 2))
+        self.assertEqual(loaded_angle.note, "контрольный угол")
+
     def test_project_keeps_corrupt_calibration_payload_without_breaking_load(self) -> None:
         project = ProjectDocument.from_dict(
             {
@@ -144,6 +196,31 @@ class ProjectModelsTest(unittest.TestCase):
                 "length_mm": 10,
             },
         )
+
+    def test_project_loads_images_without_measurements_as_empty_collection(self) -> None:
+        project = ProjectDocument.from_dict(
+            {
+                "version": PROJECT_FORMAT_VERSION,
+                "name": "old_project",
+                "images": [
+                    {
+                        "file": {
+                            "id": "leaf-1",
+                            "path": "images/leaf.png",
+                            "display_name": "leaf.png",
+                        },
+                        "contour": {},
+                        "location": {},
+                        "details": {},
+                    }
+                ],
+            }
+        )
+
+        record = project.images[0]
+
+        self.assertEqual(record.measurements.angles, [])
+        self.assertNotIn("measurements", record.to_dict())
 
     def test_project_info_round_trip_uses_grouped_json(self) -> None:
         project = ProjectDocument(

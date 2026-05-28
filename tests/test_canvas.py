@@ -73,6 +73,13 @@ def _calibration_label_center(canvas: ImageCanvas) -> QPointF:
     return item.pos() + QPointF(rect.center().x() / scale_x, rect.center().y() / scale_y)
 
 
+def _path_signature(path) -> list[tuple[float, float]]:
+    return [
+        (round(path.elementAt(index).x, 3), round(path.elementAt(index).y, 3))
+        for index in range(path.elementCount())
+    ]
+
+
 class ImageCanvasCalibrationPreviewTest(unittest.TestCase):
     def test_calibration_preview_marks_first_point_updates_and_emits_segment(self) -> None:
         canvas = _canvas_with_image()
@@ -215,7 +222,13 @@ class ImageCanvasAngleMeasurementTest(unittest.TestCase):
         self.assertFalse(canvas._angle_preview_vertex_item.isVisible())
         self.assertFalse(canvas._angle_preview_line_item.isVisible())
         self.assertEqual(len(canvas.angle_measurements()), 1)
-        self.assertEqual(canvas._angle_graphics[0].label.toPlainText(), "90°")
+        self.assertEqual(canvas._angle_graphics[0].label.toPlainText(), "Угол 1: 90°")
+        self.assertTrue(canvas._angle_graphics[0].arc.isVisible())
+        self.assertFalse(canvas._angle_graphics[0].arc.path().isEmpty())
+        self.assertNotEqual(
+            canvas._angle_graphics[0].arc.pen().color().name(),
+            canvas._angle_graphics[0].first_line.pen().color().name(),
+        )
 
         first, vertex, second = canvas.angle_measurements()[0]
         self.assertAlmostEqual(first.x, 10.0, delta=0.5)
@@ -238,12 +251,15 @@ class ImageCanvasAngleMeasurementTest(unittest.TestCase):
         )
 
         self.assertTrue(canvas.has_angle_measurements())
-        self.assertEqual(canvas._angle_graphics[0].label.toPlainText(), "90°")
+        self.assertEqual(canvas._angle_graphics[0].label.toPlainText(), "Угол 1: 90°")
+        initial_arc = _path_signature(canvas._angle_graphics[0].arc.path())
+        self.assertTrue(canvas._angle_graphics[0].arc.isVisible())
 
         canvas.angle_handle_moved(0, 2, QPointF(20, 20))
 
         self.assertEqual(canvas.angle_measurements()[0][2], Point(20, 20))
-        self.assertEqual(canvas._angle_graphics[0].label.toPlainText(), "45°")
+        self.assertEqual(canvas._angle_graphics[0].label.toPlainText(), "Угол 1: 45°")
+        self.assertNotEqual(initial_arc, _path_signature(canvas._angle_graphics[0].arc.path()))
 
         canvas._angle_graphics[0].handles[0].setSelected(True)
         self.assertFalse(canvas.has_selected_angle_vertex())
@@ -257,6 +273,33 @@ class ImageCanvasAngleMeasurementTest(unittest.TestCase):
         self.assertTrue(canvas.delete_selected_angle())
         self.assertEqual(canvas.angle_measurements(), [])
         self.assertFalse(canvas.has_angle_measurements())
+
+    def test_angle_labels_follow_collection_order_and_renumber_after_delete(self) -> None:
+        canvas = _canvas_with_image()
+        canvas.set_angle_measurement_records(
+            [
+                ("angle-a", Point(10, 20), Point(10, 10), Point(20, 10)),
+                ("angle-b", Point(30, 30), Point(30, 10), Point(50, 30)),
+                ("angle-c", Point(60, 30), Point(60, 10), Point(80, 10)),
+            ]
+        )
+
+        self.assertEqual(
+            [graphics.label.toPlainText() for graphics in canvas._angle_graphics],
+            ["Угол 1: 90°", "Угол 2: 45°", "Угол 3: 90°"],
+        )
+
+        canvas._angle_graphics[1].handles[1].setSelected(True)
+
+        self.assertTrue(canvas.delete_selected_angle())
+        self.assertEqual(
+            [graphics.label.toPlainText() for graphics in canvas._angle_graphics],
+            ["Угол 1: 90°", "Угол 2: 90°"],
+        )
+        self.assertEqual(
+            [record[0] for record in canvas.angle_measurement_records()],
+            ["angle-a", "angle-c"],
+        )
 
     def test_angle_capture_cancel_clears_preview_without_creating_measurement(self) -> None:
         canvas = _canvas_with_image()

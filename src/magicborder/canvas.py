@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
+from uuid import uuid4
 
 import cv2
 import numpy as np
@@ -26,6 +27,7 @@ from .models import Point
 
 @dataclass
 class AngleMeasurement:
+    id: str
     first: QPointF
     vertex: QPointF
     second: QPointF
@@ -35,6 +37,7 @@ class AngleMeasurement:
 class AngleGraphics:
     first_line: QGraphicsLineItem
     second_line: QGraphicsLineItem
+    arc: QGraphicsPathItem
     label: QGraphicsTextItem
     handles: list["AngleHandleItem"]
 
@@ -271,6 +274,12 @@ class ImageCanvas(QGraphicsView):
             for graphics in self._angle_graphics
         )
 
+    def selected_angle_id(self) -> str | None:
+        selected_index = self._selected_angle_vertex_index()
+        if selected_index is None or selected_index >= len(self._angle_measurements):
+            return None
+        return self._angle_measurements[selected_index].id
+
     def current_image_path(self) -> Path | None:
         return self._loaded_image.path if self._loaded_image else None
 
@@ -296,6 +305,17 @@ class ImageCanvas(QGraphicsView):
     def angle_measurements(self) -> list[tuple[Point, Point, Point]]:
         return [
             (
+                Point(measurement.first.x(), measurement.first.y()),
+                Point(measurement.vertex.x(), measurement.vertex.y()),
+                Point(measurement.second.x(), measurement.second.y()),
+            )
+            for measurement in self._angle_measurements
+        ]
+
+    def angle_measurement_records(self) -> list[tuple[str, Point, Point, Point]]:
+        return [
+            (
+                measurement.id,
                 Point(measurement.first.x(), measurement.first.y()),
                 Point(measurement.vertex.x(), measurement.vertex.y()),
                 Point(measurement.second.x(), measurement.second.y()),
@@ -457,6 +477,18 @@ class ImageCanvas(QGraphicsView):
         self.angle_state_changed.emit()
 
     def set_angle_measurements(self, measurements: Sequence[Sequence[Point]]) -> None:
+        records: list[tuple[str, Point, Point, Point]] = []
+        for measurement in measurements:
+            points = list(measurement)
+            if len(points) != 3:
+                continue
+            records.append((_new_angle_id(), points[0], points[1], points[2]))
+        self.set_angle_measurement_records(records)
+
+    def set_angle_measurement_records(
+        self,
+        measurements: Sequence[tuple[str, Point, Point, Point]],
+    ) -> None:
         if not self._loaded_image:
             self.clear_angles()
             return
@@ -464,15 +496,17 @@ class ImageCanvas(QGraphicsView):
         self.cancel_angle_measurement(show_message=False)
         self._angle_measurements = []
         for measurement in measurements:
-            points = list(measurement)
-            if len(points) != 3:
+            if len(measurement) != 4:
                 continue
-            first = self.constrain_point(QPointF(float(points[0].x), float(points[0].y)))
-            vertex = self.constrain_point(QPointF(float(points[1].x), float(points[1].y)))
-            second = self.constrain_point(QPointF(float(points[2].x), float(points[2].y)))
+            angle_id, first_point, vertex_point, second_point = measurement
+            first = self.constrain_point(QPointF(float(first_point.x), float(first_point.y)))
+            vertex = self.constrain_point(QPointF(float(vertex_point.x), float(vertex_point.y)))
+            second = self.constrain_point(QPointF(float(second_point.x), float(second_point.y)))
             if _angle_degrees(first, vertex, second) is None:
                 continue
-            self._angle_measurements.append(AngleMeasurement(first, vertex, second))
+            self._angle_measurements.append(
+                AngleMeasurement(str(angle_id or _new_angle_id()), first, vertex, second)
+            )
 
         self._rebuild_angle_graphics()
         self.angle_state_changed.emit()
@@ -675,7 +709,9 @@ class ImageCanvas(QGraphicsView):
                     event.accept()
                     return
 
-                self._angle_measurements.append(AngleMeasurement(first, vertex, second))
+                self._angle_measurements.append(
+                    AngleMeasurement(_new_angle_id(), first, vertex, second)
+                )
                 self._angle_capture_points.clear()
                 self._clear_angle_preview()
                 self._rebuild_angle_graphics()
@@ -914,6 +950,7 @@ class ImageCanvas(QGraphicsView):
                 self._scene.removeItem(handle)
             self._scene.removeItem(graphics.first_line)
             self._scene.removeItem(graphics.second_line)
+            self._scene.removeItem(graphics.arc)
             self._scene.removeItem(graphics.label)
         self._angle_graphics.clear()
 
@@ -945,6 +982,15 @@ class ImageCanvas(QGraphicsView):
         second_line.setZValue(22)
         self._scene.addItem(second_line)
 
+        arc_pen = QPen(QColor("#7c3aed"), 2.0)
+        arc_pen.setCosmetic(True)
+        arc = QGraphicsPathItem()
+        arc.setPen(arc_pen)
+        arc.setBrush(QBrush(Qt.NoBrush))
+        arc.setZValue(23)
+        arc.setVisible(False)
+        self._scene.addItem(arc)
+
         label = QGraphicsTextItem()
         label.setDefaultTextColor(QColor("#166534"))
         label_font = label.font()
@@ -963,7 +1009,7 @@ class ImageCanvas(QGraphicsView):
         for handle in handles:
             self._scene.addItem(handle)
 
-        return AngleGraphics(first_line, second_line, label, handles)
+        return AngleGraphics(first_line, second_line, arc, label, handles)
 
     def _refresh_angle_graphic(self, angle_index: int) -> None:
         if angle_index >= len(self._angle_measurements) or angle_index >= len(self._angle_graphics):
@@ -984,7 +1030,10 @@ class ImageCanvas(QGraphicsView):
             measurement.second.y(),
         )
         angle_degrees = _angle_degrees(measurement.first, measurement.vertex, measurement.second)
-        graphics.label.setPlainText("-" if angle_degrees is None else _format_angle_degrees(angle_degrees))
+        arc_path = _angle_arc_path(measurement.first, measurement.vertex, measurement.second)
+        graphics.arc.setPath(arc_path)
+        graphics.arc.setVisible(not arc_path.isEmpty())
+        graphics.label.setPlainText(_format_angle_label(angle_index, angle_degrees))
         self._position_angle_label(graphics.label, measurement.vertex)
 
         self._suppress_angle_handle_events = True
@@ -1099,6 +1148,46 @@ def _distance_to_segment(point: QPointF, start: QPointF, end: QPointF) -> tuple[
     return distance, QPointF(projected_x, projected_y)
 
 
+def _new_angle_id() -> str:
+    return f"angle-{uuid4()}"
+
+
+def _angle_arc_path(first: QPointF, vertex: QPointF, second: QPointF) -> QPainterPath:
+    path = QPainterPath()
+    first_x = first.x() - vertex.x()
+    first_y = first.y() - vertex.y()
+    second_x = second.x() - vertex.x()
+    second_y = second.y() - vertex.y()
+    first_length = math.hypot(first_x, first_y)
+    second_length = math.hypot(second_x, second_y)
+    shortest_ray = min(first_length, second_length)
+    if shortest_ray <= 1e-6:
+        return path
+
+    start_angle = math.atan2(first_y, first_x)
+    end_angle = math.atan2(second_y, second_x)
+    span_angle = (end_angle - start_angle + math.pi) % (2.0 * math.pi) - math.pi
+    if abs(span_angle) <= 1e-6:
+        return path
+
+    radius = min(28.0, max(shortest_ray * 0.4, min(10.0, shortest_ray * 0.75)))
+    if radius <= 1e-6:
+        return path
+
+    step_count = max(8, int(math.ceil(abs(span_angle) / (math.pi / 24.0))))
+    for step in range(step_count + 1):
+        angle = start_angle + span_angle * (step / step_count)
+        point = QPointF(
+            vertex.x() + math.cos(angle) * radius,
+            vertex.y() + math.sin(angle) * radius,
+        )
+        if step == 0:
+            path.moveTo(point)
+        else:
+            path.lineTo(point)
+    return path
+
+
 def _angle_degrees(first: QPointF, vertex: QPointF, second: QPointF) -> float | None:
     first_x = first.x() - vertex.x()
     first_y = first.y() - vertex.y()
@@ -1119,3 +1208,8 @@ def _format_angle_degrees(value: float) -> str:
     if math.isclose(rounded, round(rounded), abs_tol=1e-9):
         return f"{int(round(rounded))}°"
     return f"{rounded:.1f}°"
+
+
+def _format_angle_label(angle_index: int, value: float | None) -> str:
+    angle_value = "-" if value is None else _format_angle_degrees(value)
+    return f"Угол {angle_index + 1}: {angle_value}"

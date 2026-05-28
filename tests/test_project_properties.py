@@ -185,13 +185,17 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Статус",
                 "Дата добавления",
                 "Дата съёмки",
-                "--- Информация о контуре",
+                "--- Калибровка",
+                "Длина калибровки, мм",
+                "Масштаб",
+                "--- Информация о главном контуре",
                 "Аннотация",
                 "Количество узлов контура",
                 "Количество пикселов контура",
                 "Площадь контура, мм²",
-                "Длина калибровки, мм",
-                "Масштаб",
+                "--- Измерения",
+                "--- Углы",
+                "Нет углов",
                 "--- Цветовое пространство RGB",
                 "Красный",
                 "Зелёный",
@@ -224,6 +228,29 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Диагноз",
                 "Дополнительные сведения",
             ],
+        )
+        calibration_group = _property_group(window.properties_browser, "Калибровка")
+        contour_group = _property_group(window.properties_browser, "Информация о главном контуре")
+
+        self.assertIs(
+            window.properties_browser.property_item("Длина калибровки, мм").parent(),
+            calibration_group,
+        )
+        self.assertIs(
+            window.properties_browser.property_item("Масштаб").parent(),
+            calibration_group,
+        )
+        self.assertIsNot(
+            window.properties_browser.property_item("Длина калибровки, мм").parent(),
+            contour_group,
+        )
+        self.assertIsNot(
+            window.properties_browser.property_item("Масштаб").parent(),
+            contour_group,
+        )
+        self.assertLess(
+            window.properties_browser.indexOfTopLevelItem(calibration_group),
+            window.properties_browser.indexOfTopLevelItem(contour_group),
         )
 
     def test_project_properties_panel_is_between_images_and_image_properties(self) -> None:
@@ -278,7 +305,7 @@ class ProjectPropertiesTest(unittest.TestCase):
         browser = window.properties_browser
         self.assertIsInstance(browser, PropertyBrowser)
         file_group = _property_group(browser, "Общая информация о файле")
-        contour_group = _property_group(browser, "Информация о контуре")
+        contour_group = _property_group(browser, "Информация о главном контуре")
 
         self.assertFalse(file_group.isExpanded())
         self.assertFalse(browser.is_property_visible("ID"))
@@ -535,7 +562,7 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.property_lms_m.text(), "-")
             self.assertEqual(window.property_lms_s.text(), "-")
 
-    def test_angle_measurements_are_session_scoped_and_not_saved(self) -> None:
+    def test_angle_measurements_are_project_entities_and_saved(self) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -582,8 +609,24 @@ class ProjectPropertiesTest(unittest.TestCase):
                 ]
             )
 
-            self.assertFalse(window._project_autosave_timer.isActive())
-            self.assertEqual(len(window._angle_measurements_by_image_id["leaf-a"]), 1)
+            self.assertTrue(window._project_autosave_timer.isActive())
+            record = window._project_image_by_id("leaf-a")
+            self.assertIsNotNone(record)
+            self.assertEqual(len(record.measurements.angles), 1)
+            angle_id = record.measurements.angles[0].id
+            self.assertIn("--- Измерения", _property_panel_rows(window))
+            self.assertIn("--- Углы", _property_panel_rows(window))
+            self.assertIn("--- Угол 1", _property_panel_rows(window))
+            angle_id_label = window.properties_browser.itemWidget(
+                window.properties_browser.property_item(f"angle:{angle_id}:id"),
+                1,
+            )
+            self.assertEqual(angle_id_label.text(), angle_id)
+
+            note_field = window._angle_note_fields[angle_id]
+            note_field.setText("контрольный угол")
+            window._handle_angle_note_edit_finished(angle_id, note_field)
+            self.assertEqual(record.measurements.angles[0].note, "контрольный угол")
 
             window.canvas._angle_graphics[0].handles[1].setSelected(True)
 
@@ -591,7 +634,12 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             window.save_project_file()
             payload = json.loads(project_path.read_text(encoding="utf-8"))
-            self.assertNotIn("angle", json.dumps(payload, ensure_ascii=False).lower())
+            saved_angle = payload["images"][0]["measurements"]["angles"][0]
+            self.assertEqual(saved_angle["id"], angle_id)
+            self.assertEqual(saved_angle["first"], {"x": 2.0, "y": 10.0})
+            self.assertEqual(saved_angle["vertex"], {"x": 2.0, "y": 2.0})
+            self.assertEqual(saved_angle["second"], {"x": 10.0, "y": 2.0})
+            self.assertEqual(saved_angle["note"], "контрольный угол")
 
             window.project_list.setCurrentRow(1)
 
@@ -600,12 +648,13 @@ class ProjectPropertiesTest(unittest.TestCase):
             window.project_list.setCurrentRow(0)
 
             self.assertEqual(len(window.canvas.angle_measurements()), 1)
+            self.assertEqual(window.canvas.angle_measurement_records()[0][0], angle_id)
 
             window.canvas._angle_graphics[0].handles[1].setSelected(True)
             window.delete_selected_angle()
 
             self.assertEqual(window.canvas.angle_measurements(), [])
-            self.assertEqual(window._angle_measurements_by_image_id["leaf-a"], [])
+            self.assertEqual(record.measurements.angles, [])
             self.assertFalse(window.delete_angle_action.isEnabled())
 
     def test_image_calibration_scale_round_trip_edit_reset_and_export(self) -> None:
