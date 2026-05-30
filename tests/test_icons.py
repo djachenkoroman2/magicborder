@@ -11,6 +11,8 @@ MEASUREMENT_ACTION_ICONS = {
     "reset_calibration": "reset-calibration",
     "measure_angle": "measure-angle",
     "delete_angle": "delete-angle",
+    "measure_segment": "measure-segment",
+    "delete_segment": "delete-segment",
 }
 
 

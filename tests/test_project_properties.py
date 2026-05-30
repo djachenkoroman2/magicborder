@@ -190,12 +190,15 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Масштаб",
                 "--- Информация о главном контуре",
                 "Аннотация",
+                "Показывать контур",
                 "Количество узлов контура",
                 "Количество пикселов контура",
                 "Площадь контура, мм²",
                 "--- Измерения",
                 "--- Углы",
                 "Нет углов",
+                "--- Отрезки",
+                "Нет отрезков",
                 "--- Цветовое пространство RGB",
                 "Красный",
                 "Зелёный",
@@ -562,6 +565,81 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.property_lms_m.text(), "-")
             self.assertEqual(window.property_lms_s.text(), "-")
 
+    def test_contour_visibility_property_toggles_canvas_without_changing_annotation(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            Image.new("RGB", (20, 20), (120, 80, 40)).save(image_dir / "empty.png")
+            Image.new("RGB", (20, 20), (60, 120, 80)).save(image_dir / "leaf.png")
+
+            annotation = Annotation(
+                image_path="images/leaf.png",
+                image_width=20,
+                image_height=20,
+                points=[
+                    Point(2, 2),
+                    Point(17, 2),
+                    Point(17, 17),
+                    Point(2, 17),
+                ],
+            )
+            project = ProjectDocument(
+                name="contour_visibility",
+                images=[
+                    ProjectImageRecord(
+                        id="empty",
+                        relative_path="images/empty.png",
+                        display_name="empty.png",
+                        image_width=20,
+                        image_height=20,
+                    ),
+                    ProjectImageRecord(
+                        id="leaf",
+                        relative_path="images/leaf.png",
+                        display_name="leaf.png",
+                        image_width=20,
+                        image_height=20,
+                        annotation=annotation,
+                    ),
+                ],
+            )
+            project_path = root / "contour_visibility.json"
+            save_project(project_path, project)
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertIn("Показывать контур", _property_panel_rows(window))
+            self.assertFalse(window.property_contour_visible.isEnabled())
+            self.assertFalse(window.property_contour_visible.isChecked())
+
+            window.project_list.setCurrentRow(1)
+
+            record = window._project_image_by_id("leaf")
+            self.assertIsNotNone(record)
+            self.assertTrue(window.property_contour_visible.isEnabled())
+            self.assertTrue(window.property_contour_visible.isChecked())
+            self.assertTrue(window.canvas._path_item.isVisible())
+            self.assertTrue(all(handle.isVisible() for handle in window.canvas._handles))
+
+            window._project_autosave_timer.stop()
+            window.property_contour_visible.setChecked(False)
+
+            self.assertFalse(window.canvas.is_contour_visible())
+            self.assertFalse(window.canvas._path_item.isVisible())
+            self.assertTrue(all(not handle.isVisible() for handle in window.canvas._handles))
+            self.assertIsNotNone(record.annotation)
+            self.assertEqual(record.annotation.points, annotation.points)
+            self.assertFalse(window._project_autosave_timer.isActive())
+
+            window.property_contour_visible.setChecked(True)
+
+            self.assertTrue(window.canvas.is_contour_visible())
+            self.assertTrue(window.canvas._path_item.isVisible())
+            self.assertTrue(all(handle.isVisible() for handle in window.canvas._handles))
+
     def test_angle_measurements_are_project_entities_and_saved(self) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -617,16 +695,58 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertIn("--- Измерения", _property_panel_rows(window))
             self.assertIn("--- Углы", _property_panel_rows(window))
             self.assertIn("--- Угол 1", _property_panel_rows(window))
+            self.assertIn("Имя", _property_panel_rows(window))
+            self.assertIn("Показывать на канвасе", _property_panel_rows(window))
             angle_id_label = window.properties_browser.itemWidget(
                 window.properties_browser.property_item(f"angle:{angle_id}:id"),
                 1,
             )
             self.assertEqual(angle_id_label.text(), angle_id)
+            visibility_field = window._angle_visibility_fields[angle_id]
+            self.assertTrue(visibility_field.isEnabled())
+            self.assertTrue(visibility_field.isChecked())
+            self.assertTrue(window.canvas.is_angle_measurement_visible(angle_id))
+
+            name_field = window._angle_name_fields[angle_id]
+            self.assertEqual(name_field.text(), "")
+            name_field.setText("Контрольный угол")
+            window._handle_angle_name_edit_finished(angle_id, name_field)
+            self.assertEqual(record.measurements.angles[0].name, "Контрольный угол")
+            self.assertIn("--- Контрольный угол", _property_panel_rows(window))
+            self.assertEqual(
+                window.canvas._angle_graphics[0].label.toPlainText(),
+                "Контрольный угол: 90°",
+            )
 
             note_field = window._angle_note_fields[angle_id]
             note_field.setText("контрольный угол")
             window._handle_angle_note_edit_finished(angle_id, note_field)
             self.assertEqual(record.measurements.angles[0].note, "контрольный угол")
+
+            window.canvas._angle_graphics[0].handles[1].setSelected(True)
+            self.assertTrue(window.delete_angle_action.isEnabled())
+
+            visibility_field = window._angle_visibility_fields[angle_id]
+            window._project_autosave_timer.stop()
+            visibility_field.setChecked(False)
+
+            self.assertFalse(visibility_field.isChecked())
+            self.assertFalse(window.canvas.is_angle_measurement_visible(angle_id))
+            self.assertFalse(window.canvas._angle_graphics[0].label.isVisible())
+            self.assertFalse(window.canvas.has_selected_angle_vertex())
+            self.assertFalse(window.delete_angle_action.isEnabled())
+            self.assertEqual(len(record.measurements.angles), 1)
+            self.assertFalse(window._project_autosave_timer.isActive())
+
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            saved_angle = payload["images"][0]["measurements"]["angles"][0]
+            self.assertNotIn("visible", saved_angle)
+
+            visibility_field.setChecked(True)
+
+            self.assertTrue(window.canvas.is_angle_measurement_visible(angle_id))
+            self.assertTrue(window.canvas._angle_graphics[0].label.isVisible())
 
             window.canvas._angle_graphics[0].handles[1].setSelected(True)
 
@@ -639,7 +759,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(saved_angle["first"], {"x": 2.0, "y": 10.0})
             self.assertEqual(saved_angle["vertex"], {"x": 2.0, "y": 2.0})
             self.assertEqual(saved_angle["second"], {"x": 10.0, "y": 2.0})
+            self.assertEqual(saved_angle["name"], "Контрольный угол")
             self.assertEqual(saved_angle["note"], "контрольный угол")
+            self.assertNotIn("visible", saved_angle)
 
             window.project_list.setCurrentRow(1)
 
@@ -649,6 +771,10 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             self.assertEqual(len(window.canvas.angle_measurements()), 1)
             self.assertEqual(window.canvas.angle_measurement_records()[0][0], angle_id)
+            self.assertEqual(
+                window.canvas._angle_graphics[0].label.toPlainText(),
+                "Контрольный угол: 90°",
+            )
 
             window.canvas._angle_graphics[0].handles[1].setSelected(True)
             window.delete_selected_angle()
@@ -656,6 +782,172 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.canvas.angle_measurements(), [])
             self.assertEqual(record.measurements.angles, [])
             self.assertFalse(window.delete_angle_action.isEnabled())
+
+    def test_segment_measurements_are_project_entities_and_saved(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            Image.new("RGB", (40, 30), (120, 80, 40)).save(image_dir / "leaf_a.png")
+            Image.new("RGB", (40, 30), (10, 20, 30)).save(image_dir / "leaf_b.png")
+
+            project = ProjectDocument(
+                name="segments",
+                images=[
+                    ProjectImageRecord(
+                        id="leaf-a",
+                        relative_path="images/leaf_a.png",
+                        display_name="leaf_a.png",
+                        image_width=40,
+                        image_height=30,
+                        calibration=ImageCalibration(
+                            start=Point(0, 0),
+                            end=Point(10, 0),
+                            length_mm=5,
+                        ),
+                    ),
+                    ProjectImageRecord(
+                        id="leaf-b",
+                        relative_path="images/leaf_b.png",
+                        display_name="leaf_b.png",
+                        image_width=40,
+                        image_height=30,
+                    ),
+                ],
+            )
+            project_path = root / "segments.json"
+            save_project(project_path, project)
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            self.assertTrue(window.measure_segment_action.isEnabled())
+            self.assertFalse(window.delete_segment_action.isEnabled())
+            self.assertIn("--- Отрезки", _property_panel_rows(window))
+            self.assertIn("Нет отрезков", _property_panel_rows(window))
+
+            window.canvas.set_segment_measurement_records(
+                [("segment-a", Point(2, 2), Point(12, 2), "A", "B")]
+            )
+
+            record = window._project_image_by_id("leaf-a")
+            self.assertIsNotNone(record)
+            self.assertEqual(len(record.measurements.segments), 1)
+            segment_id = record.measurements.segments[0].id
+            self.assertEqual(segment_id, "segment-a")
+            self.assertIn("--- Отрезок 1", _property_panel_rows(window))
+            self.assertIn("Имя", _property_panel_rows(window))
+            self.assertIn("Показывать на канвасе", _property_panel_rows(window))
+            self.assertIn("Подпись первой точки", _property_panel_rows(window))
+            self.assertIn("Подпись второй точки", _property_panel_rows(window))
+            self.assertIn("Примечание", _property_panel_rows(window))
+            segment_length_label = window.properties_browser.itemWidget(
+                window.properties_browser.property_item(f"segment:{segment_id}:length"),
+                1,
+            )
+            self.assertEqual(segment_length_label.text(), "10 px / 5 мм")
+            self.assertEqual(
+                window.canvas._segment_graphics[0].length_label.toPlainText(),
+                "Отрезок 1\n10 px / 5 мм",
+            )
+            visibility_field = window._segment_visibility_fields[segment_id]
+            self.assertTrue(visibility_field.isEnabled())
+            self.assertTrue(visibility_field.isChecked())
+            self.assertTrue(window.canvas.is_segment_measurement_visible(segment_id))
+
+            name_field = window._segment_name_fields[segment_id]
+            self.assertEqual(name_field.text(), "")
+            name_field.setText("Контрольный отрезок")
+            window._handle_segment_name_edit_finished(segment_id, name_field)
+            self.assertEqual(record.measurements.segments[0].name, "Контрольный отрезок")
+            self.assertIn("--- Контрольный отрезок", _property_panel_rows(window))
+            self.assertEqual(
+                window.canvas._segment_graphics[0].length_label.toPlainText(),
+                "Контрольный отрезок\n10 px / 5 мм",
+            )
+
+            start_label_field = window._segment_start_label_fields[segment_id]
+            start_label_field.setText("Начало")
+            window._handle_segment_label_edit_finished(segment_id, start_label_field, "start")
+            end_label_field = window._segment_end_label_fields[segment_id]
+            end_label_field.setText("Конец")
+            window._handle_segment_label_edit_finished(segment_id, end_label_field, "end")
+            note_field = window._segment_note_fields[segment_id]
+            note_field.setText("измерить повторно")
+            window._handle_segment_note_edit_finished(segment_id, note_field)
+
+            self.assertEqual(record.measurements.segments[0].name, "Контрольный отрезок")
+            self.assertEqual(record.measurements.segments[0].start_label, "Начало")
+            self.assertEqual(record.measurements.segments[0].end_label, "Конец")
+            self.assertEqual(record.measurements.segments[0].note, "измерить повторно")
+            self.assertEqual(window.canvas._segment_graphics[0].start_label.toPlainText(), "Начало")
+            self.assertEqual(window.canvas._segment_graphics[0].end_label.toPlainText(), "Конец")
+
+            window.canvas._segment_graphics[0].handles[0].setSelected(True)
+
+            self.assertTrue(window.delete_segment_action.isEnabled())
+
+            visibility_field = window._segment_visibility_fields[segment_id]
+            window._project_autosave_timer.stop()
+            visibility_field.setChecked(False)
+
+            self.assertFalse(visibility_field.isChecked())
+            self.assertFalse(window.canvas.is_segment_measurement_visible(segment_id))
+            self.assertFalse(window.canvas._segment_graphics[0].line.isVisible())
+            self.assertFalse(window.canvas._segment_graphics[0].length_label.isVisible())
+            self.assertFalse(window.canvas.has_selected_segment_endpoint())
+            self.assertFalse(window.delete_segment_action.isEnabled())
+            self.assertEqual(len(record.measurements.segments), 1)
+            self.assertFalse(window._project_autosave_timer.isActive())
+
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            saved_segment = payload["images"][0]["measurements"]["segments"][0]
+            self.assertNotIn("visible", saved_segment)
+
+            visibility_field.setChecked(True)
+
+            self.assertTrue(window.canvas.is_segment_measurement_visible(segment_id))
+            self.assertTrue(window.canvas._segment_graphics[0].line.isVisible())
+            self.assertTrue(window.canvas._segment_graphics[0].length_label.isVisible())
+
+            window.canvas._segment_graphics[0].handles[0].setSelected(True)
+            self.assertTrue(window.delete_segment_action.isEnabled())
+
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            saved_segment = payload["images"][0]["measurements"]["segments"][0]
+            self.assertEqual(saved_segment["id"], segment_id)
+            self.assertEqual(saved_segment["name"], "Контрольный отрезок")
+            self.assertEqual(saved_segment["start"], {"x": 2.0, "y": 2.0})
+            self.assertEqual(saved_segment["end"], {"x": 12.0, "y": 2.0})
+            self.assertEqual(saved_segment["start_label"], "Начало")
+            self.assertEqual(saved_segment["end_label"], "Конец")
+            self.assertEqual(saved_segment["note"], "измерить повторно")
+            self.assertNotIn("visible", saved_segment)
+
+            window.project_list.setCurrentRow(1)
+
+            self.assertEqual(window.canvas.segment_measurements(), [])
+
+            window.project_list.setCurrentRow(0)
+
+            self.assertEqual(len(window.canvas.segment_measurements()), 1)
+            self.assertEqual(window.canvas.segment_measurement_records()[0][0], segment_id)
+            self.assertEqual(
+                window.canvas._segment_graphics[0].length_label.toPlainText(),
+                "Контрольный отрезок\n10 px / 5 мм",
+            )
+            self.assertEqual(window._segment_name_fields[segment_id].text(), "Контрольный отрезок")
+            self.assertEqual(window._segment_note_fields[segment_id].text(), "измерить повторно")
+
+            window.canvas._segment_graphics[0].handles[0].setSelected(True)
+            window.delete_selected_segment()
+
+            self.assertEqual(window.canvas.segment_measurements(), [])
+            self.assertEqual(record.measurements.segments, [])
+            self.assertFalse(window.delete_segment_action.isEnabled())
 
     def test_image_calibration_scale_round_trip_edit_reset_and_export(self) -> None:
         _app()

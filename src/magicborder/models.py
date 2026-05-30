@@ -93,12 +93,17 @@ def _new_angle_measurement_id() -> str:
     return f"angle-{uuid4()}"
 
 
+def _new_segment_measurement_id() -> str:
+    return f"segment-{uuid4()}"
+
+
 @dataclass(slots=True)
 class ProjectAngleMeasurement:
     id: str
     first: Point
     vertex: Point
     second: Point
+    name: str = ""
     note: str = ""
 
     def __post_init__(self) -> None:
@@ -109,16 +114,22 @@ class ProjectAngleMeasurement:
             self.vertex = Point.from_dict(self.vertex)
         if not isinstance(self.second, Point):
             self.second = Point.from_dict(self.second)
+        self.name = str(self.name or "").strip()
         self.note = str(self.note or "")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "first": self.first.to_dict(),
-            "vertex": self.vertex.to_dict(),
-            "second": self.second.to_dict(),
-            "note": self.note,
-        }
+        payload: dict[str, Any] = {"id": self.id}
+        if self.name:
+            payload["name"] = self.name
+        payload.update(
+            {
+                "first": self.first.to_dict(),
+                "vertex": self.vertex.to_dict(),
+                "second": self.second.to_dict(),
+                "note": self.note,
+            }
+        )
+        return payload
 
     @classmethod
     def from_dict(cls, data: Any) -> "ProjectAngleMeasurement":
@@ -129,6 +140,58 @@ class ProjectAngleMeasurement:
             first=Point.from_dict(data.get("first")),
             vertex=Point.from_dict(data.get("vertex")),
             second=Point.from_dict(data.get("second")),
+            name=str(data.get("name") or ""),
+            note=str(data.get("note", "")),
+        )
+
+
+@dataclass(slots=True)
+class ProjectSegmentMeasurement:
+    id: str
+    start: Point
+    end: Point
+    name: str = ""
+    start_label: str = ""
+    end_label: str = ""
+    note: str = ""
+
+    def __post_init__(self) -> None:
+        self.id = str(self.id or "").strip() or _new_segment_measurement_id()
+        if not isinstance(self.start, Point):
+            self.start = Point.from_dict(self.start)
+        if not isinstance(self.end, Point):
+            self.end = Point.from_dict(self.end)
+        self.name = str(self.name or "").strip()
+        self.start_label = str(self.start_label or "").strip()
+        self.end_label = str(self.end_label or "").strip()
+        self.note = str(self.note or "")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"id": self.id}
+        if self.name:
+            payload["name"] = self.name
+        payload.update(
+            {
+                "start": self.start.to_dict(),
+                "end": self.end.to_dict(),
+                "start_label": self.start_label,
+                "end_label": self.end_label,
+                "note": self.note,
+            }
+        )
+        return payload
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "ProjectSegmentMeasurement":
+        if not isinstance(data, dict):
+            raise ValueError("Измерение отрезка должно быть объектом.")
+        return cls(
+            id=str(data.get("id", "")),
+            start=Point.from_dict(data.get("start")),
+            end=Point.from_dict(data.get("end")),
+            name=str(data.get("name") or ""),
+            start_label=str(data.get("start_label") or ""),
+            end_label=str(data.get("end_label") or ""),
             note=str(data.get("note", "")),
         )
 
@@ -136,15 +199,17 @@ class ProjectAngleMeasurement:
 @dataclass(slots=True)
 class ProjectImageMeasurements:
     angles: list[ProjectAngleMeasurement] = field(default_factory=list)
+    segments: list[ProjectSegmentMeasurement] = field(default_factory=list)
     extra_groups: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = dict(self.extra_groups)
         payload["angles"] = [angle.to_dict() for angle in self.angles]
+        payload["segments"] = [segment.to_dict() for segment in self.segments]
         return payload
 
     def has_data(self) -> bool:
-        return bool(self.angles or self.extra_groups)
+        return bool(self.angles or self.segments or self.extra_groups)
 
     @classmethod
     def from_dict(cls, data: Any) -> "ProjectImageMeasurements":
@@ -160,9 +225,24 @@ class ProjectImageMeasurements:
                 except ValueError:
                     continue
 
+        raw_segments = data.get("segments", [])
+        segments: list[ProjectSegmentMeasurement] = []
+        if isinstance(raw_segments, list):
+            for item in raw_segments:
+                try:
+                    segment = ProjectSegmentMeasurement.from_dict(item)
+                except ValueError:
+                    continue
+                if math.hypot(segment.end.x - segment.start.x, segment.end.y - segment.start.y) <= 1e-6:
+                    continue
+                segments.append(segment)
+
         return cls(
             angles=angles,
-            extra_groups={key: value for key, value in data.items() if key != "angles"},
+            segments=segments,
+            extra_groups={
+                key: value for key, value in data.items() if key not in {"angles", "segments"}
+            },
         )
 
 

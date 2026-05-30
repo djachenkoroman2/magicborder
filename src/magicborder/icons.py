@@ -139,6 +139,16 @@ ACTION_VISUALS: dict[str, ActionVisual] = {
         tool_tip="Удалить угол",
         status_tip="Удалить выбранное временное измерение угла.",
     ),
+    "measure_segment": ActionVisual(
+        icon_name="measure-segment",
+        tool_tip="Отрезок",
+        status_tip="Измерить отрезок двумя точками на выбранном изображении.",
+    ),
+    "delete_segment": ActionVisual(
+        icon_name="delete-segment",
+        tool_tip="Удалить отрезок",
+        status_tip="Удалить выбранное измерение отрезка.",
+    ),
     "save_annotation": ActionVisual(
         icon_name="save-annotation",
         tool_tip="Сохранить аннотацию",

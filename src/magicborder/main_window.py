@@ -13,6 +13,7 @@ from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
+    QCheckBox,
     QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
@@ -65,6 +66,7 @@ from .models import (
     ProjectAngleMeasurement,
     ProjectDocument,
     ProjectImageRecord,
+    ProjectSegmentMeasurement,
     default_project_image_metadata,
 )
 from .path_utils import portable_path_reference
@@ -259,6 +261,7 @@ class MainWindow(QMainWindow):
         self.canvas.calibration_segment_selected.connect(self._handle_calibration_segment_selected)
         self.canvas.calibration_geometry_changed.connect(self._handle_calibration_geometry_changed)
         self.canvas.angle_state_changed.connect(self._handle_angle_state_changed)
+        self.canvas.segment_state_changed.connect(self._handle_segment_state_changed)
         self._update_action_states()
         self._refresh_histograms()
         self._update_project_panel()
@@ -499,6 +502,10 @@ class MainWindow(QMainWindow):
         self.property_path = self._property_value_label()
         self.property_size = self._property_value_label()
         self.property_annotation = self._property_value_label()
+        self.property_contour_visible = QCheckBox(properties_widget)
+        self.property_contour_visible.setEnabled(False)
+        self.property_contour_visible.setToolTip("Показать или скрыть главный контур на канвасе.")
+        self.property_contour_visible.toggled.connect(self._handle_contour_visibility_changed)
         self.property_points = self._property_value_label()
         self.property_contour_pixels = self._property_value_label()
         self.property_contour_area_mm2 = self._property_value_label()
@@ -569,7 +576,14 @@ class MainWindow(QMainWindow):
             field.editingFinished.connect(
                 lambda key=metadata_key, editor=field: self._handle_metadata_line_edit_finished(key, editor)
             )
+        self._angle_name_fields: dict[str, QLineEdit] = {}
+        self._angle_visibility_fields: dict[str, QCheckBox] = {}
         self._angle_note_fields: dict[str, QLineEdit] = {}
+        self._segment_name_fields: dict[str, QLineEdit] = {}
+        self._segment_visibility_fields: dict[str, QCheckBox] = {}
+        self._segment_start_label_fields: dict[str, QLineEdit] = {}
+        self._segment_end_label_fields: dict[str, QLineEdit] = {}
+        self._segment_note_fields: dict[str, QLineEdit] = {}
 
         self.properties_browser = PropertyBrowser(properties_widget)
         self._add_property_browser_group(
@@ -598,6 +612,7 @@ class MainWindow(QMainWindow):
             "Информация о главном контуре",
             [
                 ("Аннотация", self.property_annotation),
+                ("Показывать контур", self.property_contour_visible),
                 ("Количество узлов контура", self.property_points),
                 ("Количество пикселов контура", self.property_contour_pixels),
                 ("Площадь контура, мм²", self.property_contour_area_mm2),
@@ -613,6 +628,12 @@ class MainWindow(QMainWindow):
             expanded=False,
             parent=self.measurements_group_item,
             key="measurements:angles",
+        )
+        self.segments_group_item = self.properties_browser.add_group(
+            "Отрезки",
+            expanded=False,
+            parent=self.measurements_group_item,
+            key="measurements:segments",
         )
         self._add_property_browser_group(
             self.properties_browser,
@@ -700,6 +721,8 @@ class MainWindow(QMainWindow):
             browser.add_property(title, label, widget)
 
     def _rebuild_angle_measurement_properties(self, record: ProjectImageRecord | None) -> None:
+        self._angle_name_fields.clear()
+        self._angle_visibility_fields.clear()
         self._angle_note_fields.clear()
         self.properties_browser.clear_children(self.angles_group_item)
         if record is None or not record.measurements.angles:
@@ -713,10 +736,51 @@ class MainWindow(QMainWindow):
 
         for index, angle in enumerate(record.measurements.angles, start=1):
             angle_group = self.properties_browser.add_group(
-                f"Угол {index}",
+                _angle_display_name(angle, index),
                 expanded=False,
                 parent=self.angles_group_item,
                 key=f"angle:{angle.id}",
+            )
+            name_field = QLineEdit(self.properties_browser)
+            name_field.setClearButtonEnabled(True)
+            name_field.setPlaceholderText(f"Угол {index}")
+            name_field.setText(angle.name)
+            name_field.editingFinished.connect(
+                lambda angle_id=angle.id, editor=name_field: self._handle_angle_name_edit_finished(
+                    angle_id,
+                    editor,
+                )
+            )
+            self._angle_name_fields[angle.id] = name_field
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "Имя",
+                name_field,
+                key=f"angle:{angle.id}:name",
+            )
+            visible_checkbox = QCheckBox(self.properties_browser)
+            visible_checkbox.setToolTip("Показать или скрыть этот угол на канвасе.")
+            visible_checkbox.setEnabled(
+                record.id == self._current_project_image_id and self.canvas.has_image()
+            )
+            with QSignalBlocker(visible_checkbox):
+                visible_checkbox.setChecked(
+                    self.canvas.is_angle_measurement_visible(angle.id)
+                    if visible_checkbox.isEnabled()
+                    else True
+                )
+            visible_checkbox.toggled.connect(
+                lambda checked, angle_id=angle.id: self._handle_angle_visibility_changed(
+                    angle_id,
+                    checked,
+                )
+            )
+            self._angle_visibility_fields[angle.id] = visible_checkbox
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "Показывать на канвасе",
+                visible_checkbox,
+                key=f"angle:{angle.id}:visible",
             )
             self.properties_browser.add_property_to_item(
                 angle_group,
@@ -777,6 +841,161 @@ class MainWindow(QMainWindow):
                 "Управление",
                 delete_button,
                 key=f"angle:{angle.id}:actions",
+            )
+
+    def _rebuild_segment_measurement_properties(self, record: ProjectImageRecord | None) -> None:
+        self._segment_name_fields.clear()
+        self._segment_visibility_fields.clear()
+        self._segment_start_label_fields.clear()
+        self._segment_end_label_fields.clear()
+        self._segment_note_fields.clear()
+        self.properties_browser.clear_children(self.segments_group_item)
+        if record is None or not record.measurements.segments:
+            self.properties_browser.add_property_to_item(
+                self.segments_group_item,
+                "Нет отрезков",
+                self._property_value_label(),
+                key="measurements:segments:empty",
+            )
+            return
+
+        for index, segment in enumerate(record.measurements.segments, start=1):
+            segment_group = self.properties_browser.add_group(
+                _segment_display_name(segment, index),
+                expanded=False,
+                parent=self.segments_group_item,
+                key=f"segment:{segment.id}",
+            )
+            name_field = QLineEdit(self.properties_browser)
+            name_field.setClearButtonEnabled(True)
+            name_field.setPlaceholderText(f"Отрезок {index}")
+            name_field.setText(segment.name)
+            name_field.editingFinished.connect(
+                lambda segment_id=segment.id, editor=name_field: self._handle_segment_name_edit_finished(
+                    segment_id,
+                    editor,
+                )
+            )
+            self._segment_name_fields[segment.id] = name_field
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Имя",
+                name_field,
+                key=f"segment:{segment.id}:name",
+            )
+            visible_checkbox = QCheckBox(self.properties_browser)
+            visible_checkbox.setToolTip("Показать или скрыть этот отрезок на канвасе.")
+            visible_checkbox.setEnabled(
+                record.id == self._current_project_image_id and self.canvas.has_image()
+            )
+            with QSignalBlocker(visible_checkbox):
+                visible_checkbox.setChecked(
+                    self.canvas.is_segment_measurement_visible(segment.id)
+                    if visible_checkbox.isEnabled()
+                    else True
+                )
+            visible_checkbox.toggled.connect(
+                lambda checked, segment_id=segment.id: self._handle_segment_visibility_changed(
+                    segment_id,
+                    checked,
+                )
+            )
+            self._segment_visibility_fields[segment.id] = visible_checkbox
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Показывать на канвасе",
+                visible_checkbox,
+                key=f"segment:{segment.id}:visible",
+            )
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "ID",
+                self._property_value_label(segment.id),
+                key=f"segment:{segment.id}:id",
+            )
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Длина",
+                self._property_value_label(_segment_measurement_length_text(segment, record.calibration)),
+                key=f"segment:{segment.id}:length",
+            )
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Первая точка",
+                self._property_value_label(_point_text(segment.start)),
+                key=f"segment:{segment.id}:start",
+            )
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Вторая точка",
+                self._property_value_label(_point_text(segment.end)),
+                key=f"segment:{segment.id}:end",
+            )
+
+            start_label_field = QLineEdit(self.properties_browser)
+            start_label_field.setClearButtonEnabled(True)
+            start_label_field.setText(segment.start_label)
+            start_label_field.editingFinished.connect(
+                lambda segment_id=segment.id, editor=start_label_field: self._handle_segment_label_edit_finished(
+                    segment_id,
+                    editor,
+                    "start",
+                )
+            )
+            self._segment_start_label_fields[segment.id] = start_label_field
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Подпись первой точки",
+                start_label_field,
+                key=f"segment:{segment.id}:start_label",
+            )
+
+            end_label_field = QLineEdit(self.properties_browser)
+            end_label_field.setClearButtonEnabled(True)
+            end_label_field.setText(segment.end_label)
+            end_label_field.editingFinished.connect(
+                lambda segment_id=segment.id, editor=end_label_field: self._handle_segment_label_edit_finished(
+                    segment_id,
+                    editor,
+                    "end",
+                )
+            )
+            self._segment_end_label_fields[segment.id] = end_label_field
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Подпись второй точки",
+                end_label_field,
+                key=f"segment:{segment.id}:end_label",
+            )
+
+            note_field = QLineEdit(self.properties_browser)
+            note_field.setText(segment.note)
+            note_field.editingFinished.connect(
+                lambda segment_id=segment.id, editor=note_field: self._handle_segment_note_edit_finished(
+                    segment_id,
+                    editor,
+                )
+            )
+            self._segment_note_fields[segment.id] = note_field
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Примечание",
+                note_field,
+                key=f"segment:{segment.id}:note",
+            )
+
+            delete_button = QToolButton(self.properties_browser)
+            delete_button.setText("Удалить")
+            delete_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            delete_button.setIcon(load_icon("delete-segment"))
+            delete_button.clicked.connect(
+                lambda _checked=False, segment_id=segment.id: self._delete_segment_by_id(segment_id)
+            )
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Управление",
+                delete_button,
+                key=f"segment:{segment.id}:actions",
             )
 
     def _property_value_label(self, text: str = "-") -> QLabel:
@@ -975,6 +1194,12 @@ class MainWindow(QMainWindow):
         self.delete_angle_action = QAction("Удалить угол", self)
         self.delete_angle_action.triggered.connect(self.delete_selected_angle)
 
+        self.measure_segment_action = QAction("Отрезок", self)
+        self.measure_segment_action.triggered.connect(self.start_segment_measurement)
+
+        self.delete_segment_action = QAction("Удалить отрезок", self)
+        self.delete_segment_action.triggered.connect(self.delete_selected_segment)
+
         self.save_annotation_action = QAction("Сохранить аннотацию...", self)
         self.save_annotation_action.setShortcut("Ctrl+Alt+S")
         self.save_annotation_action.triggered.connect(self.save_annotation_file)
@@ -1011,6 +1236,8 @@ class MainWindow(QMainWindow):
             "reset_calibration": self.reset_calibration_action,
             "measure_angle": self.measure_angle_action,
             "delete_angle": self.delete_angle_action,
+            "measure_segment": self.measure_segment_action,
+            "delete_segment": self.delete_segment_action,
             "save_annotation": self.save_annotation_action,
             "open_annotation": self.open_annotation_action,
             "about": self.about_action,
@@ -1052,6 +1279,8 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(self.reset_calibration_action)
         tools_menu.addAction(self.measure_angle_action)
         tools_menu.addAction(self.delete_angle_action)
+        tools_menu.addAction(self.measure_segment_action)
+        tools_menu.addAction(self.delete_segment_action)
         tools_menu.addSeparator()
         tools_menu.addAction(self.save_annotation_action)
         tools_menu.addAction(self.open_annotation_action)
@@ -1095,6 +1324,8 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.reset_calibration_action)
         toolbar.addAction(self.measure_angle_action)
         toolbar.addAction(self.delete_angle_action)
+        toolbar.addAction(self.measure_segment_action)
+        toolbar.addAction(self.delete_segment_action)
         toolbar.addAction(self.save_annotation_action)
         toolbar.addAction(self.open_annotation_action)
         toolbar.addSeparator()
@@ -1147,6 +1378,10 @@ class MainWindow(QMainWindow):
         self.measure_angle_action.setEnabled(has_project_image and has_image)
         self.delete_angle_action.setEnabled(
             has_project_image and has_image and self.canvas.has_selected_angle_vertex()
+        )
+        self.measure_segment_action.setEnabled(has_project_image and has_image)
+        self.delete_segment_action.setEnabled(
+            has_project_image and has_image and self.canvas.has_selected_segment_endpoint()
         )
         self.save_annotation_action.setEnabled(has_project_image and has_contour)
         self.open_annotation_action.setEnabled(has_project_image)
@@ -1287,6 +1522,7 @@ class MainWindow(QMainWindow):
             self._show_warning("Нет проекта", "Сначала создайте или откройте проект.")
             return
         self._store_current_angle_measurements()
+        self._store_current_segment_measurements()
         self._save_current_project_annotation()
         if self._save_project_silently(show_error=True):
             self.statusBar().showMessage("Проект сохранён.")
@@ -1295,6 +1531,7 @@ class MainWindow(QMainWindow):
         if self.project_document is None:
             return
         self._store_current_angle_measurements()
+        self._store_current_segment_measurements()
         self._save_current_project_annotation()
         if not self._save_project_silently(show_error=True):
             return
@@ -1775,6 +2012,7 @@ class MainWindow(QMainWindow):
             self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
             return
         self.canvas.cancel_angle_measurement(show_message=False)
+        self.canvas.cancel_segment_measurement(show_message=False)
 
         node_count, accepted = QInputDialog.getInt(
             self,
@@ -1828,6 +2066,7 @@ class MainWindow(QMainWindow):
             self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
             return
         self.canvas.cancel_angle_measurement(show_message=False)
+        self.canvas.cancel_segment_measurement(show_message=False)
 
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
@@ -1932,9 +2171,26 @@ class MainWindow(QMainWindow):
             self._store_current_angle_measurements()
         self._update_action_states()
 
+    def start_segment_measurement(self) -> None:
+        if self._selected_project_image() is None or not self.canvas.has_image():
+            self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
+            return
+        self.canvas.begin_segment_measurement()
+        self._update_action_states()
+
+    def delete_selected_segment(self) -> None:
+        if self.canvas.delete_selected_segment():
+            self._store_current_segment_measurements()
+        self._update_action_states()
+
     def _handle_angle_state_changed(self) -> None:
         if not self._loading_project_image:
             self._store_current_angle_measurements()
+        self._update_action_states()
+
+    def _handle_segment_state_changed(self) -> None:
+        if not self._loading_project_image:
+            self._store_current_segment_measurements()
         self._update_action_states()
 
     def _store_current_angle_measurements(self) -> None:
@@ -1942,6 +2198,7 @@ class MainWindow(QMainWindow):
         if record is None or not self.canvas.has_image():
             return
 
+        existing_names = {angle.id: angle.name for angle in record.measurements.angles}
         existing_notes = {angle.id: angle.note for angle in record.measurements.angles}
         new_angles = [
             ProjectAngleMeasurement(
@@ -1949,14 +2206,76 @@ class MainWindow(QMainWindow):
                 first=first,
                 vertex=vertex,
                 second=second,
+                name=existing_names.get(angle_id, canvas_name),
                 note=existing_notes.get(angle_id, ""),
             )
-            for angle_id, first, vertex, second in self.canvas.angle_measurement_records()
+            for angle_id, first, vertex, second, canvas_name in self.canvas.angle_measurement_records(
+                include_names=True
+            )
         ]
         if _angle_measurements_equal(record.measurements.angles, new_angles):
             return
 
         record.measurements.angles = new_angles
+        self._update_project_properties()
+        self._schedule_project_save()
+
+    def _store_current_segment_measurements(self) -> None:
+        record = self._current_project_image()
+        if record is None or not self.canvas.has_image():
+            return
+
+        existing_start_labels = {
+            segment.id: segment.start_label for segment in record.measurements.segments
+        }
+        existing_end_labels = {
+            segment.id: segment.end_label for segment in record.measurements.segments
+        }
+        existing_names = {segment.id: segment.name for segment in record.measurements.segments}
+        existing_notes = {segment.id: segment.note for segment in record.measurements.segments}
+        new_segments = [
+            ProjectSegmentMeasurement(
+                id=segment_id,
+                start=start,
+                end=end,
+                name=existing_names.get(segment_id, canvas_name),
+                start_label=existing_start_labels.get(segment_id, canvas_start_label),
+                end_label=existing_end_labels.get(segment_id, canvas_end_label),
+                note=existing_notes.get(segment_id, ""),
+            )
+            for (
+                segment_id,
+                start,
+                end,
+                canvas_start_label,
+                canvas_end_label,
+                canvas_name,
+            ) in self.canvas.segment_measurement_records(include_names=True)
+        ]
+        if _segment_measurements_equal(record.measurements.segments, new_segments):
+            return
+
+        record.measurements.segments = new_segments
+        self._update_project_properties()
+        self._schedule_project_save()
+
+    def _handle_angle_name_edit_finished(self, angle_id: str, field: QLineEdit) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        angle = _angle_by_id(record, angle_id)
+        if angle is None:
+            return
+        raw_name = field.text()
+        name = raw_name.strip()
+        if raw_name != name:
+            with QSignalBlocker(field):
+                field.setText(name)
+        if angle.name == name:
+            return
+        angle.name = name
+        if record.id == self._current_project_image_id:
+            self.canvas.set_angle_measurement_name(angle_id, name)
         self._update_project_properties()
         self._schedule_project_save()
 
@@ -1971,6 +2290,92 @@ class MainWindow(QMainWindow):
         if angle.note == note:
             return
         angle.note = note
+        self._schedule_project_save()
+
+    def _handle_angle_visibility_changed(self, angle_id: str, checked: bool) -> None:
+        field = self._angle_visibility_fields.get(angle_id)
+        if field is None:
+            return
+        changed = self.canvas.set_angle_measurement_visible(angle_id, checked)
+        actual_visible = self.canvas.is_angle_measurement_visible(angle_id)
+        if not changed and actual_visible != checked:
+            with QSignalBlocker(field):
+                field.setChecked(actual_visible)
+        self._update_action_states()
+
+    def _handle_segment_name_edit_finished(self, segment_id: str, field: QLineEdit) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        segment = _segment_by_id(record, segment_id)
+        if segment is None:
+            return
+        raw_name = field.text()
+        name = raw_name.strip()
+        if raw_name != name:
+            with QSignalBlocker(field):
+                field.setText(name)
+        if segment.name == name:
+            return
+        segment.name = name
+        if record.id == self._current_project_image_id:
+            self.canvas.set_segment_measurement_name(segment_id, name)
+        self._update_project_properties()
+        self._schedule_project_save()
+
+    def _handle_segment_note_edit_finished(self, segment_id: str, field: QLineEdit) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        segment = _segment_by_id(record, segment_id)
+        if segment is None:
+            return
+        note = field.text()
+        if segment.note == note:
+            return
+        segment.note = note
+        self._schedule_project_save()
+
+    def _handle_segment_visibility_changed(self, segment_id: str, checked: bool) -> None:
+        field = self._segment_visibility_fields.get(segment_id)
+        if field is None:
+            return
+        changed = self.canvas.set_segment_measurement_visible(segment_id, checked)
+        actual_visible = self.canvas.is_segment_measurement_visible(segment_id)
+        if not changed and actual_visible != checked:
+            with QSignalBlocker(field):
+                field.setChecked(actual_visible)
+        self._update_action_states()
+
+    def _handle_segment_label_edit_finished(
+        self,
+        segment_id: str,
+        field: QLineEdit,
+        endpoint: str,
+    ) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        segment = _segment_by_id(record, segment_id)
+        if segment is None:
+            return
+        raw_label = field.text()
+        label = raw_label.strip()
+        if raw_label != label:
+            with QSignalBlocker(field):
+                field.setText(label)
+
+        if endpoint == "start":
+            if segment.start_label == label:
+                return
+            segment.start_label = label
+        else:
+            if segment.end_label == label:
+                return
+            segment.end_label = label
+
+        if record.id == self._current_project_image_id:
+            self.canvas.set_segment_labels(segment_id, segment.start_label, segment.end_label)
         self._schedule_project_save()
 
     def _delete_angle_by_id(self, angle_id: str) -> None:
@@ -1989,6 +2394,23 @@ class MainWindow(QMainWindow):
         self._update_action_states()
         self._schedule_project_save()
         self.statusBar().showMessage("Угол удалён.")
+
+    def _delete_segment_by_id(self, segment_id: str) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        original_count = len(record.measurements.segments)
+        record.measurements.segments = [
+            segment for segment in record.measurements.segments if segment.id != segment_id
+        ]
+        if len(record.measurements.segments) == original_count:
+            return
+        if record.id == self._current_project_image_id:
+            self.canvas.set_segment_measurement_records(_segment_canvas_records(record))
+        self._update_project_properties()
+        self._update_action_states()
+        self._schedule_project_save()
+        self.statusBar().showMessage("Отрезок удалён.")
 
     def _handle_calibration_segment_selected(self, raw_points: object) -> None:
         record = self._selected_project_image()
@@ -2255,6 +2677,7 @@ class MainWindow(QMainWindow):
             return
 
         self._store_current_angle_measurements()
+        self._store_current_segment_measurements()
         self._save_current_project_annotation()
         self._current_project_image_id = str(selected_id) if selected_id else None
         self._current_annotation_path = None
@@ -2326,6 +2749,7 @@ class MainWindow(QMainWindow):
                         self.statusBar().showMessage("У выбранного изображения повреждена калибровка.")
 
                     self.canvas.set_angle_measurement_records(_angle_canvas_records(record))
+                    self.canvas.set_segment_measurement_records(_segment_canvas_records(record))
         finally:
             self._loading_project_image = False
 
@@ -2345,6 +2769,21 @@ class MainWindow(QMainWindow):
         self._save_current_project_annotation()
         self._update_project_summary_properties()
         self._update_project_properties()
+
+    def _handle_contour_visibility_changed(self, checked: bool) -> None:
+        if not self.canvas.has_contour():
+            self._update_contour_visibility_field()
+            return
+        self.canvas.set_contour_visible(checked)
+        self._update_contour_visibility_field()
+
+    def _update_contour_visibility_field(self) -> None:
+        has_visible_contour = self.canvas.has_image() and self.canvas.has_contour()
+        with QSignalBlocker(self.property_contour_visible):
+            self.property_contour_visible.setEnabled(has_visible_contour)
+            self.property_contour_visible.setChecked(
+                self.canvas.is_contour_visible() if has_visible_contour else False
+            )
 
     def _save_current_project_annotation(self) -> None:
         if self._loading_project_image:
@@ -2593,7 +3032,9 @@ class MainWindow(QMainWindow):
                 else "Изображение не выбрано."
             )
             self._update_calibration_length_field(None)
+            self._update_contour_visibility_field()
             self._rebuild_angle_measurement_properties(None)
+            self._rebuild_segment_measurement_properties(None)
             self._set_average_color_swatch(None)
             return
 
@@ -2661,6 +3102,7 @@ class MainWindow(QMainWindow):
         self.property_path.setText(record.relative_path)
         self.property_size.setText(size_text)
         self.property_annotation.setText(annotation_text)
+        self._update_contour_visibility_field()
         self.property_points.setText(point_count_text)
         self.property_contour_pixels.setText(contour_pixels_text)
         self.property_contour_area_mm2.setText(contour_area_mm2_text)
@@ -2684,6 +3126,7 @@ class MainWindow(QMainWindow):
         self._set_average_color_swatch(mean_rgb)
         self._load_metadata_fields(record)
         self._rebuild_angle_measurement_properties(record)
+        self._rebuild_segment_measurement_properties(record)
 
     def _update_calibration_length_field(self, record: ProjectImageRecord | None) -> None:
         enabled = False
@@ -3195,6 +3638,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self._store_current_angle_measurements()
+        self._store_current_segment_measurements()
         self._save_current_project_annotation()
         if self._save_project_silently(show_error=True):
             event.accept()
@@ -3266,10 +3710,34 @@ def _angle_by_id(record: ProjectImageRecord, angle_id: str) -> ProjectAngleMeasu
     return None
 
 
-def _angle_canvas_records(record: ProjectImageRecord) -> list[tuple[str, Point, Point, Point]]:
+def _segment_by_id(
+    record: ProjectImageRecord,
+    segment_id: str,
+) -> ProjectSegmentMeasurement | None:
+    for segment in record.measurements.segments:
+        if segment.id == segment_id:
+            return segment
+    return None
+
+
+def _angle_canvas_records(record: ProjectImageRecord) -> list[tuple[str, Point, Point, Point, str]]:
     return [
-        (angle.id, angle.first, angle.vertex, angle.second)
+        (angle.id, angle.first, angle.vertex, angle.second, angle.name)
         for angle in record.measurements.angles
+    ]
+
+
+def _segment_canvas_records(record: ProjectImageRecord) -> list[tuple[str, Point, Point, str, str, str]]:
+    return [
+        (
+            segment.id,
+            segment.start,
+            segment.end,
+            segment.start_label,
+            segment.end_label,
+            segment.name,
+        )
+        for segment in record.measurements.segments
     ]
 
 
@@ -3284,9 +3752,36 @@ def _angle_measurements_equal(
         and left_angle.first == right_angle.first
         and left_angle.vertex == right_angle.vertex
         and left_angle.second == right_angle.second
+        and left_angle.name == right_angle.name
         and left_angle.note == right_angle.note
         for left_angle, right_angle in zip(left, right)
     )
+
+
+def _segment_measurements_equal(
+    left: list[ProjectSegmentMeasurement],
+    right: list[ProjectSegmentMeasurement],
+) -> bool:
+    if len(left) != len(right):
+        return False
+    return all(
+        left_segment.id == right_segment.id
+        and left_segment.start == right_segment.start
+        and left_segment.end == right_segment.end
+        and left_segment.name == right_segment.name
+        and left_segment.start_label == right_segment.start_label
+        and left_segment.end_label == right_segment.end_label
+        and left_segment.note == right_segment.note
+        for left_segment, right_segment in zip(left, right)
+    )
+
+
+def _angle_display_name(angle: ProjectAngleMeasurement, angle_index: int) -> str:
+    return angle.name or f"Угол {angle_index}"
+
+
+def _segment_display_name(segment: ProjectSegmentMeasurement, segment_index: int) -> str:
+    return segment.name or f"Отрезок {segment_index}"
 
 
 def _angle_measurement_value_text(angle: ProjectAngleMeasurement) -> str:
@@ -3315,6 +3810,17 @@ def _angle_degrees(first: Point, vertex: Point, second: Point) -> float | None:
 
 def _point_text(point: Point) -> str:
     return f"x={_compact_float(point.x, 2)}, y={_compact_float(point.y, 2)}"
+
+
+def _segment_measurement_length_text(
+    segment: ProjectSegmentMeasurement,
+    calibration: ImageCalibration | None,
+) -> str:
+    pixel_length = math.hypot(segment.end.x - segment.start.x, segment.end.y - segment.start.y)
+    pixel_text = f"{_compact_float(pixel_length, 1)} px"
+    if calibration is None:
+        return pixel_text
+    return f"{pixel_text} / {_compact_float(pixel_length * calibration.mm_per_pixel(), 2)} мм"
 
 
 def _parse_calibration_length_mm(text: str) -> float | None:

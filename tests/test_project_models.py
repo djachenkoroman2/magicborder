@@ -16,6 +16,7 @@ from magicborder.models import (
     ProjectImageRecord,
     ProjectImageMeasurements,
     ProjectInfo,
+    ProjectSegmentMeasurement,
 )
 
 
@@ -124,6 +125,7 @@ class ProjectModelsTest(unittest.TestCase):
                                 first=Point(2, 10),
                                 vertex=Point(2, 2),
                                 second=Point(10, 2),
+                                name="Контрольный угол",
                                 note="контрольный угол",
                             )
                         ]
@@ -148,6 +150,7 @@ class ProjectModelsTest(unittest.TestCase):
                     "first": {"x": 2.0, "y": 10.0},
                     "vertex": {"x": 2.0, "y": 2.0},
                     "second": {"x": 10.0, "y": 2.0},
+                    "name": "Контрольный угол",
                     "note": "контрольный угол",
                 }
             ],
@@ -157,7 +160,183 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertEqual(loaded_angle.first, Point(2, 10))
         self.assertEqual(loaded_angle.vertex, Point(2, 2))
         self.assertEqual(loaded_angle.second, Point(10, 2))
+        self.assertEqual(loaded_angle.name, "Контрольный угол")
         self.assertEqual(loaded_angle.note, "контрольный угол")
+
+    def test_project_round_trip_preserves_image_segment_measurements(self) -> None:
+        project = ProjectDocument(
+            name="segments",
+            images=[
+                ProjectImageRecord(
+                    id="leaf-1",
+                    relative_path="images/leaf.png",
+                    display_name="leaf.png",
+                    measurements=ProjectImageMeasurements(
+                        segments=[
+                            ProjectSegmentMeasurement(
+                                id="segment-1",
+                                start=Point(10, 20),
+                                end=Point(80, 20),
+                                name="Контрольный отрезок",
+                                start_label="A",
+                                end_label="B",
+                                note="измерить повторно",
+                            )
+                        ],
+                        extra_groups={"future": [{"kept": True}]},
+                    ),
+                )
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_path = Path(temp_dir) / "segments.json"
+            save_project(project_path, project)
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+
+            loaded_project = load_project(project_path)
+
+        record_payload = payload["images"][0]
+        self.assertEqual(
+            record_payload["measurements"]["segments"],
+            [
+                {
+                    "id": "segment-1",
+                    "name": "Контрольный отрезок",
+                    "start": {"x": 10.0, "y": 20.0},
+                    "end": {"x": 80.0, "y": 20.0},
+                    "start_label": "A",
+                    "end_label": "B",
+                    "note": "измерить повторно",
+                }
+            ],
+        )
+        self.assertEqual(record_payload["measurements"]["future"], [{"kept": True}])
+        loaded_measurements = loaded_project.images[0].measurements
+        loaded_segment = loaded_measurements.segments[0]
+        self.assertEqual(loaded_segment.id, "segment-1")
+        self.assertEqual(loaded_segment.start, Point(10, 20))
+        self.assertEqual(loaded_segment.end, Point(80, 20))
+        self.assertEqual(loaded_segment.name, "Контрольный отрезок")
+        self.assertEqual(loaded_segment.start_label, "A")
+        self.assertEqual(loaded_segment.end_label, "B")
+        self.assertEqual(loaded_segment.note, "измерить повторно")
+        self.assertEqual(loaded_measurements.extra_groups, {"future": [{"kept": True}]})
+
+    def test_project_loads_legacy_segment_measurement_without_name_and_note(self) -> None:
+        project = ProjectDocument.from_dict(
+            {
+                "version": PROJECT_FORMAT_VERSION,
+                "name": "legacy_segments",
+                "images": [
+                    {
+                        "file": {
+                            "id": "leaf-1",
+                            "path": "images/leaf.png",
+                            "display_name": "leaf.png",
+                        },
+                        "measurements": {
+                            "segments": [
+                                {
+                                    "id": "segment-1",
+                                    "start": {"x": 10.0, "y": 20.0},
+                                    "end": {"x": 80.0, "y": 20.0},
+                                    "start_label": "A",
+                                    "end_label": "B",
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+        )
+
+        segment = project.images[0].measurements.segments[0]
+
+        self.assertEqual(segment.name, "")
+        self.assertEqual(segment.note, "")
+        self.assertEqual(segment.start_label, "A")
+        self.assertEqual(segment.end_label, "B")
+        self.assertNotIn("name", segment.to_dict())
+        self.assertEqual(segment.to_dict()["note"], "")
+
+    def test_project_skips_corrupt_segment_measurements(self) -> None:
+        project = ProjectDocument.from_dict(
+            {
+                "version": PROJECT_FORMAT_VERSION,
+                "name": "legacy_segments",
+                "images": [
+                    {
+                        "file": {
+                            "id": "leaf-1",
+                            "path": "images/leaf.png",
+                            "display_name": "leaf.png",
+                        },
+                        "measurements": {
+                            "angles": [],
+                            "segments": [
+                                {
+                                    "id": "segment-good",
+                                    "start": {"x": 0, "y": 0},
+                                    "end": {"x": 10, "y": 0},
+                                    "start_label": "A",
+                                    "end_label": "B",
+                                },
+                                {
+                                    "id": "segment-bad",
+                                    "start": {"x": 1, "y": 1},
+                                    "end": {"x": 1, "y": 1},
+                                },
+                                {
+                                    "id": "segment-broken",
+                                    "start": {"x": "x", "y": 0},
+                                    "end": {"x": 2, "y": 0},
+                                },
+                            ],
+                        },
+                    }
+                ],
+            }
+        )
+
+        segments = project.images[0].measurements.segments
+
+        self.assertEqual(len(segments), 1)
+        self.assertEqual(segments[0].id, "segment-good")
+
+    def test_project_loads_legacy_angle_measurement_without_name(self) -> None:
+        project = ProjectDocument.from_dict(
+            {
+                "version": PROJECT_FORMAT_VERSION,
+                "name": "legacy_angles",
+                "images": [
+                    {
+                        "file": {
+                            "id": "leaf-1",
+                            "path": "images/leaf.png",
+                            "display_name": "leaf.png",
+                        },
+                        "measurements": {
+                            "angles": [
+                                {
+                                    "id": "angle-1",
+                                    "first": {"x": 2.0, "y": 10.0},
+                                    "vertex": {"x": 2.0, "y": 2.0},
+                                    "second": {"x": 10.0, "y": 2.0},
+                                    "note": "старый угол",
+                                }
+                            ]
+                        },
+                    }
+                ],
+            }
+        )
+
+        angle = project.images[0].measurements.angles[0]
+
+        self.assertEqual(angle.name, "")
+        self.assertEqual(angle.note, "старый угол")
+        self.assertNotIn("name", angle.to_dict())
 
     def test_project_keeps_corrupt_calibration_payload_without_breaking_load(self) -> None:
         project = ProjectDocument.from_dict(
@@ -220,6 +399,7 @@ class ProjectModelsTest(unittest.TestCase):
         record = project.images[0]
 
         self.assertEqual(record.measurements.angles, [])
+        self.assertEqual(record.measurements.segments, [])
         self.assertNotIn("measurements", record.to_dict())
 
     def test_project_info_round_trip_uses_grouped_json(self) -> None:
