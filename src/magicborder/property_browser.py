@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QFont, QFontMetrics
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -18,6 +18,38 @@ PROPERTY_KEY_MIN_WIDTH = 72
 PROPERTY_VALUE_MIN_WIDTH = 90
 PROPERTY_ROW_MIN_HEIGHT = 24
 PROPERTY_ROW_VERTICAL_PADDING = 8
+PROPERTY_GRID_HORIZONTAL_COLOR = "#d5dbe5"
+PROPERTY_GRID_VERTICAL_COLOR = "#ccd6e1"
+PROPERTY_BROWSER_STYLE = f"""
+QTreeWidget#propertyBrowser {{
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #1f2937;
+}}
+QTreeWidget#propertyBrowser QHeaderView::section {{
+    background: rgba(255, 255, 255, 120);
+    color: #64748b;
+    border: none;
+    border-bottom: 1px solid {PROPERTY_GRID_HORIZONTAL_COLOR};
+    padding: 3px 4px;
+    font-size: 11px;
+    font-weight: 600;
+}}
+QTreeWidget#propertyBrowser QHeaderView::section:first {{
+    border-right: 1px solid {PROPERTY_GRID_VERTICAL_COLOR};
+    border-bottom: 1px solid {PROPERTY_GRID_HORIZONTAL_COLOR};
+}}
+QTreeWidget#propertyBrowser::item {{
+    padding: 2px 0;
+}}
+QTreeWidget#propertyBrowser::item:hover {{
+    color: #0f766e;
+}}
+QLabel#propertyValue {{
+    color: #18202c;
+}}
+"""
 
 
 class PropertyValueLabel(QLabel):
@@ -42,12 +74,62 @@ class PropertyValueLabel(QLabel):
         self.setToolTip(text if text and text != "-" else "")
 
 
+class PropertyGridOverlay(QWidget):
+    """Paints lightweight grid lines above item widgets in a PropertyBrowser."""
+
+    def __init__(self, browser: "PropertyBrowser") -> None:
+        super().__init__(browser.viewport())
+        self._browser = browser
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAutoFillBackground(False)
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        browser = self._browser
+        if browser.columnCount() < 2:
+            return
+
+        divider_x = browser.columnViewportPosition(1) - 1
+        painter = QPainter(self)
+        horizontal_pen = QPen(QColor(PROPERTY_GRID_HORIZONTAL_COLOR))
+        vertical_pen = QPen(QColor(PROPERTY_GRID_VERTICAL_COLOR))
+
+        for item in browser.iter_items():
+            index = browser.indexFromItem(item, 0)
+            if not index.isValid():
+                continue
+
+            rect = browser.visualRect(index)
+            if not rect.isValid() or rect.bottom() < 0 or rect.top() > self.height():
+                continue
+
+            row_bottom = rect.bottom()
+            painter.setPen(horizontal_pen)
+            painter.drawLine(0, row_bottom, self.width(), row_bottom)
+
+            if item.isFirstColumnSpanned() or divider_x < 0:
+                continue
+            painter.setPen(vertical_pen)
+            painter.drawLine(divider_x, rect.top(), divider_x, row_bottom)
+
+
 class PropertyBrowser(QTreeWidget):
     """Small PyQt5 property-browser widget used when QtPropertyBrowser is unavailable."""
 
+    empty_area_clicked = pyqtSignal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._groups: dict[str, QTreeWidgetItem] = {}
+        self._properties: dict[str, QTreeWidgetItem] = {}
+        self._property_rows: list[tuple[QTreeWidgetItem, QWidget]] = []
+        self._refresh_layout_pending = False
+        self._clamping_key_column = False
+        self._grid_overlay: PropertyGridOverlay | None = None
+
         self.setObjectName("propertyBrowser")
+        self.setStyleSheet(PROPERTY_BROWSER_STYLE)
         self.setColumnCount(2)
         self.setHeaderLabels(["Свойство", "Значение"])
         self.setHeaderHidden(False)
@@ -70,12 +152,12 @@ class PropertyBrowser(QTreeWidget):
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         self.setColumnWidth(0, PROPERTY_KEY_DEFAULT_WIDTH)
 
-        self._groups: dict[str, QTreeWidgetItem] = {}
-        self._properties: dict[str, QTreeWidgetItem] = {}
-        self._property_rows: list[tuple[QTreeWidgetItem, QWidget]] = []
-        self._refresh_layout_pending = False
-        self._clamping_key_column = False
+        self._grid_overlay = PropertyGridOverlay(self)
+        self._sync_grid_overlay()
         header.sectionResized.connect(self._handle_section_resized)
+        self.itemExpanded.connect(lambda _item: self._sync_grid_overlay())
+        self.itemCollapsed.connect(lambda _item: self._sync_grid_overlay())
+        self.verticalScrollBar().valueChanged.connect(lambda _value: self._sync_grid_overlay())
 
     def key_column_width(self) -> int:
         return self.columnWidth(0)
@@ -91,6 +173,7 @@ class PropertyBrowser(QTreeWidget):
             size_hint = QSize(120, row_height)
             item.setSizeHint(0, size_hint)
             item.setSizeHint(1, size_hint)
+        self._sync_grid_overlay()
 
     def add_group(
         self,
@@ -103,7 +186,6 @@ class PropertyBrowser(QTreeWidget):
         group_item = QTreeWidgetItem([title, ""])
         group_item.setData(0, Qt.UserRole, "group")
         group_item.setData(0, Qt.UserRole + 1, key or title)
-        group_item.setFirstColumnSpanned(True)
         group_item.setFlags(group_item.flags() & ~Qt.ItemIsEditable)
 
         font = QFont(group_item.font(0))
@@ -114,6 +196,7 @@ class PropertyBrowser(QTreeWidget):
             self.addTopLevelItem(group_item)
         else:
             parent.addChild(group_item)
+        group_item.setFirstColumnSpanned(True)
         group_item.setExpanded(expanded)
         self._groups[key or title] = group_item
         return group_item
@@ -143,6 +226,7 @@ class PropertyBrowser(QTreeWidget):
         property_item.setSizeHint(1, size_hint)
 
         self._properties[key or label] = property_item
+        self._sync_grid_overlay()
         return property_item
 
     def add_property_to_item(
@@ -169,6 +253,7 @@ class PropertyBrowser(QTreeWidget):
         property_item.setSizeHint(1, size_hint)
 
         self._properties[key or label] = property_item
+        self._sync_grid_overlay()
         return property_item
 
     def clear_children(self, parent: QTreeWidgetItem) -> None:
@@ -195,6 +280,12 @@ class PropertyBrowser(QTreeWidget):
             self._append_item_rows(self.topLevelItem(group_index), rows)
         return rows
 
+    def iter_items(self) -> list[QTreeWidgetItem]:
+        items: list[QTreeWidgetItem] = []
+        for group_index in range(self.topLevelItemCount()):
+            self._append_items(self.topLevelItem(group_index), items)
+        return items
+
     def is_property_visible(self, key_or_label: str) -> bool:
         item = self.property_item(key_or_label)
         parent = item.parent()
@@ -207,7 +298,22 @@ class PropertyBrowser(QTreeWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self._clamp_current_key_column_width()
+        self._sync_grid_overlay()
         self._schedule_refresh_layout()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._sync_grid_overlay()
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
+        super().scrollContentsBy(dx, dy)
+        self._sync_grid_overlay()
+
+    def mousePressEvent(self, event) -> None:
+        clicked_item = self.itemAt(event.pos())
+        super().mousePressEvent(event)
+        if clicked_item is None:
+            self.empty_area_clicked.emit()
 
     def eventFilter(self, watched: object, event: QEvent) -> bool:
         if event.type() in (
@@ -231,6 +337,11 @@ class PropertyBrowser(QTreeWidget):
                 editor.setToolTip(editor.text())
         if isinstance(editor, PropertyValueLabel):
             editor.text_changed.connect(self._schedule_refresh_layout)
+
+    def _append_items(self, item: QTreeWidgetItem, items: list[QTreeWidgetItem]) -> None:
+        items.append(item)
+        for child_index in range(item.childCount()):
+            self._append_items(item.child(child_index), items)
 
     def _append_item_rows(self, item: QTreeWidgetItem, rows: list[str]) -> None:
         if item.data(0, Qt.UserRole) == "group":
@@ -269,6 +380,7 @@ class PropertyBrowser(QTreeWidget):
     def _handle_section_resized(self, index: int, _old_size: int, _new_size: int) -> None:
         if index == 0:
             self._clamp_current_key_column_width()
+        self._sync_grid_overlay()
         self._schedule_refresh_layout()
 
     def _schedule_refresh_layout(self) -> None:
@@ -276,6 +388,13 @@ class PropertyBrowser(QTreeWidget):
             return
         self._refresh_layout_pending = True
         QTimer.singleShot(0, self.refresh_layout)
+
+    def _sync_grid_overlay(self) -> None:
+        if self._grid_overlay is None:
+            return
+        self._grid_overlay.setGeometry(self.viewport().rect())
+        self._grid_overlay.raise_()
+        self._grid_overlay.update()
 
     def _property_row_height(self, item: QTreeWidgetItem, editor: QWidget) -> int:
         editor_height = max(

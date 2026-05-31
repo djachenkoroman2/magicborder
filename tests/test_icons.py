@@ -14,6 +14,10 @@ MEASUREMENT_ACTION_ICONS = {
     "measure_segment": "measure-segment",
     "delete_segment": "delete-segment",
 }
+CANVAS_VISIBILITY_ACTION_ICONS = {
+    "show_all_canvas_elements": "show-all-canvas-elements",
+    "hide_all_canvas_elements": "hide-all-canvas-elements",
+}
 
 
 class ActionIconResourcesTest(unittest.TestCase):
@@ -42,6 +46,29 @@ class ActionIconResourcesTest(unittest.TestCase):
 
     def test_measurement_icon_files_are_parseable_svgs(self) -> None:
         for icon_name in MEASUREMENT_ACTION_ICONS.values():
+            root = ET.parse(ICON_DIR / f"{icon_name}.svg").getroot()
+
+            self.assertEqual(root.tag.rsplit("}", maxsplit=1)[-1], "svg")
+            self.assertEqual(root.attrib["width"], "32")
+            self.assertEqual(root.attrib["height"], "32")
+            self.assertEqual(root.attrib["viewBox"], "0 0 32 32")
+
+    def test_canvas_visibility_actions_use_dedicated_icons(self) -> None:
+        for action_name, icon_name in CANVAS_VISIBILITY_ACTION_ICONS.items():
+            self.assertEqual(ACTION_VISUALS[action_name].icon_name, icon_name)
+
+        self.assertEqual(
+            len(set(CANVAS_VISIBILITY_ACTION_ICONS.values())),
+            len(CANVAS_VISIBILITY_ACTION_ICONS),
+        )
+        for action_name in CANVAS_VISIBILITY_ACTION_ICONS:
+            self.assertNotIn(
+                ACTION_VISUALS[action_name].icon_name,
+                {"default-view", "measure-angle", "measure-segment"},
+            )
+
+    def test_canvas_visibility_icon_files_are_parseable_svgs(self) -> None:
+        for icon_name in CANVAS_VISIBILITY_ACTION_ICONS.values():
             root = ET.parse(ICON_DIR / f"{icon_name}.svg").getroot()
 
             self.assertEqual(root.tag.rsplit("}", maxsplit=1)[-1], "svg")

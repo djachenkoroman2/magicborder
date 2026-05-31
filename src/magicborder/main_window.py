@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import shutil
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -32,6 +33,8 @@ from PyQt5.QtWidgets import (
     QTextEdit,
     QToolButton,
     QToolBar,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -76,6 +79,16 @@ APP_TITLE = "MagicBorder"
 WORKSPACE_DEFAULT_SIZES = [260, 860, 280]
 PROJECT_PANEL_DEFAULT_SIZES = [380, 220, 320]
 HISTOGRAM_DEFAULT_SIZES = [170, 170, 170, 170, 170]
+
+
+@dataclass(frozen=True, slots=True)
+class ExportTreeItem:
+    label: str
+    key: str = ""
+    export_label: str = ""
+    children: tuple["ExportTreeItem", ...] = ()
+
+
 PROJECT_EXPORT_COLUMNS = [
     ("id", "ID изображения"),
     ("file_name", "Имя файла"),
@@ -186,6 +199,47 @@ IMAGE_PROPERTY_EXPORT_ITEMS = [
 ]
 IMAGE_PROPERTY_EXPORT_KEYS = [field_name for field_name, _label in IMAGE_PROPERTY_EXPORT_ITEMS]
 IMAGE_PROPERTY_EXPORT_LABELS = dict(IMAGE_PROPERTY_EXPORT_ITEMS)
+
+
+def _export_leaf(key: str, label: str, *, export_label: str | None = None) -> ExportTreeItem:
+    return ExportTreeItem(label=label, key=key, export_label=export_label or label)
+
+
+def _static_image_property_export_groups() -> list[ExportTreeItem]:
+    return [
+        ExportTreeItem(
+            label=group_title,
+            children=tuple(_export_leaf(field_name, label) for field_name, label in group_items),
+        )
+        for group_title, group_items in IMAGE_PROPERTY_GROUPS
+    ]
+
+
+def _export_tree_leaf_keys(items: list[ExportTreeItem] | tuple[ExportTreeItem, ...]) -> list[str]:
+    keys: list[str] = []
+    for item in items:
+        if item.key:
+            keys.append(item.key)
+        if item.children:
+            keys.extend(_export_tree_leaf_keys(item.children))
+    return keys
+
+
+def _export_tree_labels(items: list[ExportTreeItem] | tuple[ExportTreeItem, ...]) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for item in items:
+        if item.key:
+            labels[item.key] = item.export_label or item.label
+        if item.children:
+            labels.update(_export_tree_labels(item.children))
+    return labels
+
+
+def _default_image_property_export_keys() -> set[str]:
+    for group_title, group_items in IMAGE_PROPERTY_GROUPS:
+        if group_title == "Общая информация о файле":
+            return {field_name for field_name, _label in group_items}
+    return set()
 
 
 class MainWindow(QMainWindow):
@@ -353,11 +407,6 @@ class MainWindow(QMainWindow):
             "QListWidget#projectImageList::item { padding: 7px 8px; border-bottom: 1px solid #e5eaf2; }"
             "QListWidget#projectImageList::item:selected { background: #d8edf3; color: #102a32; }"
             "QListWidget#projectImageList::item:alternate { background: #f7f9fc; }"
-            "QTreeWidget#propertyBrowser { background: transparent; border: none; outline: none; color: #1f2937; }"
-            "QTreeWidget#propertyBrowser QHeaderView::section { background: rgba(255, 255, 255, 120); color: #64748b; border: none; border-bottom: 1px solid #d5dbe5; padding: 3px 4px; font-size: 11px; font-weight: 600; }"
-            "QTreeWidget#propertyBrowser::item { padding: 2px 0; }"
-            "QTreeWidget#propertyBrowser::item:hover { color: #0f766e; }"
-            "QLabel#propertyValue { color: #18202c; }"
             "QLabel#propertyEmpty { color: #7a8696; padding: 12px; }"
             "QLineEdit, QTextEdit { background: #ffffff; color: #1f2937; border: 1px solid #ccd6e1; border-radius: 4px; padding: 4px; selection-background-color: #cdeaf2; selection-color: #102a32; }"
             "QLineEdit:focus, QTextEdit:focus { border-color: #2A9D8F; }"
@@ -586,6 +635,8 @@ class MainWindow(QMainWindow):
         self._segment_note_fields: dict[str, QLineEdit] = {}
 
         self.properties_browser = PropertyBrowser(properties_widget)
+        self.properties_browser.itemClicked.connect(self._handle_image_property_item_clicked)
+        self.properties_browser.empty_area_clicked.connect(self._clear_image_property_measurement_highlight)
         self._add_property_browser_group(
             self.properties_browser,
             "Общая информация о файле",
@@ -1166,6 +1217,12 @@ class MainWindow(QMainWindow):
         self.default_view_action.setShortcut("Ctrl+R")
         self.default_view_action.triggered.connect(self.restore_default_view)
 
+        self.show_all_canvas_elements_action = QAction("Показать все элементы", self)
+        self.show_all_canvas_elements_action.triggered.connect(self.show_all_canvas_elements)
+
+        self.hide_all_canvas_elements_action = QAction("Скрыть все элементы", self)
+        self.hide_all_canvas_elements_action.triggered.connect(self.hide_all_canvas_elements)
+
         self.new_contour_action = QAction("Новый контур", self)
         self.new_contour_action.setShortcut("Ctrl+Shift+N")
         self.new_contour_action.triggered.connect(self.create_new_contour)
@@ -1228,6 +1285,8 @@ class MainWindow(QMainWindow):
             "fit_image": self.fit_image_action,
             "actual_size": self.actual_size_action,
             "default_view": self.default_view_action,
+            "show_all_canvas_elements": self.show_all_canvas_elements_action,
+            "hide_all_canvas_elements": self.hide_all_canvas_elements_action,
             "new_contour": self.new_contour_action,
             "detect_contour": self.detect_contour_action,
             "delete_contour": self.delete_contour_action,
@@ -1268,6 +1327,9 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.actual_size_action)
         view_menu.addSeparator()
         view_menu.addAction(self.default_view_action)
+        view_menu.addSeparator()
+        view_menu.addAction(self.show_all_canvas_elements_action)
+        view_menu.addAction(self.hide_all_canvas_elements_action)
 
         tools_menu = self.menuBar().addMenu("Инструменты")
         tools_menu.addAction(self.new_contour_action)
@@ -1316,6 +1378,9 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.actual_size_action)
         toolbar.addAction(self.default_view_action)
         toolbar.addSeparator()
+        toolbar.addAction(self.show_all_canvas_elements_action)
+        toolbar.addAction(self.hide_all_canvas_elements_action)
+        toolbar.addSeparator()
         toolbar.addAction(self.new_contour_action)
         toolbar.addAction(self.detect_contour_action)
         toolbar.addAction(self.delete_contour_action)
@@ -1326,6 +1391,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.delete_angle_action)
         toolbar.addAction(self.measure_segment_action)
         toolbar.addAction(self.delete_segment_action)
+        toolbar.addSeparator()
         toolbar.addAction(self.save_annotation_action)
         toolbar.addAction(self.open_annotation_action)
         toolbar.addSeparator()
@@ -1369,6 +1435,8 @@ class MainWindow(QMainWindow):
         self.zoom_out_action.setEnabled(has_image)
         self.fit_image_action.setEnabled(has_image)
         self.actual_size_action.setEnabled(has_image)
+        self.show_all_canvas_elements_action.setEnabled(has_project_image and has_image)
+        self.hide_all_canvas_elements_action.setEnabled(has_project_image and has_image)
         self.new_contour_action.setEnabled(has_project_image and has_image)
         self.detect_contour_action.setEnabled(has_project_image and has_image)
         self.delete_contour_action.setEnabled(has_project_image and (has_contour or has_project_contour))
@@ -1391,6 +1459,73 @@ class MainWindow(QMainWindow):
         if self.canvas.has_image():
             self.canvas.fit_to_image()
         self.statusBar().showMessage("Вид по умолчанию восстановлен.")
+
+    def show_all_canvas_elements(self) -> None:
+        self._set_all_canvas_elements_visible(True)
+
+    def hide_all_canvas_elements(self) -> None:
+        self._set_all_canvas_elements_visible(False)
+
+    def _set_all_canvas_elements_visible(self, visible: bool) -> None:
+        record = self._selected_project_image()
+        if record is None or not self.canvas.has_image():
+            return
+
+        if self.canvas.has_contour():
+            self.canvas.set_contour_visible(visible)
+        for angle in record.measurements.angles:
+            self.canvas.set_angle_measurement_visible(angle.id, visible)
+        for segment in record.measurements.segments:
+            self.canvas.set_segment_measurement_visible(segment.id, visible)
+
+        self._sync_canvas_visibility_fields()
+        self._update_action_states()
+        self.statusBar().showMessage(
+            "Показаны все элементы на канвасе."
+            if visible
+            else "Скрыты все элементы на канвасе."
+        )
+
+    def _sync_canvas_visibility_fields(self) -> None:
+        self._update_contour_visibility_field()
+        for angle_id, field in self._angle_visibility_fields.items():
+            with QSignalBlocker(field):
+                field.setChecked(self.canvas.is_angle_measurement_visible(angle_id))
+        for segment_id, field in self._segment_visibility_fields.items():
+            with QSignalBlocker(field):
+                field.setChecked(self.canvas.is_segment_measurement_visible(segment_id))
+
+    def _handle_image_property_item_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
+        reference = self._measurement_reference_from_property_item(item)
+        if reference is None:
+            self._clear_image_property_measurement_highlight()
+            return
+
+        measurement_type, measurement_id = reference
+        if measurement_type == "angle":
+            self.canvas.highlight_angle_measurement(measurement_id)
+        elif measurement_type == "segment":
+            self.canvas.highlight_segment_measurement(measurement_id)
+        else:
+            self.canvas.clear_measurement_highlight()
+        self._update_action_states()
+
+    def _clear_image_property_measurement_highlight(self) -> None:
+        self.canvas.clear_measurement_highlight()
+        self._update_action_states()
+
+    def _measurement_reference_from_property_item(
+        self,
+        item: QTreeWidgetItem | None,
+    ) -> tuple[str, str] | None:
+        current = item
+        while current is not None:
+            key = str(current.data(0, Qt.UserRole + 1) or "")
+            parts = key.split(":")
+            if len(parts) >= 2 and parts[0] in {"angle", "segment"} and parts[1]:
+                return parts[0], parts[1]
+            current = current.parent()
+        return None
 
     def _schedule_histogram_refresh(self, *_args) -> None:
         if not self._histogram_refresh_timer.isActive():
@@ -1833,6 +1968,122 @@ class MainWindow(QMainWindow):
             return None
         return selected_items()
 
+    def _select_checked_export_tree_items(
+        self,
+        *,
+        title: str,
+        groups: list[ExportTreeItem],
+        empty_title: str,
+        empty_message: str,
+        default_checked_keys: set[str] | None = None,
+    ) -> list[str] | None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+
+        item_tree = QTreeWidget(dialog)
+        item_tree.setObjectName("exportItemTree")
+        item_tree.setHeaderHidden(True)
+        item_tree.setAlternatingRowColors(True)
+
+        def item_check_state_from_children(item: QTreeWidgetItem) -> Qt.CheckState:
+            child_states = [item.child(index).checkState(0) for index in range(item.childCount())]
+            if all(state == Qt.Checked for state in child_states):
+                return Qt.Checked
+            if all(state == Qt.Unchecked for state in child_states):
+                return Qt.Unchecked
+            return Qt.PartiallyChecked
+
+        def add_tree_item(node: ExportTreeItem, parent: QTreeWidgetItem | None = None) -> QTreeWidgetItem:
+            item = QTreeWidgetItem([node.label])
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item.setData(0, Qt.UserRole, node.key)
+            item.setData(0, Qt.UserRole + 1, node.export_label or node.label)
+            if parent is None:
+                item_tree.addTopLevelItem(item)
+            else:
+                parent.addChild(item)
+            for child in node.children:
+                add_tree_item(child, item)
+            if node.children:
+                item.setCheckState(0, item_check_state_from_children(item))
+            else:
+                checked = default_checked_keys is None or node.key in default_checked_keys
+                item.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
+            item.setExpanded(True)
+            return item
+
+        for group in groups:
+            add_tree_item(group)
+
+        updating_check_states = False
+
+        def set_children_check_state(item: QTreeWidgetItem, state: Qt.CheckState) -> None:
+            for index in range(item.childCount()):
+                child = item.child(index)
+                child.setCheckState(0, state)
+                set_children_check_state(child, state)
+
+        def update_parent_check_states(item: QTreeWidgetItem) -> None:
+            parent = item.parent()
+            while parent is not None:
+                parent.setCheckState(0, item_check_state_from_children(parent))
+                parent = parent.parent()
+
+        def handle_item_changed(item: QTreeWidgetItem, column: int) -> None:
+            nonlocal updating_check_states
+            if column != 0 or updating_check_states:
+                return
+            updating_check_states = True
+            try:
+                state = item.checkState(0)
+                if item.childCount() and state != Qt.PartiallyChecked:
+                    set_children_check_state(item, state)
+                update_parent_check_states(item)
+            finally:
+                updating_check_states = False
+
+        item_tree.itemChanged.connect(handle_item_changed)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+        button_box.rejected.connect(dialog.reject)
+
+        def selected_items() -> list[str]:
+            selected: list[str] = []
+
+            def collect_checked_leaves(item: QTreeWidgetItem) -> None:
+                if item.childCount():
+                    for child_index in range(item.childCount()):
+                        collect_checked_leaves(item.child(child_index))
+                    return
+                key = str(item.data(0, Qt.UserRole) or "")
+                if key and item.checkState(0) == Qt.Checked:
+                    selected.append(key)
+
+            for index in range(item_tree.topLevelItemCount()):
+                collect_checked_leaves(item_tree.topLevelItem(index))
+            return selected
+
+        def accept_if_any_selected() -> None:
+            if not selected_items():
+                self._show_warning(empty_title, empty_message)
+                return
+            dialog.accept()
+
+        ok_button = button_box.button(QDialogButtonBox.Ok)
+        if ok_button is not None:
+            ok_button.clicked.connect(accept_if_any_selected)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+        layout.addWidget(item_tree)
+        layout.addWidget(button_box)
+        dialog.resize(420, 520)
+
+        if dialog.exec_() != QDialog.Accepted:
+            return None
+        return selected_items()
+
     def _write_project_excel(self, output_path: Path, selected_fieldnames: list[str]) -> None:
         if self.project_document is None:
             raise ValueError("Нет проекта для экспорта.")
@@ -1889,12 +2140,83 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Экспорт свойств изображения в Excel выполнен: {output_path.name}")
 
     def _select_image_property_export_items(self) -> list[str] | None:
-        return self._select_checked_export_items(
+        record = self._selected_project_image()
+        return self._select_checked_export_tree_items(
             title="Свойства экспорта",
-            grouped_items=IMAGE_PROPERTY_GROUPS,
+            groups=self._image_property_export_groups(record),
             empty_title="Нет выбранных свойств",
             empty_message="Выберите хотя бы одно свойство для экспорта.",
+            default_checked_keys=_default_image_property_export_keys(),
         )
+
+    def _image_property_export_groups(self, record: ProjectImageRecord | None) -> list[ExportTreeItem]:
+        groups: list[ExportTreeItem] = []
+        for group in _static_image_property_export_groups():
+            groups.append(group)
+            if group.label == "Информация о главном контуре" and record is not None:
+                measurement_group = self._measurement_property_export_group(record)
+                if measurement_group is not None:
+                    groups.append(measurement_group)
+        return groups
+
+    def _image_property_export_labels(self, record: ProjectImageRecord | None) -> dict[str, str]:
+        return _export_tree_labels(self._image_property_export_groups(record))
+
+    def _image_property_export_leaf_keys(self, record: ProjectImageRecord | None) -> list[str]:
+        return _export_tree_leaf_keys(self._image_property_export_groups(record))
+
+    def _measurement_property_export_group(self, record: ProjectImageRecord) -> ExportTreeItem | None:
+        measurement_children: list[ExportTreeItem] = []
+        angle_groups: list[ExportTreeItem] = []
+        for index, angle in enumerate(record.measurements.angles, start=1):
+            angle_title = _angle_display_name(angle, index)
+            angle_groups.append(
+                ExportTreeItem(
+                    label=angle_title,
+                    children=tuple(
+                        _export_leaf(key, label)
+                        for key, label in (
+                            (f"angle:{angle.id}:name", "Имя"),
+                            (f"angle:{angle.id}:id", "ID"),
+                            (f"angle:{angle.id}:value", "Значение"),
+                            (f"angle:{angle.id}:first", "Первая точка"),
+                            (f"angle:{angle.id}:vertex", "Вершина"),
+                            (f"angle:{angle.id}:second", "Вторая точка"),
+                            (f"angle:{angle.id}:note", "Примечание"),
+                        )
+                    ),
+                )
+            )
+        if angle_groups:
+            measurement_children.append(ExportTreeItem(label="Углы", children=tuple(angle_groups)))
+
+        segment_groups: list[ExportTreeItem] = []
+        for index, segment in enumerate(record.measurements.segments, start=1):
+            segment_title = _segment_display_name(segment, index)
+            segment_groups.append(
+                ExportTreeItem(
+                    label=segment_title,
+                    children=tuple(
+                        _export_leaf(key, label)
+                        for key, label in (
+                            (f"segment:{segment.id}:name", "Имя"),
+                            (f"segment:{segment.id}:id", "ID"),
+                            (f"segment:{segment.id}:length", "Длина"),
+                            (f"segment:{segment.id}:start", "Первая точка"),
+                            (f"segment:{segment.id}:end", "Вторая точка"),
+                            (f"segment:{segment.id}:start_label", "Подпись первой точки"),
+                            (f"segment:{segment.id}:end_label", "Подпись второй точки"),
+                            (f"segment:{segment.id}:note", "Примечание"),
+                        )
+                    ),
+                )
+            )
+        if segment_groups:
+            measurement_children.append(ExportTreeItem(label="Отрезки", children=tuple(segment_groups)))
+
+        if not measurement_children:
+            return None
+        return ExportTreeItem(label="Измерения", children=tuple(measurement_children))
 
     def _default_image_properties_export_path(self, record: ProjectImageRecord) -> Path:
         stem = Path(record.display_name).stem or "image"
@@ -1908,15 +2230,62 @@ class MainWindow(QMainWindow):
         if record is None:
             raise ValueError("Нет выбранного изображения для экспорта.")
 
+        rows, bold_rows = self._image_property_export_rows(record, selected_properties)
+        write_xlsx_table(
+            output_path,
+            ["Свойство", "Значение"],
+            rows,
+            sheet_name="Свойства",
+            bold_rows=bold_rows,
+        )
+
+    def _image_property_export_rows(
+        self,
+        record: ProjectImageRecord,
+        selected_properties: list[str],
+    ) -> tuple[list[dict[str, str]], set[int]]:
+        groups = self._image_property_export_groups(record)
         values = self._image_property_export_values(record)
-        rows = [
-            {
-                "Свойство": IMAGE_PROPERTY_EXPORT_LABELS[property_key],
-                "Значение": values.get(property_key, ""),
-            }
-            for property_key in selected_properties
-        ]
-        write_xlsx_table(output_path, ["Свойство", "Значение"], rows, sheet_name="Свойства")
+        selected_keys = set(selected_properties)
+        emitted_keys: set[str] = set()
+        bold_rows: set[int] = set()
+
+        def node_rows(node: ExportTreeItem) -> list[dict[str, str]]:
+            if not node.children:
+                if node.key not in selected_keys:
+                    return []
+                emitted_keys.add(node.key)
+                return [{"Свойство": node.label, "Значение": values.get(node.key, "")}]
+
+            rows: list[dict[str, str]] = []
+            for child in node.children:
+                rows.extend(node_rows(child))
+            if not rows:
+                return []
+            return [{"Свойство": node.label, "Значение": "", "_xlsx_bold": "1"}, *rows]
+
+        rows: list[dict[str, str]] = []
+        for group in groups:
+            rows.extend(node_rows(group))
+
+        for row_index, row in enumerate(rows):
+            if row.pop("_xlsx_bold", "") == "1":
+                bold_rows.add(row_index)
+
+        labels = self._image_property_export_labels(record)
+        for property_key in selected_properties:
+            if property_key in emitted_keys:
+                continue
+            rows.append(
+                {
+                    "Свойство": labels.get(
+                        property_key,
+                        IMAGE_PROPERTY_EXPORT_LABELS.get(property_key, property_key),
+                    ),
+                    "Значение": values.get(property_key, ""),
+                }
+            )
+        return rows, bold_rows
 
     def _image_property_export_values(self, record: ProjectImageRecord) -> dict[str, str]:
         self._normalize_record_metadata(record)
@@ -1926,7 +2295,7 @@ class MainWindow(QMainWindow):
         average_color = "-"
         if all(value not in ("", "-") for value in (red, green, blue)):
             average_color = f"RGB({red}, {green}, {blue})"
-        return {
+        values = {
             "id": self.image_id.text().strip(),
             "file_name": self.property_file_name.text().strip(),
             "relative_path": self.property_path.text(),
@@ -1965,6 +2334,41 @@ class MainWindow(QMainWindow):
             "diagnosis": self.metadata_diagnosis.text().strip(),
             "notes": self.metadata_notes.toPlainText(),
         }
+        values.update(self._measurement_property_export_values(record))
+        return values
+
+    def _measurement_property_export_values(self, record: ProjectImageRecord) -> dict[str, str]:
+        values: dict[str, str] = {}
+
+        for angle in record.measurements.angles:
+            prefix = f"angle:{angle.id}"
+            values.update(
+                {
+                    f"{prefix}:name": angle.name,
+                    f"{prefix}:id": angle.id,
+                    f"{prefix}:value": _angle_measurement_value_text(angle),
+                    f"{prefix}:first": _point_text(angle.first),
+                    f"{prefix}:vertex": _point_text(angle.vertex),
+                    f"{prefix}:second": _point_text(angle.second),
+                    f"{prefix}:note": angle.note,
+                }
+            )
+
+        for segment in record.measurements.segments:
+            prefix = f"segment:{segment.id}"
+            values.update(
+                {
+                    f"{prefix}:name": segment.name,
+                    f"{prefix}:id": segment.id,
+                    f"{prefix}:length": _segment_measurement_length_text(segment, record.calibration),
+                    f"{prefix}:start": _point_text(segment.start),
+                    f"{prefix}:end": _point_text(segment.end),
+                    f"{prefix}:start_label": segment.start_label,
+                    f"{prefix}:end_label": segment.end_label,
+                    f"{prefix}:note": segment.note,
+                }
+            )
+        return values
 
     def _project_export_row(self, record: ProjectImageRecord) -> dict[str, str]:
         self._normalize_record_metadata(record)

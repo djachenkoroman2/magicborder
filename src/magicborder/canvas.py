@@ -25,6 +25,17 @@ from .io_utils import LoadedImage, loaded_image_from_rgb_array
 from .models import Point
 
 
+ANGLE_LINE_COLOR = "#22c55e"
+ANGLE_ARC_COLOR = "#7c3aed"
+SEGMENT_LINE_COLOR = "#f97316"
+MEASUREMENT_LINE_WIDTH = 2.0
+MEASUREMENT_HIGHLIGHT_LINE_WIDTH = 4.4
+ANGLE_LINE_Z = 22
+ANGLE_ARC_Z = 23
+SEGMENT_LINE_Z = 24
+MEASUREMENT_HIGHLIGHT_Z_OFFSET = 10
+
+
 @dataclass
 class AngleMeasurement:
     id: str
@@ -133,19 +144,29 @@ class AngleHandleItem(QGraphicsEllipseItem):
         self.canvas = canvas
         self.angle_index = angle_index
         self.point_index = point_index
+        self._normal_pen_width = 1.6
+        self._normal_z_value = 34 if is_vertex else 32
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
         self.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
         self.setBrush(QColor("#7c3aed") if is_vertex else QColor("#22c55e"))
-        self.setPen(QPen(QColor("white"), 1.6))
-        self.setZValue(34 if is_vertex else 32)
+        self.setPen(QPen(QColor("white"), self._normal_pen_width))
+        self.setZValue(self._normal_z_value)
         self.setToolTip(
             "Вершина угла. Выберите её, чтобы удалить измерение."
             if is_vertex
             else "Перетащите точку луча, чтобы изменить угол."
         )
         self.setPos(position)
+
+    def set_highlighted(self, highlighted: bool) -> None:
+        self.setPen(QPen(QColor("white"), 2.9 if highlighted else self._normal_pen_width))
+        self.setZValue(
+            self._normal_z_value + MEASUREMENT_HIGHLIGHT_Z_OFFSET
+            if highlighted
+            else self._normal_z_value
+        )
 
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: object) -> object:
         if change == QGraphicsItem.ItemPositionChange and isinstance(value, QPointF):
@@ -170,15 +191,25 @@ class SegmentHandleItem(QGraphicsEllipseItem):
         self.canvas = canvas
         self.segment_index = segment_index
         self.point_index = point_index
+        self._normal_pen_width = 1.5
+        self._normal_z_value = 31
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
         self.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
         self.setBrush(QColor("#f97316"))
-        self.setPen(QPen(QColor("white"), 1.5))
-        self.setZValue(31)
+        self.setPen(QPen(QColor("white"), self._normal_pen_width))
+        self.setZValue(self._normal_z_value)
         self.setToolTip("Перетащите точку отрезка. Выберите её, чтобы удалить отрезок.")
         self.setPos(position)
+
+    def set_highlighted(self, highlighted: bool) -> None:
+        self.setPen(QPen(QColor("white"), 2.8 if highlighted else self._normal_pen_width))
+        self.setZValue(
+            self._normal_z_value + MEASUREMENT_HIGHLIGHT_Z_OFFSET
+            if highlighted
+            else self._normal_z_value
+        )
 
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: object) -> object:
         if change == QGraphicsItem.ItemPositionChange and isinstance(value, QPointF):
@@ -311,11 +342,13 @@ class ImageCanvas(QGraphicsView):
         self._suppress_angle_handle_events = False
         self._angle_capture_active = False
         self._angle_capture_points: list[QPointF] = []
+        self._highlighted_angle_id: str | None = None
         self._segment_measurements: list[SegmentMeasurement] = []
         self._segment_graphics: list[SegmentGraphics] = []
         self._suppress_segment_handle_events = False
         self._segment_capture_active = False
         self._segment_capture_points: list[QPointF] = []
+        self._highlighted_segment_id: str | None = None
 
         self.setRenderHints(
             QPainter.Antialiasing
@@ -414,6 +447,46 @@ class ImageCanvas(QGraphicsView):
         if selected_index is None or selected_index >= len(self._segment_measurements):
             return None
         return self._segment_measurements[selected_index].id
+
+    def highlighted_angle_id(self) -> str | None:
+        return self._highlighted_angle_id
+
+    def highlighted_segment_id(self) -> str | None:
+        return self._highlighted_segment_id
+
+    def highlight_angle_measurement(self, angle_id: str | None) -> bool:
+        normalized_id = str(angle_id or "").strip()
+        if not normalized_id:
+            return self.clear_measurement_highlight()
+        if not any(measurement.id == normalized_id for measurement in self._angle_measurements):
+            return self.clear_measurement_highlight()
+        if self._highlighted_angle_id == normalized_id and self._highlighted_segment_id is None:
+            return False
+        self._highlighted_angle_id = normalized_id
+        self._highlighted_segment_id = None
+        self._refresh_measurement_highlights()
+        return True
+
+    def highlight_segment_measurement(self, segment_id: str | None) -> bool:
+        normalized_id = str(segment_id or "").strip()
+        if not normalized_id:
+            return self.clear_measurement_highlight()
+        if not any(measurement.id == normalized_id for measurement in self._segment_measurements):
+            return self.clear_measurement_highlight()
+        if self._highlighted_segment_id == normalized_id and self._highlighted_angle_id is None:
+            return False
+        self._highlighted_angle_id = None
+        self._highlighted_segment_id = normalized_id
+        self._refresh_measurement_highlights()
+        return True
+
+    def clear_measurement_highlight(self) -> bool:
+        if self._highlighted_angle_id is None and self._highlighted_segment_id is None:
+            return False
+        self._highlighted_angle_id = None
+        self._highlighted_segment_id = None
+        self._refresh_measurement_highlights()
+        return True
 
     def current_image_path(self) -> Path | None:
         return self._loaded_image.path if self._loaded_image else None
@@ -729,6 +802,7 @@ class ImageCanvas(QGraphicsView):
                 )
             )
 
+        self._drop_missing_measurement_highlight()
         self._rebuild_angle_graphics()
         self.angle_state_changed.emit()
 
@@ -752,6 +826,7 @@ class ImageCanvas(QGraphicsView):
         if was_active:
             self.setDragMode(QGraphicsView.ScrollHandDrag)
         self._angle_measurements.clear()
+        self._highlighted_angle_id = None
         self._clear_angle_graphics()
         self.angle_state_changed.emit()
 
@@ -830,6 +905,7 @@ class ImageCanvas(QGraphicsView):
                 )
             )
 
+        self._drop_missing_measurement_highlight()
         self._rebuild_segment_graphics()
         self.segment_state_changed.emit()
 
@@ -870,6 +946,7 @@ class ImageCanvas(QGraphicsView):
         if was_active:
             self.setDragMode(QGraphicsView.ScrollHandDrag)
         self._segment_measurements.clear()
+        self._highlighted_segment_id = None
         self._clear_segment_graphics()
         self.segment_state_changed.emit()
 
@@ -879,7 +956,10 @@ class ImageCanvas(QGraphicsView):
             self.message_changed.emit("Выберите точку отрезка, чтобы удалить измерение.")
             return False
 
+        deleted_id = self._segment_measurements[selected_index].id
         del self._segment_measurements[selected_index]
+        if self._highlighted_segment_id == deleted_id:
+            self._highlighted_segment_id = None
         self._rebuild_segment_graphics()
         self.message_changed.emit("Измерение отрезка удалено.")
         self.segment_state_changed.emit()
@@ -891,7 +971,10 @@ class ImageCanvas(QGraphicsView):
             self.message_changed.emit("Выберите вершину угла, чтобы удалить измерение.")
             return False
 
+        deleted_id = self._angle_measurements[selected_index].id
         del self._angle_measurements[selected_index]
+        if self._highlighted_angle_id == deleted_id:
+            self._highlighted_angle_id = None
         self._rebuild_angle_graphics()
         self.message_changed.emit("Измерение угла удалено.")
         self.angle_state_changed.emit()
@@ -1440,25 +1523,22 @@ class ImageCanvas(QGraphicsView):
         angle_index: int,
         measurement: AngleMeasurement,
     ) -> AngleGraphics:
-        line_pen = QPen(QColor("#22c55e"), 2.0)
-        line_pen.setCosmetic(True)
+        line_pen = self._measurement_pen(ANGLE_LINE_COLOR, MEASUREMENT_LINE_WIDTH)
 
         first_line = QGraphicsLineItem()
         first_line.setPen(line_pen)
-        first_line.setZValue(22)
+        first_line.setZValue(ANGLE_LINE_Z)
         self._scene.addItem(first_line)
 
         second_line = QGraphicsLineItem()
         second_line.setPen(line_pen)
-        second_line.setZValue(22)
+        second_line.setZValue(ANGLE_LINE_Z)
         self._scene.addItem(second_line)
 
-        arc_pen = QPen(QColor("#7c3aed"), 2.0)
-        arc_pen.setCosmetic(True)
         arc = QGraphicsPathItem()
-        arc.setPen(arc_pen)
+        arc.setPen(self._measurement_pen(ANGLE_ARC_COLOR, MEASUREMENT_LINE_WIDTH))
         arc.setBrush(QBrush(Qt.NoBrush))
-        arc.setZValue(23)
+        arc.setZValue(ANGLE_ARC_Z)
         arc.setVisible(False)
         self._scene.addItem(arc)
 
@@ -1514,6 +1594,7 @@ class ImageCanvas(QGraphicsView):
                 handle.setPos(point)
         finally:
             self._suppress_angle_handle_events = False
+        self._apply_angle_highlight(angle_index)
         self._apply_angle_visibility(angle_index)
 
     def _refresh_angle_labels(self) -> None:
@@ -1551,12 +1632,9 @@ class ImageCanvas(QGraphicsView):
         segment_index: int,
         measurement: SegmentMeasurement,
     ) -> SegmentGraphics:
-        line_pen = QPen(QColor("#f97316"), 2.0)
-        line_pen.setCosmetic(True)
-
         line = QGraphicsLineItem()
-        line.setPen(line_pen)
-        line.setZValue(24)
+        line.setPen(self._measurement_pen(SEGMENT_LINE_COLOR, MEASUREMENT_LINE_WIDTH))
+        line.setZValue(SEGMENT_LINE_Z)
         self._scene.addItem(line)
 
         length_label = self._create_segment_text_item("#9a3412", 34)
@@ -1635,6 +1713,7 @@ class ImageCanvas(QGraphicsView):
                 handle.setPos(point)
         finally:
             self._suppress_segment_handle_events = False
+        self._apply_segment_highlight(segment_index)
         self._apply_segment_visibility(segment_index)
 
     def _refresh_segment_labels(self) -> None:
@@ -1659,6 +1738,67 @@ class ImageCanvas(QGraphicsView):
             handle.setVisible(visible)
             if not visible:
                 handle.setSelected(False)
+
+    def _measurement_pen(self, color_name: str, width: float) -> QPen:
+        pen = QPen(QColor(color_name), width)
+        pen.setCosmetic(True)
+        return pen
+
+    def _refresh_measurement_highlights(self) -> None:
+        for index in range(len(self._angle_measurements)):
+            self._apply_angle_highlight(index)
+        for index in range(len(self._segment_measurements)):
+            self._apply_segment_highlight(index)
+
+    def _drop_missing_measurement_highlight(self) -> None:
+        if self._highlighted_angle_id is not None and not any(
+            measurement.id == self._highlighted_angle_id
+            for measurement in self._angle_measurements
+        ):
+            self._highlighted_angle_id = None
+        if self._highlighted_segment_id is not None and not any(
+            measurement.id == self._highlighted_segment_id
+            for measurement in self._segment_measurements
+        ):
+            self._highlighted_segment_id = None
+
+    def _apply_angle_highlight(self, angle_index: int) -> None:
+        if angle_index >= len(self._angle_measurements) or angle_index >= len(self._angle_graphics):
+            return
+
+        measurement = self._angle_measurements[angle_index]
+        graphics = self._angle_graphics[angle_index]
+        highlighted = measurement.id == self._highlighted_angle_id
+        line_width = MEASUREMENT_HIGHLIGHT_LINE_WIDTH if highlighted else MEASUREMENT_LINE_WIDTH
+        line_z = ANGLE_LINE_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else ANGLE_LINE_Z
+        arc_z = ANGLE_ARC_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else ANGLE_ARC_Z
+
+        graphics.first_line.setPen(self._measurement_pen(ANGLE_LINE_COLOR, line_width))
+        graphics.second_line.setPen(self._measurement_pen(ANGLE_LINE_COLOR, line_width))
+        graphics.arc.setPen(self._measurement_pen(ANGLE_ARC_COLOR, line_width))
+        graphics.first_line.setZValue(line_z)
+        graphics.second_line.setZValue(line_z)
+        graphics.arc.setZValue(arc_z)
+        for handle in graphics.handles:
+            handle.set_highlighted(highlighted)
+
+    def _apply_segment_highlight(self, segment_index: int) -> None:
+        if (
+            segment_index >= len(self._segment_measurements)
+            or segment_index >= len(self._segment_graphics)
+        ):
+            return
+
+        measurement = self._segment_measurements[segment_index]
+        graphics = self._segment_graphics[segment_index]
+        highlighted = measurement.id == self._highlighted_segment_id
+        line_width = MEASUREMENT_HIGHLIGHT_LINE_WIDTH if highlighted else MEASUREMENT_LINE_WIDTH
+        line_z = SEGMENT_LINE_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else SEGMENT_LINE_Z
+
+        graphics.line.setPen(self._measurement_pen(SEGMENT_LINE_COLOR, line_width))
+        graphics.line.setZValue(line_z)
+        for handle in graphics.handles:
+            handle.set_highlighted(highlighted)
 
     def _set_endpoint_label(
         self,

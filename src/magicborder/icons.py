@@ -99,6 +99,16 @@ ACTION_VISUALS: dict[str, ActionVisual] = {
         tool_tip="Вид по умолчанию",
         status_tip="Вернуть стандартные пропорции панелей и вписать изображение в область просмотра.",
     ),
+    "show_all_canvas_elements": ActionVisual(
+        icon_name="show-all-canvas-elements",
+        tool_tip="Показать все элементы на канвасе",
+        status_tip="Показать главный контур, углы и отрезки текущего изображения на канвасе.",
+    ),
+    "hide_all_canvas_elements": ActionVisual(
+        icon_name="hide-all-canvas-elements",
+        tool_tip="Скрыть все элементы на канвасе",
+        status_tip="Скрыть главный контур, углы и отрезки текущего изображения на канвасе.",
+    ),
     "new_contour": ActionVisual(
         icon_name="new-contour",
         tool_tip="Новый контур",

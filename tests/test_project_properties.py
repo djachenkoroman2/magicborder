@@ -23,12 +23,13 @@ from PyQt5.QtWidgets import (  # noqa: E402
     QHeaderView,
     QToolBar,
     QToolButton,
+    QTreeWidget,
+    QTreeWidgetItem,
     QWidgetAction,
 )
 
 from magicborder.io_utils import load_project, save_project  # noqa: E402
 from magicborder.main_window import (  # noqa: E402
-    IMAGE_PROPERTY_EXPORT_KEYS,
     MainWindow,
     PROJECT_EXPORT_FIELDNAMES,
     _circle_contour_points,
@@ -38,10 +39,20 @@ from magicborder.models import (  # noqa: E402
     Annotation,
     ImageCalibration,
     Point,
+    ProjectAngleMeasurement,
     ProjectDocument,
     ProjectImageRecord,
+    ProjectImageMeasurements,
+    ProjectSegmentMeasurement,
 )
-from magicborder.property_browser import PropertyBrowser, PropertyValueLabel  # noqa: E402
+from magicborder.property_browser import (  # noqa: E402
+    PROPERTY_BROWSER_STYLE,
+    PROPERTY_GRID_HORIZONTAL_COLOR,
+    PROPERTY_GRID_VERTICAL_COLOR,
+    PropertyBrowser,
+    PropertyGridOverlay,
+    PropertyValueLabel,
+)
 
 _APP: QApplication | None = None
 
@@ -91,6 +102,23 @@ def _read_xlsx_dict_rows(path: Path) -> list[dict[str, str]]:
     ]
 
 
+def _read_xlsx_cell_styles(path: Path) -> dict[str, str]:
+    namespace = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    with zipfile.ZipFile(path) as workbook:
+        sheet_xml = workbook.read("xl/worksheets/sheet1.xml")
+
+    root = ElementTree.fromstring(sheet_xml)
+    return {
+        cell.attrib["r"]: cell.attrib.get("s", "")
+        for cell in root.findall("s:sheetData/s:row/s:c", namespace)
+    }
+
+
+def _read_xlsx_styles_xml(path: Path) -> str:
+    with zipfile.ZipFile(path) as workbook:
+        return workbook.read("xl/styles.xml").decode("utf-8")
+
+
 def _xlsx_column_index(column_name: str) -> int:
     index = 0
     for char in column_name:
@@ -118,6 +146,87 @@ def _minimal_export_window(root: Path) -> MainWindow:
     return window
 
 
+def _measurement_export_window(root: Path) -> tuple[MainWindow, Path]:
+    image_dir = root / "images"
+    image_dir.mkdir()
+    Image.new("RGB", (40, 30), (120, 80, 40)).save(image_dir / "leaf.png")
+
+    project = ProjectDocument(
+        name="measurement_export",
+        images=[
+            ProjectImageRecord(
+                id="leaf",
+                relative_path="images/leaf.png",
+                display_name="leaf.png",
+                image_width=40,
+                image_height=30,
+                calibration=ImageCalibration(
+                    start=Point(0, 0),
+                    end=Point(10, 0),
+                    length_mm=5,
+                ),
+                measurements=ProjectImageMeasurements(
+                    angles=[
+                        ProjectAngleMeasurement(
+                            id="angle-a",
+                            first=Point(2, 10),
+                            vertex=Point(2, 2),
+                            second=Point(10, 2),
+                            name="Контрольный угол",
+                            note="контрольный угол",
+                        ),
+                        ProjectAngleMeasurement(
+                            id="angle-b",
+                            first=Point(20, 10),
+                            vertex=Point(20, 2),
+                            second=Point(28, 2),
+                            name="Второй угол",
+                            note="",
+                        ),
+                    ],
+                    segments=[
+                        ProjectSegmentMeasurement(
+                            id="segment-a",
+                            start=Point(2, 2),
+                            end=Point(12, 2),
+                            name="Контрольный отрезок",
+                            start_label="Начало",
+                            end_label="Конец",
+                            note="измерить повторно",
+                        )
+                    ],
+                ),
+            )
+        ],
+    )
+    project_path = root / "measurement_export.json"
+    save_project(project_path, project)
+
+    window = MainWindow()
+    window._set_project(project_path, load_project(project_path))
+    return window, project_path
+
+
+def _add_test_contour(window: MainWindow) -> None:
+    record = window._selected_project_image()
+    assert record is not None
+    points = [
+        Point(4, 4),
+        Point(36, 4),
+        Point(36, 26),
+        Point(4, 26),
+    ]
+    record.annotation = Annotation(
+        image_path=record.relative_path,
+        image_width=40,
+        image_height=30,
+        points=points,
+    )
+    window.canvas.set_contour(points)
+    window._update_project_properties()
+    window._update_action_states()
+
+
 def _list_item_color_name(window: MainWindow, row: int = 0) -> str:
     return window.project_list.item(row).foreground().color().name()
 
@@ -139,6 +248,40 @@ def _main_toolbar(window: MainWindow) -> QToolBar:
         if toolbar.windowTitle() == "Основная панель":
             return toolbar
     raise AssertionError("Основная панель не найдена")
+
+
+def _tree_item_by_text(tree: QTreeWidget, text: str) -> QTreeWidgetItem:
+    def visit(item: QTreeWidgetItem) -> QTreeWidgetItem | None:
+        if item.text(0) == text:
+            return item
+        for index in range(item.childCount()):
+            found = visit(item.child(index))
+            if found is not None:
+                return found
+        return None
+
+    for index in range(tree.topLevelItemCount()):
+        found = visit(tree.topLevelItem(index))
+        if found is not None:
+            return found
+    raise AssertionError(f"Tree item not found: {text}")
+
+
+def _tree_item_by_key(tree: QTreeWidget, key: str) -> QTreeWidgetItem:
+    def visit(item: QTreeWidgetItem) -> QTreeWidgetItem | None:
+        if item.data(0, Qt.UserRole) == key:
+            return item
+        for index in range(item.childCount()):
+            found = visit(item.child(index))
+            if found is not None:
+                return found
+        return None
+
+    for index in range(tree.topLevelItemCount()):
+        found = visit(tree.topLevelItem(index))
+        if found is not None:
+            return found
+    raise AssertionError(f"Tree item not found for key: {key}")
 
 
 class ProjectPropertiesTest(unittest.TestCase):
@@ -169,6 +312,46 @@ class ProjectPropertiesTest(unittest.TestCase):
         spacer = actions[-2].defaultWidget()
         self.assertIsNotNone(spacer)
         self.assertEqual(spacer.sizePolicy().horizontalPolicy(), QSizePolicy.Expanding)
+
+    def test_canvas_visibility_actions_exist_and_follow_image_state(self) -> None:
+        _app()
+        window = MainWindow()
+
+        self.assertIsInstance(window.show_all_canvas_elements_action, QAction)
+        self.assertIsInstance(window.hide_all_canvas_elements_action, QAction)
+        self.assertEqual(window.show_all_canvas_elements_action.text(), "Показать все элементы")
+        self.assertEqual(window.hide_all_canvas_elements_action.text(), "Скрыть все элементы")
+        self.assertFalse(window.show_all_canvas_elements_action.isEnabled())
+        self.assertFalse(window.hide_all_canvas_elements_action.isEnabled())
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            loaded_window, _project_path = _measurement_export_window(root)
+
+            self.assertTrue(loaded_window.show_all_canvas_elements_action.isEnabled())
+            self.assertTrue(loaded_window.hide_all_canvas_elements_action.isEnabled())
+
+    def test_toolbar_groups_canvas_visibility_and_annotation_actions(self) -> None:
+        _app()
+        window = MainWindow()
+        toolbar = _main_toolbar(window)
+        actions = toolbar.actions()
+
+        show_index = actions.index(window.show_all_canvas_elements_action)
+        hide_index = actions.index(window.hide_all_canvas_elements_action)
+        save_annotation_index = actions.index(window.save_annotation_action)
+        open_annotation_index = actions.index(window.open_annotation_action)
+        about_index = actions.index(window.about_action)
+
+        self.assertEqual(hide_index, show_index + 1)
+        self.assertTrue(actions[show_index - 1].isSeparator())
+        self.assertTrue(actions[hide_index + 1].isSeparator())
+        self.assertTrue(actions[save_annotation_index - 1].isSeparator())
+        self.assertEqual(open_annotation_index, save_annotation_index + 1)
+        self.assertFalse(actions[open_annotation_index].isSeparator())
+        self.assertTrue(actions[about_index - 1].isSeparator())
+        self.assertIs(actions[-1], window.exit_action)
+        self.assertIsInstance(actions[-2], QWidgetAction)
 
     def test_image_properties_panel_uses_grouped_order(self) -> None:
         _app()
@@ -365,6 +548,36 @@ class ProjectPropertiesTest(unittest.TestCase):
 
         self.assertIsInstance(window.project_image_count, PropertyValueLabel)
         self.assertIsInstance(window.property_path, PropertyValueLabel)
+
+    def test_property_browsers_use_shared_grid_lines(self) -> None:
+        _app()
+        window = MainWindow()
+
+        for browser in (window.project_properties_browser, window.properties_browser):
+            overlay = browser.findChild(PropertyGridOverlay)
+
+            self.assertIsNotNone(overlay)
+            self.assertTrue(overlay.testAttribute(Qt.WA_TransparentForMouseEvents))
+            self.assertEqual(browser.styleSheet(), PROPERTY_BROWSER_STYLE)
+            self.assertIn(
+                f"border-right: 1px solid {PROPERTY_GRID_VERTICAL_COLOR}",
+                browser.styleSheet(),
+            )
+            self.assertIn(
+                f"border-bottom: 1px solid {PROPERTY_GRID_HORIZONTAL_COLOR}",
+                browser.styleSheet(),
+            )
+
+    def test_property_browser_grid_keeps_group_rows_spanned(self) -> None:
+        _app()
+        browser = PropertyBrowser()
+        group = browser.add_group("Группа", expanded=True)
+        subgroup = browser.add_group("Подгруппа", expanded=True, parent=group)
+
+        browser.add_property_to_item(subgroup, "Свойство", PropertyValueLabel("Значение"))
+
+        self.assertTrue(group.isFirstColumnSpanned())
+        self.assertTrue(subgroup.isFirstColumnSpanned())
 
     def test_property_browser_long_values_remain_available_and_resize_rows(self) -> None:
         _app()
@@ -639,6 +852,102 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertTrue(window.canvas.is_contour_visible())
             self.assertTrue(window.canvas._path_item.isVisible())
             self.assertTrue(all(handle.isVisible() for handle in window.canvas._handles))
+
+    def test_canvas_visibility_commands_toggle_all_elements_and_fields(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, project_path = _measurement_export_window(root)
+            _add_test_contour(window)
+            window._project_autosave_timer.stop()
+
+            window.hide_all_canvas_elements_action.trigger()
+
+            self.assertFalse(window.canvas.is_contour_visible())
+            self.assertFalse(window.canvas.is_angle_measurement_visible("angle-a"))
+            self.assertFalse(window.canvas.is_angle_measurement_visible("angle-b"))
+            self.assertFalse(window.canvas.is_segment_measurement_visible("segment-a"))
+            self.assertFalse(window.property_contour_visible.isChecked())
+            self.assertFalse(window._angle_visibility_fields["angle-a"].isChecked())
+            self.assertFalse(window._angle_visibility_fields["angle-b"].isChecked())
+            self.assertFalse(window._segment_visibility_fields["segment-a"].isChecked())
+            self.assertTrue(window._angle_visibility_fields["angle-a"].isEnabled())
+            self.assertTrue(window._segment_visibility_fields["segment-a"].isEnabled())
+            self.assertFalse(window._project_autosave_timer.isActive())
+
+            window._angle_visibility_fields["angle-a"].setChecked(True)
+
+            self.assertTrue(window.canvas.is_angle_measurement_visible("angle-a"))
+            self.assertFalse(window.canvas.is_angle_measurement_visible("angle-b"))
+            self.assertFalse(window.canvas.is_segment_measurement_visible("segment-a"))
+
+            window.show_all_canvas_elements_action.trigger()
+
+            self.assertTrue(window.canvas.is_contour_visible())
+            self.assertTrue(window.canvas.is_angle_measurement_visible("angle-a"))
+            self.assertTrue(window.canvas.is_angle_measurement_visible("angle-b"))
+            self.assertTrue(window.canvas.is_segment_measurement_visible("segment-a"))
+            self.assertTrue(window.property_contour_visible.isChecked())
+            self.assertTrue(window._angle_visibility_fields["angle-a"].isChecked())
+            self.assertTrue(window._angle_visibility_fields["angle-b"].isChecked())
+            self.assertTrue(window._segment_visibility_fields["segment-a"].isChecked())
+            self.assertFalse(window._project_autosave_timer.isActive())
+
+            window.hide_all_canvas_elements()
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            image_payload = payload["images"][0]
+            serialized_image = json.dumps(image_payload, ensure_ascii=False)
+            self.assertNotIn('"visible"', serialized_image)
+
+    def test_image_property_measurement_click_highlights_canvas_item_without_selecting_it(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+
+            first_angle_width = window.canvas._angle_graphics[0].first_line.pen().widthF()
+            second_angle_width = window.canvas._angle_graphics[1].first_line.pen().widthF()
+            segment_width = window.canvas._segment_graphics[0].line.pen().widthF()
+
+            window._handle_image_property_item_clicked(
+                window.properties_browser.property_item("angle:angle-a:value"),
+                0,
+            )
+
+            self.assertEqual(window.canvas.highlighted_angle_id(), "angle-a")
+            self.assertIsNone(window.canvas.highlighted_segment_id())
+            self.assertGreater(
+                window.canvas._angle_graphics[0].first_line.pen().widthF(),
+                first_angle_width,
+            )
+            self.assertEqual(
+                window.canvas._angle_graphics[1].first_line.pen().widthF(),
+                second_angle_width,
+            )
+            self.assertFalse(window.canvas.has_selected_angle_vertex())
+            self.assertFalse(window.delete_angle_action.isEnabled())
+
+            window._handle_image_property_item_clicked(
+                window.properties_browser.group_item("segment:segment-a"),
+                0,
+            )
+
+            self.assertIsNone(window.canvas.highlighted_angle_id())
+            self.assertEqual(window.canvas.highlighted_segment_id(), "segment-a")
+            self.assertEqual(
+                window.canvas._angle_graphics[0].first_line.pen().widthF(),
+                first_angle_width,
+            )
+            self.assertGreater(window.canvas._segment_graphics[0].line.pen().widthF(), segment_width)
+            self.assertFalse(window.canvas.has_selected_segment_endpoint())
+            self.assertFalse(window.delete_segment_action.isEnabled())
+
+            window._handle_image_property_item_clicked(window.properties_browser.property_item("Файл"), 0)
+
+            self.assertIsNone(window.canvas.highlighted_angle_id())
+            self.assertIsNone(window.canvas.highlighted_segment_id())
+            self.assertEqual(window.canvas._segment_graphics[0].line.pen().widthF(), segment_width)
 
     def test_angle_measurements_are_project_entities_and_saved(self) -> None:
         _app()
@@ -1004,6 +1313,10 @@ class ProjectPropertiesTest(unittest.TestCase):
                 _read_xlsx_dict_rows(export_path),
                 [
                     {
+                        "Свойство": "Калибровка",
+                        "Значение": "",
+                    },
+                    {
                         "Свойство": "Масштаб",
                         "Значение": "60 px = 10 мм; 6 px/мм; 0.1667 мм/px",
                     },
@@ -1153,8 +1466,16 @@ class ProjectPropertiesTest(unittest.TestCase):
                 _read_xlsx_dict_rows(export_path),
                 [
                     {
+                        "Свойство": "Калибровка",
+                        "Значение": "",
+                    },
+                    {
                         "Свойство": "Длина калибровки, мм",
                         "Значение": "3 мм",
+                    },
+                    {
+                        "Свойство": "Информация о главном контуре",
+                        "Значение": "",
                     },
                     {
                         "Свойство": "Площадь контура, мм²",
@@ -1279,15 +1600,19 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(
                 _read_xlsx_dict_rows(export_path),
                 [
+                    {"Свойство": "Цветовое пространство Lab", "Значение": ""},
                     {"Свойство": "L", "Значение": "6"},
                     {"Свойство": "a", "Значение": "0"},
                     {"Свойство": "b", "Значение": "-8"},
+                    {"Свойство": "Цветовое пространство HSV", "Значение": ""},
                     {"Свойство": "H", "Значение": "210"},
                     {"Свойство": "S", "Значение": "170"},
                     {"Свойство": "V", "Значение": "30"},
+                    {"Свойство": "Цветовое пространство YUV", "Значение": ""},
                     {"Свойство": "Y", "Значение": "18"},
                     {"Свойство": "U", "Значение": "134"},
                     {"Свойство": "V", "Значение": "121"},
+                    {"Свойство": "Цветовое пространство LMS", "Значение": ""},
                     {"Свойство": "L", "Значение": "255"},
                     {"Свойство": "M", "Значение": "255"},
                     {"Свойство": "S", "Значение": "255"},
@@ -1958,7 +2283,7 @@ class ProjectPropertiesTest(unittest.TestCase):
 
         self.assertEqual(selected_fieldnames, PROJECT_EXPORT_FIELDNAMES)
 
-    def test_image_properties_excel_export_uses_selected_properties_vertically(self) -> None:
+    def test_image_properties_excel_export_uses_selected_properties_with_group_rows(self) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1995,9 +2320,11 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(
                 rows,
                 [
+                    {"Свойство": "Общая информация о файле", "Значение": ""},
                     {"Свойство": "Файл", "Значение": "missing.png"},
-                    {"Свойство": "Диагноз", "Значение": "class_x"},
                     {"Свойство": "Статус", "Значение": "отсутствует"},
+                    {"Свойство": "Дополнительно", "Значение": ""},
+                    {"Свойство": "Диагноз", "Значение": "class_x"},
                 ],
             )
 
@@ -2058,14 +2385,190 @@ class ProjectPropertiesTest(unittest.TestCase):
             )
             get_save_file_name.assert_not_called()
 
-    def test_image_properties_export_dialog_selects_all_properties_by_default(self) -> None:
+    def test_image_properties_export_dialog_selects_file_info_by_default(self) -> None:
         _app()
         window = MainWindow()
 
-        with patch("magicborder.main_window.QDialog.exec_", return_value=QDialog.Accepted):
+        def accept_and_check_defaults(dialog: QDialog) -> int:
+            tree = dialog.findChild(QTreeWidget, "exportItemTree")
+            self.assertIsNotNone(tree)
+            self.assertEqual(_tree_item_by_text(tree, "Общая информация о файле").checkState(0), Qt.Checked)
+            self.assertEqual(_tree_item_by_text(tree, "Калибровка").checkState(0), Qt.Unchecked)
+            self.assertEqual(
+                _tree_item_by_text(tree, "Информация о главном контуре").checkState(0),
+                Qt.Unchecked,
+            )
+            return QDialog.Accepted
+
+        with patch("magicborder.main_window.QDialog.exec_", new=accept_and_check_defaults):
             selected_properties = window._select_image_property_export_items()
 
-        self.assertEqual(selected_properties, IMAGE_PROPERTY_EXPORT_KEYS)
+        self.assertEqual(
+            selected_properties,
+            [
+                "id",
+                "file_name",
+                "relative_path",
+                "size",
+                "status",
+                "added_at",
+                "captured_at",
+            ],
+        )
+
+    def test_image_properties_export_tree_omits_visibility_properties(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+            record = window._selected_project_image()
+            self.assertIsNotNone(record)
+
+            keys = window._image_property_export_leaf_keys(record)
+            labels = set(window._image_property_export_labels(record).values())
+
+            self.assertNotIn("contour_visible", keys)
+            self.assertNotIn("angle:angle-a:visible", keys)
+            self.assertNotIn("segment:segment-a:visible", keys)
+            self.assertNotIn("Показывать контур", labels)
+            self.assertNotIn("Контрольный угол / Показывать на канвасе", labels)
+            self.assertNotIn("Контрольный отрезок / Показывать на канвасе", labels)
+
+    def test_image_properties_excel_export_contains_measurement_properties(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, project_path = _measurement_export_window(root)
+            window.canvas.set_angle_measurement_visible("angle-a", False)
+            window.canvas.set_segment_measurement_visible("segment-a", False)
+
+            export_path = root / "measurement_properties.xlsx"
+            window._write_image_properties_excel(
+                export_path,
+                [
+                    "angle:angle-a:id",
+                    "angle:angle-a:value",
+                    "angle:angle-a:note",
+                    "segment:segment-a:length",
+                    "segment:segment-a:start_label",
+                    "segment:segment-a:end_label",
+                    "segment:segment-a:note",
+                ],
+            )
+
+            self.assertEqual(
+                _read_xlsx_dict_rows(export_path),
+                [
+                    {"Свойство": "Измерения", "Значение": ""},
+                    {"Свойство": "Углы", "Значение": ""},
+                    {"Свойство": "Контрольный угол", "Значение": ""},
+                    {"Свойство": "ID", "Значение": "angle-a"},
+                    {"Свойство": "Значение", "Значение": "90°"},
+                    {"Свойство": "Примечание", "Значение": "контрольный угол"},
+                    {"Свойство": "Отрезки", "Значение": ""},
+                    {"Свойство": "Контрольный отрезок", "Значение": ""},
+                    {"Свойство": "Длина", "Значение": "10 px / 5 мм"},
+                    {"Свойство": "Подпись первой точки", "Значение": "Начало"},
+                    {"Свойство": "Подпись второй точки", "Значение": "Конец"},
+                    {"Свойство": "Примечание", "Значение": "измерить повторно"},
+                ],
+            )
+            cell_styles = _read_xlsx_cell_styles(export_path)
+            self.assertIn("<b/>", _read_xlsx_styles_xml(export_path))
+            for cell_ref in ("A2", "B2", "A3", "A4", "A8", "A9"):
+                self.assertEqual(cell_styles[cell_ref], "1")
+            for cell_ref in ("A1", "A5", "A6", "A7", "A10", "A11"):
+                self.assertEqual(cell_styles[cell_ref], "")
+
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            self.assertNotIn("visible", payload["images"][0]["measurements"]["angles"][0])
+            self.assertNotIn("visible", payload["images"][0]["measurements"]["segments"][0])
+
+    def test_image_properties_export_keys_skip_placeholder_and_action_rows(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+            record = window._selected_project_image()
+            self.assertIsNotNone(record)
+
+            keys = window._image_property_export_leaf_keys(record)
+            labels = set(window._image_property_export_labels(record).values())
+
+            self.assertIn("angle:angle-a:id", keys)
+            self.assertIn("segment:segment-a:length", keys)
+            self.assertNotIn("Управление", labels)
+            self.assertNotIn("Нет углов", labels)
+            self.assertNotIn("Нет отрезков", labels)
+
+    def test_image_properties_export_dialog_toggles_whole_groups(self) -> None:
+        _app()
+        window = MainWindow()
+
+        def check_rgb_group(dialog: QDialog) -> int:
+            tree = dialog.findChild(QTreeWidget, "exportItemTree")
+            self.assertIsNotNone(tree)
+            _tree_item_by_text(tree, "Цветовое пространство RGB").setCheckState(0, Qt.Checked)
+            return QDialog.Accepted
+
+        with patch("magicborder.main_window.QDialog.exec_", new=check_rgb_group):
+            selected_properties = window._select_image_property_export_items()
+
+        self.assertIn("red", selected_properties)
+        self.assertIn("green", selected_properties)
+        self.assertIn("blue", selected_properties)
+        self.assertIn("average_color", selected_properties)
+        self.assertIn("file_name", selected_properties)
+        self.assertNotIn("lab_l", selected_properties)
+        self.assertNotIn("annotation", selected_properties)
+
+    def test_image_properties_export_dialog_toggles_nested_measurement_groups(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+
+            def uncheck_first_angle_group(dialog: QDialog) -> int:
+                tree = dialog.findChild(QTreeWidget, "exportItemTree")
+                self.assertIsNotNone(tree)
+                _tree_item_by_text(tree, "Измерения").setCheckState(0, Qt.Checked)
+                _tree_item_by_text(tree, "Контрольный угол").setCheckState(0, Qt.Unchecked)
+                return QDialog.Accepted
+
+            with patch("magicborder.main_window.QDialog.exec_", new=uncheck_first_angle_group):
+                selected_properties = window._select_image_property_export_items()
+
+            self.assertNotIn("angle:angle-a:id", selected_properties)
+            self.assertNotIn("angle:angle-a:value", selected_properties)
+            self.assertIn("angle:angle-b:id", selected_properties)
+            self.assertIn("segment:segment-a:id", selected_properties)
+
+    def test_image_properties_export_dialog_marks_parent_groups_partially_checked(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+            observed_states: dict[str, Qt.CheckState] = {}
+
+            def uncheck_single_angle_leaf(dialog: QDialog) -> int:
+                tree = dialog.findChild(QTreeWidget, "exportItemTree")
+                self.assertIsNotNone(tree)
+                _tree_item_by_text(tree, "Измерения").setCheckState(0, Qt.Checked)
+                _tree_item_by_key(tree, "angle:angle-a:id").setCheckState(0, Qt.Unchecked)
+                observed_states["angle"] = _tree_item_by_text(tree, "Контрольный угол").checkState(0)
+                observed_states["angles"] = _tree_item_by_text(tree, "Углы").checkState(0)
+                observed_states["measurements"] = _tree_item_by_text(tree, "Измерения").checkState(0)
+                return QDialog.Accepted
+
+            with patch("magicborder.main_window.QDialog.exec_", new=uncheck_single_angle_leaf):
+                selected_properties = window._select_image_property_export_items()
+
+            self.assertNotIn("angle:angle-a:id", selected_properties)
+            self.assertIn("angle:angle-a:value", selected_properties)
+            self.assertEqual(observed_states["angle"], Qt.PartiallyChecked)
+            self.assertEqual(observed_states["angles"], Qt.PartiallyChecked)
+            self.assertEqual(observed_states["measurements"], Qt.PartiallyChecked)
 
     def test_datetime_metadata_fields_have_picker_buttons_and_validate_text(self) -> None:
         _app()

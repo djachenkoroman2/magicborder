@@ -97,6 +97,7 @@ def write_xlsx_table(
     rows: list[dict[str, str]],
     *,
     sheet_name: str,
+    bold_rows: set[int] | None = None,
 ) -> None:
     created_at = datetime.now().astimezone().isoformat(timespec="seconds")
     archive_parts = {
@@ -107,7 +108,7 @@ def write_xlsx_table(
         "xl/workbook.xml": _xlsx_workbook_xml(sheet_name),
         "xl/_rels/workbook.xml.rels": _xlsx_workbook_relationships_xml(),
         "xl/styles.xml": _xlsx_styles_xml(),
-        "xl/worksheets/sheet1.xml": _xlsx_sheet_xml(fieldnames, rows),
+        "xl/worksheets/sheet1.xml": _xlsx_sheet_xml(fieldnames, rows, bold_rows=bold_rows or set()),
     }
     with zipfile.ZipFile(Path(output_path), "w", compression=zipfile.ZIP_DEFLATED) as workbook:
         for name, content in archive_parts.items():
@@ -251,23 +252,40 @@ def _xlsx_workbook_relationships_xml() -> str:
 def _xlsx_styles_xml() -> str:
     return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="1"><font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font></fonts>
+  <fonts count="2">
+    <font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
+  </fonts>
   <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
   <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
+  <cellXfs count="2">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+  </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
   <dxfs count="0"/>
   <tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>
 </styleSheet>"""
 
 
-def _xlsx_sheet_xml(fieldnames: list[str], rows: list[dict[str, str]]) -> str:
-    table_rows = [fieldnames]
-    table_rows.extend([[row.get(field, "") for field in fieldnames] for row in rows])
+def _xlsx_sheet_xml(
+    fieldnames: list[str],
+    rows: list[dict[str, str]],
+    *,
+    bold_rows: set[int],
+) -> str:
+    table_rows: list[tuple[list[str], int]] = [(fieldnames, 0)]
+    table_rows.extend(
+        (
+            [row.get(field, "") for field in fieldnames],
+            1 if row_index in bold_rows else 0,
+        )
+        for row_index, row in enumerate(rows)
+    )
     rows_xml = "\n".join(
-        _xlsx_row_xml(row_values, row_index)
-        for row_index, row_values in enumerate(table_rows, start=1)
+        _xlsx_row_xml(row_values, row_index, style_id=style_id)
+        for row_index, (row_values, style_id) in enumerate(table_rows, start=1)
     )
     last_column = _xlsx_column_name(len(fieldnames))
     last_row = max(1, len(table_rows))
@@ -295,18 +313,19 @@ def _xlsx_sheet_xml(fieldnames: list[str], rows: list[dict[str, str]]) -> str:
 </worksheet>"""
 
 
-def _xlsx_row_xml(values: list[str], row_index: int) -> str:
+def _xlsx_row_xml(values: list[str], row_index: int, *, style_id: int = 0) -> str:
     cells_xml = "".join(
-        _xlsx_cell_xml(value, _xlsx_column_name(column_index), row_index)
+        _xlsx_cell_xml(value, _xlsx_column_name(column_index), row_index, style_id=style_id)
         for column_index, value in enumerate(values, start=1)
     )
     return f'    <row r="{row_index}">{cells_xml}</row>'
 
 
-def _xlsx_cell_xml(value: str, column_name: str, row_index: int) -> str:
+def _xlsx_cell_xml(value: str, column_name: str, row_index: int, *, style_id: int = 0) -> str:
     cell_ref = f"{column_name}{row_index}"
     text = escape(_clean_xml_text(str(value)))
-    return f'<c r="{cell_ref}" t="inlineStr"><is><t xml:space="preserve">{text}</t></is></c>'
+    style_attribute = f' s="{style_id}"' if style_id else ""
+    return f'<c r="{cell_ref}"{style_attribute} t="inlineStr"><is><t xml:space="preserve">{text}</t></is></c>'
 
 
 def _xlsx_column_name(column_index: int) -> str:
