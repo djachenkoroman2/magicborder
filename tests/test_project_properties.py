@@ -949,6 +949,64 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertIsNone(window.canvas.highlighted_segment_id())
             self.assertEqual(window.canvas._segment_graphics[0].line.pen().widthF(), segment_width)
 
+    def test_image_property_contour_click_highlights_canvas_contour(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+            _add_test_contour(window)
+            normal_width = window.canvas._path_item.pen().widthF()
+
+            contour_group = window.properties_browser.group_item("Информация о главном контуре")
+            self.assertEqual(contour_group.data(0, Qt.UserRole + 1), "contour")
+
+            window._handle_image_property_item_clicked(contour_group, 0)
+
+            self.assertTrue(window.canvas.is_contour_highlighted())
+            self.assertGreater(window.canvas._path_item.pen().widthF(), normal_width)
+            self.assertIsNone(window.canvas.highlighted_angle_id())
+            self.assertIsNone(window.canvas.highlighted_segment_id())
+
+            window._handle_image_property_item_clicked(
+                window.properties_browser.property_item("contour:point_count"),
+                0,
+            )
+
+            self.assertTrue(window.canvas.is_contour_highlighted())
+            self.assertGreater(window.canvas._path_item.pen().widthF(), normal_width)
+
+            window._handle_image_property_item_clicked(
+                window.properties_browser.property_item("angle:angle-a:value"),
+                0,
+            )
+
+            self.assertFalse(window.canvas.is_contour_highlighted())
+            self.assertEqual(window.canvas._path_item.pen().widthF(), normal_width)
+            self.assertEqual(window.canvas.highlighted_angle_id(), "angle-a")
+
+            window._handle_image_property_item_clicked(
+                window.properties_browser.group_item("segment:segment-a"),
+                0,
+            )
+
+            self.assertFalse(window.canvas.is_contour_highlighted())
+            self.assertIsNone(window.canvas.highlighted_angle_id())
+            self.assertEqual(window.canvas.highlighted_segment_id(), "segment-a")
+
+            window.canvas.highlight_contour()
+            window._handle_image_property_item_clicked(window.properties_browser.property_item("Файл"), 0)
+
+            self.assertFalse(window.canvas.is_contour_highlighted())
+            self.assertIsNone(window.canvas.highlighted_angle_id())
+            self.assertIsNone(window.canvas.highlighted_segment_id())
+            self.assertEqual(window.canvas._path_item.pen().widthF(), normal_width)
+
+            window.canvas.highlight_contour()
+            window._clear_image_property_canvas_highlight()
+
+            self.assertFalse(window.canvas.is_contour_highlighted())
+            self.assertEqual(window.canvas._path_item.pen().widthF(), normal_width)
+
     def test_angle_measurements_are_project_entities_and_saved(self) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:

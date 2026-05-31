@@ -127,6 +127,95 @@ class ImageCanvasContourVisibilityTest(unittest.TestCase):
         self.assertTrue(canvas._path_item.isVisible())
         self.assertTrue(all(handle.isVisible() for handle in canvas._handles))
 
+    def test_contour_handle_selection_and_move_highlight_main_contour(self) -> None:
+        canvas = _canvas_with_image()
+        points = [Point(1, 1), Point(18, 1), Point(18, 18), Point(1, 18)]
+        canvas.set_contour(points)
+        normal_path_width = canvas._path_item.pen().widthF()
+        normal_handle_width = canvas._handles[0].pen().widthF()
+
+        canvas._handles[0].setSelected(True)
+
+        self.assertTrue(canvas.is_contour_highlighted())
+        self.assertGreater(canvas._path_item.pen().widthF(), normal_path_width)
+        self.assertGreater(canvas._handles[0].pen().widthF(), normal_handle_width)
+        self.assertIsNone(canvas.highlighted_angle_id())
+        self.assertIsNone(canvas.highlighted_segment_id())
+
+        canvas._handles[0].setSelected(False)
+
+        self.assertFalse(canvas.is_contour_highlighted())
+        self.assertEqual(canvas._path_item.pen().widthF(), normal_path_width)
+
+        canvas.handle_moved(1, QPointF(20, 2))
+
+        self.assertTrue(canvas.is_contour_highlighted())
+        self.assertEqual(canvas.contour_points()[1], Point(20, 2))
+        self.assertGreater(canvas._path_item.pen().widthF(), normal_path_width)
+
+    def test_contour_editing_keeps_highlight_and_clear_contour_resets_it(self) -> None:
+        canvas = _canvas_with_image()
+        canvas.set_contour([Point(10, 10), Point(40, 10), Point(40, 40), Point(10, 40)])
+        normal_path_width = canvas._path_item.pen().widthF()
+
+        self.assertTrue(canvas.insert_node_near(QPointF(25, 10)))
+
+        self.assertTrue(canvas.is_contour_highlighted())
+        self.assertEqual(len(canvas.contour_points()), 5)
+        self.assertGreater(canvas._path_item.pen().widthF(), normal_path_width)
+
+        canvas._handles[0].setSelected(True)
+
+        self.assertTrue(canvas.delete_selected_nodes())
+        self.assertTrue(canvas.is_contour_highlighted())
+        self.assertEqual(len(canvas.contour_points()), 4)
+
+        canvas.clear_contour()
+
+        self.assertFalse(canvas.is_contour_highlighted())
+        self.assertFalse(canvas.has_contour())
+        self.assertEqual(canvas._path_item.pen().widthF(), normal_path_width)
+
+    def test_contour_highlight_visibility_and_measurement_exclusivity(self) -> None:
+        canvas = _canvas_with_image()
+        canvas.set_contour([Point(10, 10), Point(40, 10), Point(40, 40), Point(10, 40)])
+        normal_path_width = canvas._path_item.pen().widthF()
+
+        canvas.highlight_contour()
+        canvas.set_contour_visible(False)
+
+        self.assertTrue(canvas.is_contour_highlighted())
+        self.assertFalse(canvas._path_item.isVisible())
+        self.assertTrue(all(not handle.isVisible() for handle in canvas._handles))
+
+        canvas.set_contour_visible(True)
+
+        self.assertTrue(canvas._path_item.isVisible())
+        self.assertGreater(canvas._path_item.pen().widthF(), normal_path_width)
+
+        canvas.set_angle_measurement_records(
+            [("angle-a", Point(10, 20), Point(10, 10), Point(20, 10), "")]
+        )
+        canvas.highlight_angle_measurement("angle-a")
+
+        self.assertFalse(canvas.is_contour_highlighted())
+        self.assertEqual(canvas.highlighted_angle_id(), "angle-a")
+        self.assertEqual(canvas._path_item.pen().widthF(), normal_path_width)
+
+        canvas.highlight_contour()
+
+        self.assertTrue(canvas.is_contour_highlighted())
+        self.assertIsNone(canvas.highlighted_angle_id())
+
+        canvas.set_segment_measurement_records(
+            [("segment-a", Point(10, 30), Point(30, 30), "", "")]
+        )
+        canvas.highlight_segment_measurement("segment-a")
+
+        self.assertFalse(canvas.is_contour_highlighted())
+        self.assertIsNone(canvas.highlighted_angle_id())
+        self.assertEqual(canvas.highlighted_segment_id(), "segment-a")
+
 
 class ImageCanvasCalibrationPreviewTest(unittest.TestCase):
     def test_calibration_preview_marks_first_point_updates_and_emits_segment(self) -> None:
@@ -321,6 +410,56 @@ class ImageCanvasAngleMeasurementTest(unittest.TestCase):
         self.assertTrue(canvas.delete_selected_angle())
         self.assertEqual(canvas.angle_measurements(), [])
         self.assertFalse(canvas.has_angle_measurements())
+
+    def test_angle_handle_selection_highlights_whole_angle_without_changing_delete_rules(self) -> None:
+        canvas = _canvas_with_image()
+        canvas.set_angle_measurement_records(
+            [
+                ("angle-a", Point(10, 20), Point(10, 10), Point(20, 10), ""),
+            ]
+        )
+        graphics = canvas._angle_graphics[0]
+        normal_width = graphics.first_line.pen().widthF()
+
+        graphics.handles[0].setSelected(True)
+
+        self.assertEqual(canvas.highlighted_angle_id(), "angle-a")
+        self.assertIsNone(canvas.highlighted_segment_id())
+        self.assertGreater(graphics.first_line.pen().widthF(), normal_width)
+        self.assertFalse(canvas.has_selected_angle_vertex())
+
+        graphics.handles[0].setSelected(False)
+        self.assertIsNone(canvas.highlighted_angle_id())
+        self.assertEqual(graphics.first_line.pen().widthF(), normal_width)
+
+        graphics.handles[1].setSelected(True)
+
+        self.assertEqual(canvas.highlighted_angle_id(), "angle-a")
+        self.assertTrue(canvas.has_selected_angle_vertex())
+
+        graphics.handles[1].setSelected(False)
+        graphics.handles[2].setSelected(True)
+
+        self.assertEqual(canvas.highlighted_angle_id(), "angle-a")
+        self.assertFalse(canvas.has_selected_angle_vertex())
+
+    def test_angle_handle_move_highlights_moved_angle(self) -> None:
+        canvas = _canvas_with_image()
+        canvas.set_angle_measurement_records(
+            [
+                ("angle-a", Point(10, 20), Point(10, 10), Point(20, 10), ""),
+                ("angle-b", Point(30, 20), Point(30, 10), Point(40, 10), ""),
+            ]
+        )
+        first_width = canvas._angle_graphics[0].first_line.pen().widthF()
+        second_width = canvas._angle_graphics[1].first_line.pen().widthF()
+
+        canvas.angle_handle_moved(1, 2, QPointF(40, 20))
+
+        self.assertEqual(canvas.highlighted_angle_id(), "angle-b")
+        self.assertIsNone(canvas.highlighted_segment_id())
+        self.assertEqual(canvas._angle_graphics[0].first_line.pen().widthF(), first_width)
+        self.assertGreater(canvas._angle_graphics[1].first_line.pen().widthF(), second_width)
 
     def test_angle_label_uses_custom_name_and_keeps_it_after_geometry_change(self) -> None:
         canvas = _canvas_with_image()
@@ -585,6 +724,67 @@ class ImageCanvasSegmentMeasurementTest(unittest.TestCase):
         self.assertTrue(canvas.delete_selected_segment())
         self.assertEqual(canvas.segment_measurements(), [])
         self.assertFalse(canvas.has_segment_measurements())
+
+    def test_segment_handle_selection_and_move_highlight_whole_segment(self) -> None:
+        canvas = _canvas_with_image()
+        canvas.set_segment_measurement_records(
+            [
+                ("segment-a", Point(10, 10), Point(30, 10), "", ""),
+                ("segment-b", Point(10, 20), Point(30, 20), "", ""),
+            ]
+        )
+        first_graphics = canvas._segment_graphics[0]
+        second_graphics = canvas._segment_graphics[1]
+        first_width = first_graphics.line.pen().widthF()
+        second_width = second_graphics.line.pen().widthF()
+
+        first_graphics.handles[0].setSelected(True)
+
+        self.assertEqual(canvas.highlighted_segment_id(), "segment-a")
+        self.assertIsNone(canvas.highlighted_angle_id())
+        self.assertGreater(first_graphics.line.pen().widthF(), first_width)
+        self.assertTrue(canvas.has_selected_segment_endpoint())
+
+        second_graphics.handles[1].setSelected(True)
+
+        self.assertEqual(canvas.highlighted_segment_id(), "segment-b")
+        self.assertEqual(first_graphics.line.pen().widthF(), first_width)
+        self.assertGreater(second_graphics.line.pen().widthF(), second_width)
+
+        first_graphics.handles[0].setSelected(False)
+        second_graphics.handles[1].setSelected(False)
+
+        self.assertIsNone(canvas.highlighted_segment_id())
+        self.assertEqual(second_graphics.line.pen().widthF(), second_width)
+
+        canvas.segment_handle_moved(1, 0, QPointF(12, 22))
+
+        self.assertEqual(canvas.highlighted_segment_id(), "segment-b")
+        self.assertGreater(second_graphics.line.pen().widthF(), second_width)
+
+    def test_angle_and_segment_selection_transfer_highlight_between_measurement_types(self) -> None:
+        canvas = _canvas_with_image()
+        canvas.set_angle_measurement_records(
+            [("angle-a", Point(10, 20), Point(10, 10), Point(20, 10), "")]
+        )
+        canvas.set_segment_measurement_records(
+            [("segment-a", Point(10, 30), Point(30, 30), "", "")]
+        )
+
+        canvas._angle_graphics[0].handles[0].setSelected(True)
+
+        self.assertEqual(canvas.highlighted_angle_id(), "angle-a")
+        self.assertIsNone(canvas.highlighted_segment_id())
+
+        canvas._segment_graphics[0].handles[0].setSelected(True)
+
+        self.assertIsNone(canvas.highlighted_angle_id())
+        self.assertEqual(canvas.highlighted_segment_id(), "segment-a")
+
+        canvas._angle_graphics[0].handles[2].setSelected(True)
+
+        self.assertEqual(canvas.highlighted_angle_id(), "angle-a")
+        self.assertIsNone(canvas.highlighted_segment_id())
 
     def test_segment_label_uses_custom_name_and_renumbers_fallback_after_delete(self) -> None:
         canvas = _canvas_with_image()

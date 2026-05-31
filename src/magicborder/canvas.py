@@ -28,6 +28,9 @@ from .models import Point
 ANGLE_LINE_COLOR = "#22c55e"
 ANGLE_ARC_COLOR = "#7c3aed"
 SEGMENT_LINE_COLOR = "#f97316"
+CONTOUR_LINE_COLOR = "#0b84c6"
+CONTOUR_LINE_WIDTH = 2.0
+CONTOUR_Z = 10
 MEASUREMENT_LINE_WIDTH = 2.0
 MEASUREMENT_HIGHLIGHT_LINE_WIDTH = 4.4
 ANGLE_LINE_Z = 22
@@ -81,21 +84,33 @@ class NodeHandleItem(QGraphicsEllipseItem):
         super().__init__(-radius, -radius, radius * 2.0, radius * 2.0)
         self.canvas = canvas
         self.index = index
+        self._normal_pen_width = 1.4
+        self._normal_z_value = 20
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
         self.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
         self.setBrush(QColor("#ffb000"))
-        self.setPen(QPen(QColor("white"), 1.4))
-        self.setZValue(20)
+        self.setPen(QPen(QColor("white"), self._normal_pen_width))
+        self.setZValue(self._normal_z_value)
         self.setToolTip("Перетащите для редактирования. Правая кнопка мыши удаляет узел.")
         self.setPos(position)
+
+    def set_highlighted(self, highlighted: bool) -> None:
+        self.setPen(QPen(QColor("white"), 2.8 if highlighted else self._normal_pen_width))
+        self.setZValue(
+            self._normal_z_value + MEASUREMENT_HIGHLIGHT_Z_OFFSET
+            if highlighted
+            else self._normal_z_value
+        )
 
     def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: object) -> object:
         if change == QGraphicsItem.ItemPositionChange and isinstance(value, QPointF):
             return self.canvas.constrain_point(value)
         if change == QGraphicsItem.ItemPositionHasChanged:
             self.canvas.handle_moved(self.index, self.pos())
+        if change == QGraphicsItem.ItemSelectedHasChanged:
+            self.canvas.contour_selection_changed(self.isSelected())
         return super().itemChange(change, value)
 
     def mousePressEvent(self, event) -> None:
@@ -174,7 +189,7 @@ class AngleHandleItem(QGraphicsEllipseItem):
         if change == QGraphicsItem.ItemPositionHasChanged:
             self.canvas.angle_handle_moved(self.angle_index, self.point_index, self.pos())
         if change == QGraphicsItem.ItemSelectedHasChanged:
-            self.canvas.angle_selection_changed()
+            self.canvas.angle_selection_changed(self.angle_index if self.isSelected() else None)
         return super().itemChange(change, value)
 
 
@@ -217,7 +232,7 @@ class SegmentHandleItem(QGraphicsEllipseItem):
         if change == QGraphicsItem.ItemPositionHasChanged:
             self.canvas.segment_handle_moved(self.segment_index, self.point_index, self.pos())
         if change == QGraphicsItem.ItemSelectedHasChanged:
-            self.canvas.segment_selection_changed()
+            self.canvas.segment_selection_changed(self.segment_index if self.isSelected() else None)
         return super().itemChange(change, value)
 
 
@@ -241,11 +256,11 @@ class ImageCanvas(QGraphicsView):
         self._scene.addItem(self._image_item)
 
         self._path_item = QGraphicsPathItem()
-        contour_pen = QPen(QColor("#0b84c6"), 2.0)
+        contour_pen = QPen(QColor(CONTOUR_LINE_COLOR), CONTOUR_LINE_WIDTH)
         contour_pen.setCosmetic(True)
         self._path_item.setPen(contour_pen)
         self._path_item.setBrush(QBrush(Qt.NoBrush))
-        self._path_item.setZValue(10)
+        self._path_item.setZValue(CONTOUR_Z)
         self._path_item.setVisible(False)
         self._scene.addItem(self._path_item)
 
@@ -329,7 +344,9 @@ class ImageCanvas(QGraphicsView):
         self._contour_points: list[QPointF] = []
         self._handles: list[NodeHandleItem] = []
         self._suppress_handle_events = False
+        self._suppress_contour_selection_highlight = False
         self._contour_visible = True
+        self._contour_highlighted = False
         self._calibration_points: list[QPointF] = []
         self._calibration_handles: list[CalibrationHandleItem] = []
         self._calibration_label_text = ""
@@ -349,6 +366,7 @@ class ImageCanvas(QGraphicsView):
         self._segment_capture_active = False
         self._segment_capture_points: list[QPointF] = []
         self._highlighted_segment_id: str | None = None
+        self._suppress_measurement_selection_highlight = False
 
         self.setRenderHints(
             QPainter.Antialiasing
@@ -454,30 +472,74 @@ class ImageCanvas(QGraphicsView):
     def highlighted_segment_id(self) -> str | None:
         return self._highlighted_segment_id
 
+    def is_contour_highlighted(self) -> bool:
+        return self._contour_highlighted
+
+    def highlight_contour(self) -> bool:
+        if not self.has_contour():
+            return self.clear_canvas_highlight()
+        if (
+            self._contour_highlighted
+            and self._highlighted_angle_id is None
+            and self._highlighted_segment_id is None
+        ):
+            return False
+
+        self._contour_highlighted = True
+        self._highlighted_angle_id = None
+        self._highlighted_segment_id = None
+        self._refresh_measurement_highlights()
+        self._apply_contour_highlight()
+        return True
+
+    def clear_contour_highlight(self) -> bool:
+        if not self._contour_highlighted:
+            return False
+        self._contour_highlighted = False
+        self._apply_contour_highlight()
+        return True
+
+    def clear_canvas_highlight(self) -> bool:
+        measurement_changed = self.clear_measurement_highlight()
+        contour_changed = self.clear_contour_highlight()
+        return measurement_changed or contour_changed
+
     def highlight_angle_measurement(self, angle_id: str | None) -> bool:
         normalized_id = str(angle_id or "").strip()
         if not normalized_id:
-            return self.clear_measurement_highlight()
+            return self.clear_canvas_highlight()
         if not any(measurement.id == normalized_id for measurement in self._angle_measurements):
-            return self.clear_measurement_highlight()
-        if self._highlighted_angle_id == normalized_id and self._highlighted_segment_id is None:
+            return self.clear_canvas_highlight()
+        if (
+            self._highlighted_angle_id == normalized_id
+            and self._highlighted_segment_id is None
+            and not self._contour_highlighted
+        ):
             return False
         self._highlighted_angle_id = normalized_id
         self._highlighted_segment_id = None
+        self._contour_highlighted = False
         self._refresh_measurement_highlights()
+        self._apply_contour_highlight()
         return True
 
     def highlight_segment_measurement(self, segment_id: str | None) -> bool:
         normalized_id = str(segment_id or "").strip()
         if not normalized_id:
-            return self.clear_measurement_highlight()
+            return self.clear_canvas_highlight()
         if not any(measurement.id == normalized_id for measurement in self._segment_measurements):
-            return self.clear_measurement_highlight()
-        if self._highlighted_segment_id == normalized_id and self._highlighted_angle_id is None:
+            return self.clear_canvas_highlight()
+        if (
+            self._highlighted_segment_id == normalized_id
+            and self._highlighted_angle_id is None
+            and not self._contour_highlighted
+        ):
             return False
         self._highlighted_angle_id = None
         self._highlighted_segment_id = normalized_id
+        self._contour_highlighted = False
         self._refresh_measurement_highlights()
+        self._apply_contour_highlight()
         return True
 
     def clear_measurement_highlight(self) -> bool:
@@ -641,7 +703,9 @@ class ImageCanvas(QGraphicsView):
     def clear_contour(self) -> None:
         self._contour_points.clear()
         self._contour_visible = True
+        self._contour_highlighted = False
         self._path_item.setPath(QPainterPath())
+        self._apply_contour_highlight()
         self._apply_contour_visibility()
         self._clear_handles()
         self.contour_state_changed.emit(False)
@@ -658,6 +722,7 @@ class ImageCanvas(QGraphicsView):
             for point in points
         ]
         self._contour_visible = True
+        self._contour_highlighted = False
         self._refresh_path()
         self._rebuild_handles()
         self.contour_state_changed.emit(True)
@@ -991,9 +1056,15 @@ class ImageCanvas(QGraphicsView):
     def handle_moved(self, index: int, position: QPointF) -> None:
         if self._suppress_handle_events or index >= len(self._contour_points):
             return
+        self.highlight_contour()
         self._contour_points[index] = self.constrain_point(position)
         self._refresh_path()
         self.contour_geometry_changed.emit()
+
+    def contour_selection_changed(self, selected: bool | None = None) -> None:
+        if self._suppress_contour_selection_highlight:
+            return
+        self._sync_canvas_highlight_from_selection(preferred_contour_selected=selected)
 
     def calibration_handle_moved(self, index: int, position: QPointF) -> None:
         if self._suppress_calibration_handle_events or index >= len(self._calibration_points):
@@ -1012,6 +1083,7 @@ class ImageCanvas(QGraphicsView):
             return
 
         measurement = self._angle_measurements[angle_index]
+        self._highlight_angle_index(angle_index)
         point = self.constrain_point(position)
         if point_index == 0:
             measurement.first = point
@@ -1022,7 +1094,8 @@ class ImageCanvas(QGraphicsView):
         self._refresh_angle_graphic(angle_index)
         self.angle_state_changed.emit()
 
-    def angle_selection_changed(self) -> None:
+    def angle_selection_changed(self, angle_index: int | None = None) -> None:
+        self._sync_canvas_highlight_from_selection(preferred_angle_index=angle_index)
         self.angle_state_changed.emit()
 
     def segment_handle_moved(self, segment_index: int, point_index: int, position: QPointF) -> None:
@@ -1034,6 +1107,7 @@ class ImageCanvas(QGraphicsView):
             return
 
         measurement = self._segment_measurements[segment_index]
+        self._highlight_segment_index(segment_index)
         point = self.constrain_point(position)
         if point_index == 0:
             measurement.start = point
@@ -1042,7 +1116,8 @@ class ImageCanvas(QGraphicsView):
         self._refresh_segment_graphic(segment_index)
         self.segment_state_changed.emit()
 
-    def segment_selection_changed(self) -> None:
+    def segment_selection_changed(self, segment_index: int | None = None) -> None:
+        self._sync_canvas_highlight_from_selection(preferred_segment_index=segment_index)
         self.segment_state_changed.emit()
 
     def remove_node(self, index: int) -> bool:
@@ -1055,6 +1130,7 @@ class ImageCanvas(QGraphicsView):
         del self._contour_points[index]
         self._refresh_path()
         self._rebuild_handles()
+        self.highlight_contour()
         self.contour_state_changed.emit(True)
         self.contour_geometry_changed.emit()
         self.message_changed.emit("Узел удалён.")
@@ -1083,6 +1159,7 @@ class ImageCanvas(QGraphicsView):
 
         self._refresh_path()
         self._rebuild_handles()
+        self.highlight_contour()
         self.contour_state_changed.emit(True)
         self.contour_geometry_changed.emit()
         self.message_changed.emit(f"Удалено узлов: {removed}.")
@@ -1114,6 +1191,7 @@ class ImageCanvas(QGraphicsView):
         self._contour_points.insert(best_insert_index, self.constrain_point(best_projection))
         self._refresh_path()
         self._rebuild_handles()
+        self.highlight_contour()
         self.contour_state_changed.emit(True)
         self.contour_geometry_changed.emit()
         self.message_changed.emit("Новый узел добавлен.")
@@ -1509,6 +1587,8 @@ class ImageCanvas(QGraphicsView):
         self._segment_graphics.clear()
 
     def _rebuild_angle_graphics(self) -> None:
+        highlighted_angle_id = self._highlighted_angle_id
+        highlighted_segment_id = self._highlighted_segment_id
         self._clear_angle_graphics()
         self._suppress_angle_handle_events = True
         try:
@@ -1517,6 +1597,10 @@ class ImageCanvas(QGraphicsView):
                 self._refresh_angle_graphic(index)
         finally:
             self._suppress_angle_handle_events = False
+        self._highlighted_angle_id = highlighted_angle_id
+        self._highlighted_segment_id = highlighted_segment_id
+        self._drop_missing_measurement_highlight()
+        self._refresh_measurement_highlights()
 
     def _create_angle_graphic(
         self,
@@ -1612,12 +1696,11 @@ class ImageCanvas(QGraphicsView):
         graphics.second_line.setVisible(visible)
         graphics.arc.setVisible(visible and not graphics.arc.path().isEmpty())
         graphics.label.setVisible(visible)
-        for handle in graphics.handles:
-            handle.setVisible(visible)
-            if not visible:
-                handle.setSelected(False)
+        self._set_measurement_handles_visible(graphics.handles, visible)
 
     def _rebuild_segment_graphics(self) -> None:
+        highlighted_angle_id = self._highlighted_angle_id
+        highlighted_segment_id = self._highlighted_segment_id
         self._clear_segment_graphics()
         self._suppress_segment_handle_events = True
         try:
@@ -1626,6 +1709,10 @@ class ImageCanvas(QGraphicsView):
                 self._refresh_segment_graphic(index)
         finally:
             self._suppress_segment_handle_events = False
+        self._highlighted_angle_id = highlighted_angle_id
+        self._highlighted_segment_id = highlighted_segment_id
+        self._drop_missing_measurement_highlight()
+        self._refresh_measurement_highlights()
 
     def _create_segment_graphic(
         self,
@@ -1734,10 +1821,21 @@ class ImageCanvas(QGraphicsView):
         graphics.length_label.setVisible(visible)
         graphics.start_label.setVisible(visible and bool(measurement.start_label))
         graphics.end_label.setVisible(visible and bool(measurement.end_label))
-        for handle in graphics.handles:
+        self._set_measurement_handles_visible(graphics.handles, visible)
+
+    def _set_measurement_handles_visible(
+        self,
+        handles: list["AngleHandleItem"] | list["SegmentHandleItem"],
+        visible: bool,
+    ) -> None:
+        for handle in handles:
             handle.setVisible(visible)
             if not visible:
-                handle.setSelected(False)
+                self._suppress_measurement_selection_highlight = True
+                try:
+                    handle.setSelected(False)
+                finally:
+                    self._suppress_measurement_selection_highlight = False
 
     def _measurement_pen(self, color_name: str, width: float) -> QPen:
         pen = QPen(QColor(color_name), width)
@@ -1750,6 +1848,18 @@ class ImageCanvas(QGraphicsView):
         for index in range(len(self._segment_measurements)):
             self._apply_segment_highlight(index)
 
+    def _apply_contour_highlight(self) -> None:
+        highlighted = self._contour_highlighted and self.has_contour()
+        line_width = MEASUREMENT_HIGHLIGHT_LINE_WIDTH if highlighted else CONTOUR_LINE_WIDTH
+        line_z = CONTOUR_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else CONTOUR_Z
+
+        pen = QPen(QColor(CONTOUR_LINE_COLOR), line_width)
+        pen.setCosmetic(True)
+        self._path_item.setPen(pen)
+        self._path_item.setZValue(line_z)
+        for handle in self._handles:
+            handle.set_highlighted(highlighted)
+
     def _drop_missing_measurement_highlight(self) -> None:
         if self._highlighted_angle_id is not None and not any(
             measurement.id == self._highlighted_angle_id
@@ -1761,6 +1871,115 @@ class ImageCanvas(QGraphicsView):
             for measurement in self._segment_measurements
         ):
             self._highlighted_segment_id = None
+
+    def _highlight_angle_index(self, angle_index: int | None) -> bool:
+        if angle_index is None or angle_index < 0 or angle_index >= len(self._angle_measurements):
+            return self.clear_measurement_highlight()
+        return self.highlight_angle_measurement(self._angle_measurements[angle_index].id)
+
+    def _highlight_segment_index(self, segment_index: int | None) -> bool:
+        if (
+            segment_index is None
+            or segment_index < 0
+            or segment_index >= len(self._segment_measurements)
+        ):
+            return self.clear_measurement_highlight()
+        return self.highlight_segment_measurement(self._segment_measurements[segment_index].id)
+
+    def _sync_canvas_highlight_from_selection(
+        self,
+        *,
+        preferred_contour_selected: bool | None = None,
+        preferred_angle_index: int | None = None,
+        preferred_segment_index: int | None = None,
+    ) -> None:
+        if self._suppress_measurement_selection_highlight:
+            return
+        if self._is_selected_visible_angle(preferred_angle_index):
+            self._highlight_angle_index(preferred_angle_index)
+            return
+        if self._is_selected_visible_segment(preferred_segment_index):
+            self._highlight_segment_index(preferred_segment_index)
+            return
+        if preferred_contour_selected and self._has_selected_contour_handle():
+            self.highlight_contour()
+            return
+
+        selected_angle_index = self._selected_angle_handle_index()
+        if selected_angle_index is not None:
+            self._highlight_angle_index(selected_angle_index)
+            return
+
+        selected_segment_index = self._selected_segment_handle_index()
+        if selected_segment_index is not None:
+            self._highlight_segment_index(selected_segment_index)
+            return
+
+        if self._has_selected_contour_handle():
+            self.highlight_contour()
+            return
+
+        self.clear_canvas_highlight()
+
+    def _sync_measurement_highlight_from_selection(
+        self,
+        *,
+        preferred_angle_index: int | None = None,
+        preferred_segment_index: int | None = None,
+    ) -> None:
+        self._sync_canvas_highlight_from_selection(
+            preferred_angle_index=preferred_angle_index,
+            preferred_segment_index=preferred_segment_index,
+        )
+
+    def _selected_angle_handle_index(self) -> int | None:
+        for index, graphics in enumerate(self._angle_graphics):
+            if self._is_selected_visible_angle(index, graphics):
+                return index
+        return None
+
+    def _selected_segment_handle_index(self) -> int | None:
+        for index, graphics in enumerate(self._segment_graphics):
+            if self._is_selected_visible_segment(index, graphics):
+                return index
+        return None
+
+    def _has_selected_contour_handle(self) -> bool:
+        return self.is_contour_visible() and any(handle.isSelected() for handle in self._handles)
+
+    def _is_selected_visible_angle(
+        self,
+        angle_index: int | None,
+        graphics: AngleGraphics | None = None,
+    ) -> bool:
+        if angle_index is None or angle_index < 0 or angle_index >= len(self._angle_measurements):
+            return False
+        if graphics is None:
+            if angle_index >= len(self._angle_graphics):
+                return False
+            graphics = self._angle_graphics[angle_index]
+        return self._angle_measurements[angle_index].visible and any(
+            handle.isSelected() for handle in graphics.handles
+        )
+
+    def _is_selected_visible_segment(
+        self,
+        segment_index: int | None,
+        graphics: SegmentGraphics | None = None,
+    ) -> bool:
+        if (
+            segment_index is None
+            or segment_index < 0
+            or segment_index >= len(self._segment_measurements)
+        ):
+            return False
+        if graphics is None:
+            if segment_index >= len(self._segment_graphics):
+                return False
+            graphics = self._segment_graphics[segment_index]
+        return self._segment_measurements[segment_index].visible and any(
+            handle.isSelected() for handle in graphics.handles
+        )
 
     def _apply_angle_highlight(self, angle_index: int) -> None:
         if angle_index >= len(self._angle_measurements) or angle_index >= len(self._angle_graphics):
@@ -1889,6 +2108,7 @@ class ImageCanvas(QGraphicsView):
                 self._scene.addItem(handle)
                 self._handles.append(handle)
             self._apply_contour_visibility()
+            self._apply_contour_highlight()
         finally:
             self._suppress_handle_events = False
 
@@ -1898,7 +2118,11 @@ class ImageCanvas(QGraphicsView):
         for handle in self._handles:
             handle.setVisible(visible)
             if not visible:
-                handle.setSelected(False)
+                self._suppress_contour_selection_highlight = True
+                try:
+                    handle.setSelected(False)
+                finally:
+                    self._suppress_contour_selection_highlight = False
 
     def _clear_calibration_handles(self) -> None:
         for handle in self._calibration_handles:

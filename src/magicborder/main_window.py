@@ -636,7 +636,7 @@ class MainWindow(QMainWindow):
 
         self.properties_browser = PropertyBrowser(properties_widget)
         self.properties_browser.itemClicked.connect(self._handle_image_property_item_clicked)
-        self.properties_browser.empty_area_clicked.connect(self._clear_image_property_measurement_highlight)
+        self.properties_browser.empty_area_clicked.connect(self._clear_image_property_canvas_highlight)
         self._add_property_browser_group(
             self.properties_browser,
             "Общая информация о файле",
@@ -662,12 +662,13 @@ class MainWindow(QMainWindow):
             self.properties_browser,
             "Информация о главном контуре",
             [
-                ("Аннотация", self.property_annotation),
-                ("Показывать контур", self.property_contour_visible),
-                ("Количество узлов контура", self.property_points),
-                ("Количество пикселов контура", self.property_contour_pixels),
-                ("Площадь контура, мм²", self.property_contour_area_mm2),
+                ("Аннотация", self.property_annotation, "contour:annotation"),
+                ("Показывать контур", self.property_contour_visible, "contour:visible"),
+                ("Количество узлов контура", self.property_points, "contour:point_count"),
+                ("Количество пикселов контура", self.property_contour_pixels, "contour:pixel_count"),
+                ("Площадь контура, мм²", self.property_contour_area_mm2, "contour:area_mm2"),
             ],
+            key="contour",
         )
         self.measurements_group_item = self.properties_browser.add_group(
             "Измерения",
@@ -765,11 +766,18 @@ class MainWindow(QMainWindow):
         self,
         browser: PropertyBrowser,
         title: str,
-        rows: list[tuple[str, QWidget]],
+        rows: list[tuple[str, QWidget] | tuple[str, QWidget, str]],
+        *,
+        key: str | None = None,
     ) -> None:
-        browser.add_group(title, expanded=False)
-        for label, widget in rows:
-            browser.add_property(title, label, widget)
+        group_item = browser.add_group(title, expanded=False)
+        if key is not None:
+            group_item.setData(0, Qt.UserRole + 1, key)
+        for row in rows:
+            label, widget = row[0], row[1]
+            row_key = row[2] if len(row) > 2 else None
+            aliases = [label] if row_key is not None else None
+            browser.add_property(title, label, widget, key=row_key, aliases=aliases)
 
     def _rebuild_angle_measurement_properties(self, record: ProjectImageRecord | None) -> None:
         self._angle_name_fields.clear()
@@ -1496,35 +1504,56 @@ class MainWindow(QMainWindow):
                 field.setChecked(self.canvas.is_segment_measurement_visible(segment_id))
 
     def _handle_image_property_item_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
-        reference = self._measurement_reference_from_property_item(item)
+        reference = self._canvas_reference_from_property_item(item)
         if reference is None:
-            self._clear_image_property_measurement_highlight()
+            self._clear_image_property_canvas_highlight()
             return
 
-        measurement_type, measurement_id = reference
-        if measurement_type == "angle":
-            self.canvas.highlight_angle_measurement(measurement_id)
-        elif measurement_type == "segment":
-            self.canvas.highlight_segment_measurement(measurement_id)
+        reference_type, reference_id = reference
+        if reference_type == "contour":
+            self.canvas.highlight_contour()
+        elif reference_type == "angle" and reference_id is not None:
+            self.canvas.highlight_angle_measurement(reference_id)
+        elif reference_type == "segment" and reference_id is not None:
+            self.canvas.highlight_segment_measurement(reference_id)
         else:
-            self.canvas.clear_measurement_highlight()
+            self.canvas.clear_canvas_highlight()
+        self._update_action_states()
+
+    def _clear_image_property_canvas_highlight(self) -> None:
+        self.canvas.clear_canvas_highlight()
         self._update_action_states()
 
     def _clear_image_property_measurement_highlight(self) -> None:
-        self.canvas.clear_measurement_highlight()
-        self._update_action_states()
+        self._clear_image_property_canvas_highlight()
+
+    def _canvas_reference_from_property_item(
+        self,
+        item: QTreeWidgetItem | None,
+    ) -> tuple[str, str | None] | None:
+        current = item
+        while current is not None:
+            key = str(current.data(0, Qt.UserRole + 1) or "")
+            if key == "contour" or key.startswith("contour:"):
+                return "contour", None
+            parts = key.split(":")
+            if len(parts) >= 2 and parts[0] in {"angle", "segment"} and parts[1]:
+                return parts[0], parts[1]
+            current = current.parent()
+        return None
 
     def _measurement_reference_from_property_item(
         self,
         item: QTreeWidgetItem | None,
     ) -> tuple[str, str] | None:
-        current = item
-        while current is not None:
-            key = str(current.data(0, Qt.UserRole + 1) or "")
-            parts = key.split(":")
-            if len(parts) >= 2 and parts[0] in {"angle", "segment"} and parts[1]:
-                return parts[0], parts[1]
-            current = current.parent()
+        reference = self._canvas_reference_from_property_item(item)
+        if reference is None:
+            return None
+        measurement_type, measurement_id = reference
+        if measurement_type == "angle" and measurement_id is not None:
+            return measurement_type, measurement_id
+        if measurement_type == "segment" and measurement_id is not None:
+            return measurement_type, measurement_id
         return None
 
     def _schedule_histogram_refresh(self, *_args) -> None:
