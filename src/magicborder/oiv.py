@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -249,6 +250,15 @@ def default_scales_path() -> Path:
         module_path.parents[2] / OIV_SCALES_FILE_NAME,
         Path.cwd() / OIV_SCALES_FILE_NAME,
     ]
+    pyinstaller_root = getattr(sys, "_MEIPASS", None)
+    if pyinstaller_root:
+        bundle_root = Path(pyinstaller_root)
+        candidates.extend(
+            [
+                bundle_root / OIV_SCALES_FILE_NAME,
+                bundle_root / "magicborder" / OIV_SCALES_FILE_NAME,
+            ]
+        )
     for candidate in candidates:
         if candidate.exists():
             return candidate

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.24.0"]
+requires = ["hatchling>=1.29,<2"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,14 +7,20 @@ name = "magicborder"
 version = "0.1.0"
 description = "Desktop app for plant leaf contour detection and editing."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.14"
 dependencies = [
-  "numpy>=1.26",
-  "opencv-python-headless>=4.10",
-  "Pillow>=10.3",
-  "PyQt5>=5.15.10,<5.16",
+  "numpy>=2.4,<2.5",
+  "opencv-python-headless>=4.13.0.92,<4.14",
+  "Pillow>=12.2,<13",
+  "PyQt5>=5.15.11,<5.16",
+  "PyQt5-sip>=12.18,<13",
   "PyQt5-Qt5==5.15.2; sys_platform == 'win32'",
-  "PyQt5-Qt5>=5.15.18,<5.16; sys_platform != 'win32'",
+  "PyQt5-Qt5>=5.15.19,<5.16; sys_platform != 'win32'",
+]
+
+[project.optional-dependencies]
+build = [
+  "pyinstaller>=6,<7",
 ]
 
 [project.scripts]

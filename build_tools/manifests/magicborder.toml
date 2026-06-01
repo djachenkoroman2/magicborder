@@ -1,0 +1,23 @@
+[app]
+name = "magicborder"
+display_name = "MagicBorder"
+version = "0.1.0"
+entrypoint = "magicborder.main:main"
+gui = true
+
+[python]
+requires = ">=3.11,<3.14"
+recommended = "3.12"
+
+[build]
+backend = "pyinstaller"
+output_root = "dist"
+
+[[data]]
+source = "src/magicborder/assets"
+target = "magicborder/assets"
+
+[[data]]
+source = "oiv_ampelometric_scales.json"
+target = "."
+
