@@ -43,6 +43,7 @@ from magicborder.models import (  # noqa: E402
     ProjectDocument,
     ProjectImageRecord,
     ProjectImageMeasurements,
+    ProjectMeasurementAssessment,
     ProjectSegmentMeasurement,
 )
 from magicborder.property_browser import (  # noqa: E402
@@ -282,6 +283,10 @@ def _tree_item_by_key(tree: QTreeWidget, key: str) -> QTreeWidgetItem:
         if found is not None:
             return found
     raise AssertionError(f"Tree item not found for key: {key}")
+
+
+def _combo_item_data(widget) -> list[str]:
+    return [str(widget.itemData(index) or "") for index in range(widget.count())]
 
 
 class ProjectPropertiesTest(unittest.TestCase):
@@ -1315,6 +1320,169 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.canvas.segment_measurements(), [])
             self.assertEqual(record.measurements.segments, [])
             self.assertFalse(window.delete_segment_action.isEnabled())
+
+    def test_oiv_assessment_selection_filters_saves_and_exports(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, project_path = _measurement_export_window(root)
+            record = window._selected_project_image()
+            self.assertIsNotNone(record)
+
+            angle_combo = window._angle_assessment_fields["angle-a"]
+            angle_codes = _combo_item_data(angle_combo)
+            self.assertIn("", angle_codes)
+            self.assertIn("OIV 607", angle_codes)
+            self.assertNotIn("OIV 601", angle_codes)
+
+            angle_combo.setCurrentIndex(angle_combo.findData("OIV 607"))
+
+            self.assertIsNotNone(record.measurements.angles[0].assessment)
+            self.assertEqual(record.measurements.angles[0].assessment.code, "OIV 607")
+            self.assertEqual(
+                window._angle_assessment_result_fields["angle-a"].text(),
+                "90°; оценка 9 - очень большой",
+            )
+
+            segment_combo = window._segment_assessment_fields["segment-a"]
+            segment_codes = _combo_item_data(segment_combo)
+            self.assertIn("", segment_codes)
+            self.assertIn("OIV 601", segment_codes)
+            self.assertNotIn("OIV 607", segment_codes)
+
+            segment_combo.setCurrentIndex(segment_combo.findData("OIV 601"))
+
+            self.assertIsNotNone(record.measurements.segments[0].assessment)
+            self.assertEqual(record.measurements.segments[0].assessment.code, "OIV 601")
+            self.assertEqual(
+                window._segment_assessment_result_fields["segment-a"].text(),
+                "5 мм; оценка 1 - очень короткая",
+            )
+
+            keys = window._image_property_export_leaf_keys(record)
+            self.assertIn("angle:angle-a:oiv_code", keys)
+            self.assertIn("segment:segment-a:oiv_code", keys)
+            self.assertNotIn("angle:angle-b:oiv_code", keys)
+
+            export_path = root / "oiv_measurement_properties.xlsx"
+            window._write_image_properties_excel(
+                export_path,
+                [
+                    "angle:angle-a:oiv_code",
+                    "angle:angle-a:oiv_short_name",
+                    "angle:angle-a:oiv_value",
+                    "angle:angle-a:oiv_score",
+                    "angle:angle-a:oiv_label",
+                    "segment:segment-a:oiv_code",
+                    "segment:segment-a:oiv_short_name",
+                    "segment:segment-a:oiv_value",
+                    "segment:segment-a:oiv_score",
+                    "segment:segment-a:oiv_label",
+                ],
+            )
+
+            self.assertEqual(
+                _read_xlsx_dict_rows(export_path),
+                [
+                    {"Свойство": "Измерения", "Значение": ""},
+                    {"Свойство": "Углы", "Значение": ""},
+                    {"Свойство": "Контрольный угол", "Значение": ""},
+                    {"Свойство": "OIV-код", "Значение": "OIV 607"},
+                    {"Свойство": "OIV-признак", "Значение": "угол между N1 и N2"},
+                    {"Свойство": "Фактическое значение", "Значение": "90°"},
+                    {"Свойство": "Оценка OIV", "Значение": "9"},
+                    {"Свойство": "Значение шкалы", "Значение": "очень большой"},
+                    {"Свойство": "Отрезки", "Значение": ""},
+                    {"Свойство": "Контрольный отрезок", "Значение": ""},
+                    {"Свойство": "OIV-код", "Значение": "OIV 601"},
+                    {"Свойство": "OIV-признак", "Значение": "длина жилки N1"},
+                    {"Свойство": "Фактическое значение", "Значение": "5 мм"},
+                    {"Свойство": "Оценка OIV", "Значение": "1"},
+                    {"Свойство": "Значение шкалы", "Значение": "очень короткая"},
+                ],
+            )
+
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            saved_angle = payload["images"][0]["measurements"]["angles"][0]
+            saved_segment = payload["images"][0]["measurements"]["segments"][0]
+            self.assertEqual(saved_angle["assessment"], {"system": "OIV", "code": "OIV 607"})
+            self.assertEqual(saved_segment["assessment"], {"system": "OIV", "code": "OIV 601"})
+            self.assertNotIn("score", saved_angle)
+            self.assertNotIn("score", saved_segment)
+
+    def test_oiv_assessment_selection_keeps_current_measurement_group_expanded(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+            record = window._selected_project_image()
+            self.assertIsNotNone(record)
+
+            measurements_group = window.properties_browser.group_item("measurements")
+            angles_group = window.properties_browser.group_item("measurements:angles")
+            angle_group = window.properties_browser.group_item("angle:angle-a")
+            other_angle_group = window.properties_browser.group_item("angle:angle-b")
+            segments_group = window.properties_browser.group_item("measurements:segments")
+            segment_group = window.properties_browser.group_item("segment:segment-a")
+
+            measurements_group.setExpanded(True)
+            angles_group.setExpanded(True)
+            angle_group.setExpanded(True)
+            segments_group.setExpanded(True)
+            segment_group.setExpanded(True)
+            other_angle_group.setExpanded(False)
+
+            angle_combo = window._angle_assessment_fields["angle-a"]
+            angle_combo.setCurrentIndex(angle_combo.findData("OIV 607"))
+
+            self.assertEqual(record.measurements.angles[0].assessment.code, "OIV 607")
+            self.assertTrue(window.properties_browser.group_item("measurements").isExpanded())
+            self.assertTrue(window.properties_browser.group_item("measurements:angles").isExpanded())
+            self.assertTrue(window.properties_browser.group_item("angle:angle-a").isExpanded())
+            self.assertFalse(window.properties_browser.group_item("angle:angle-b").isExpanded())
+            self.assertTrue(
+                window.properties_browser.is_property_visible("angle:angle-a:assessment_result")
+            )
+            self.assertEqual(
+                window._angle_assessment_result_fields["angle-a"].text(),
+                "90°; оценка 9 - очень большой",
+            )
+
+            segment_combo = window._segment_assessment_fields["segment-a"]
+            segment_combo.setCurrentIndex(segment_combo.findData("OIV 601"))
+
+            self.assertEqual(record.measurements.segments[0].assessment.code, "OIV 601")
+            self.assertTrue(window.properties_browser.group_item("measurements").isExpanded())
+            self.assertTrue(window.properties_browser.group_item("measurements:segments").isExpanded())
+            self.assertTrue(window.properties_browser.group_item("segment:segment-a").isExpanded())
+            self.assertTrue(
+                window.properties_browser.is_property_visible("segment:segment-a:assessment_result")
+            )
+            self.assertEqual(
+                window._segment_assessment_result_fields["segment-a"].text(),
+                "5 мм; оценка 1 - очень короткая",
+            )
+
+    def test_segment_oiv_assessment_requires_calibration(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+            record = window._selected_project_image()
+            self.assertIsNotNone(record)
+
+            record.calibration = None
+            record.measurements.segments[0].assessment = ProjectMeasurementAssessment(
+                system="OIV",
+                code="OIV 601",
+            )
+            window._update_project_properties()
+
+            self.assertEqual(
+                window._segment_assessment_result_fields["segment-a"].text(),
+                "Нужна калибровка",
+            )
 
     def test_image_calibration_scale_round_trip_edit_reset_and_export(self) -> None:
         _app()

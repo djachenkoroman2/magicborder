@@ -98,6 +98,34 @@ def _new_segment_measurement_id() -> str:
 
 
 @dataclass(slots=True)
+class ProjectMeasurementAssessment:
+    system: str = "OIV"
+    code: str = ""
+
+    def __post_init__(self) -> None:
+        self.system = str(self.system or "OIV").strip() or "OIV"
+        self.code = str(self.code or "").strip()
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "system": self.system,
+            "code": self.code,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "ProjectMeasurementAssessment | None":
+        if not isinstance(data, dict):
+            return None
+        code = str(data.get("code") or "").strip()
+        if not code:
+            return None
+        return cls(
+            system=str(data.get("system") or "OIV"),
+            code=code,
+        )
+
+
+@dataclass(slots=True)
 class ProjectAngleMeasurement:
     id: str
     first: Point
@@ -105,6 +133,7 @@ class ProjectAngleMeasurement:
     second: Point
     name: str = ""
     note: str = ""
+    assessment: ProjectMeasurementAssessment | None = None
 
     def __post_init__(self) -> None:
         self.id = str(self.id or "").strip() or _new_angle_measurement_id()
@@ -116,6 +145,8 @@ class ProjectAngleMeasurement:
             self.second = Point.from_dict(self.second)
         self.name = str(self.name or "").strip()
         self.note = str(self.note or "")
+        if not isinstance(self.assessment, ProjectMeasurementAssessment):
+            self.assessment = ProjectMeasurementAssessment.from_dict(self.assessment)
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"id": self.id}
@@ -129,6 +160,8 @@ class ProjectAngleMeasurement:
                 "note": self.note,
             }
         )
+        if self.assessment is not None:
+            payload["assessment"] = self.assessment.to_dict()
         return payload
 
     @classmethod
@@ -142,6 +175,7 @@ class ProjectAngleMeasurement:
             second=Point.from_dict(data.get("second")),
             name=str(data.get("name") or ""),
             note=str(data.get("note", "")),
+            assessment=ProjectMeasurementAssessment.from_dict(data.get("assessment")),
         )
 
 
@@ -154,6 +188,7 @@ class ProjectSegmentMeasurement:
     start_label: str = ""
     end_label: str = ""
     note: str = ""
+    assessment: ProjectMeasurementAssessment | None = None
 
     def __post_init__(self) -> None:
         self.id = str(self.id or "").strip() or _new_segment_measurement_id()
@@ -165,6 +200,8 @@ class ProjectSegmentMeasurement:
         self.start_label = str(self.start_label or "").strip()
         self.end_label = str(self.end_label or "").strip()
         self.note = str(self.note or "")
+        if not isinstance(self.assessment, ProjectMeasurementAssessment):
+            self.assessment = ProjectMeasurementAssessment.from_dict(self.assessment)
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {"id": self.id}
@@ -179,6 +216,8 @@ class ProjectSegmentMeasurement:
                 "note": self.note,
             }
         )
+        if self.assessment is not None:
+            payload["assessment"] = self.assessment.to_dict()
         return payload
 
     @classmethod
@@ -193,6 +232,7 @@ class ProjectSegmentMeasurement:
             start_label=str(data.get("start_label") or ""),
             end_label=str(data.get("end_label") or ""),
             note=str(data.get("note", "")),
+            assessment=ProjectMeasurementAssessment.from_dict(data.get("assessment")),
         )
 
 

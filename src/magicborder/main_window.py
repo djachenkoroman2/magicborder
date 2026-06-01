@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QAction,
     QApplication,
     QCheckBox,
+    QComboBox,
     QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
@@ -70,7 +71,18 @@ from .models import (
     ProjectDocument,
     ProjectImageRecord,
     ProjectSegmentMeasurement,
+    ProjectMeasurementAssessment,
     default_project_image_metadata,
+)
+from .oiv import (
+    OIV_SYSTEM_NAME,
+    OivClassificationResult,
+    OivScaleCatalog,
+    OivScaleError,
+    OivTrait,
+    default_oiv_catalog,
+    make_status_result,
+    normalize_oiv_code,
 )
 from .path_utils import portable_path_reference
 from .property_browser import PropertyBrowser, PropertyValueLabel
@@ -294,6 +306,12 @@ class MainWindow(QMainWindow):
         self._project_autosave_timer = QTimer(self)
         self._project_autosave_timer.setSingleShot(True)
         self._project_autosave_timer.timeout.connect(self._save_project_silently)
+        try:
+            self._oiv_catalog: OivScaleCatalog | None = default_oiv_catalog()
+            self._oiv_catalog_error = ""
+        except OivScaleError as exc:
+            self._oiv_catalog = None
+            self._oiv_catalog_error = str(exc)
 
         self.setCentralWidget(self._create_workspace())
 
@@ -408,8 +426,8 @@ class MainWindow(QMainWindow):
             "QListWidget#projectImageList::item:selected { background: #d8edf3; color: #102a32; }"
             "QListWidget#projectImageList::item:alternate { background: #f7f9fc; }"
             "QLabel#propertyEmpty { color: #7a8696; padding: 12px; }"
-            "QLineEdit, QTextEdit { background: #ffffff; color: #1f2937; border: 1px solid #ccd6e1; border-radius: 4px; padding: 4px; selection-background-color: #cdeaf2; selection-color: #102a32; }"
-            "QLineEdit:focus, QTextEdit:focus { border-color: #2A9D8F; }"
+            "QLineEdit, QTextEdit, QComboBox { background: #ffffff; color: #1f2937; border: 1px solid #ccd6e1; border-radius: 4px; padding: 4px; selection-background-color: #cdeaf2; selection-color: #102a32; }"
+            "QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border-color: #2A9D8F; }"
             "QLineEdit:read-only { color: #5f6b7a; background: #f1f4f8; }"
             "QFrame#averageColorSwatch { border: 1px solid #95a3b8; border-radius: 4px; background: transparent; }"
             "QToolButton { border: 1px solid transparent; border-radius: 4px; padding: 4px; color: #1f2937; }"
@@ -628,11 +646,15 @@ class MainWindow(QMainWindow):
         self._angle_name_fields: dict[str, QLineEdit] = {}
         self._angle_visibility_fields: dict[str, QCheckBox] = {}
         self._angle_note_fields: dict[str, QLineEdit] = {}
+        self._angle_assessment_fields: dict[str, QComboBox] = {}
+        self._angle_assessment_result_fields: dict[str, QLabel] = {}
         self._segment_name_fields: dict[str, QLineEdit] = {}
         self._segment_visibility_fields: dict[str, QCheckBox] = {}
         self._segment_start_label_fields: dict[str, QLineEdit] = {}
         self._segment_end_label_fields: dict[str, QLineEdit] = {}
         self._segment_note_fields: dict[str, QLineEdit] = {}
+        self._segment_assessment_fields: dict[str, QComboBox] = {}
+        self._segment_assessment_result_fields: dict[str, QLabel] = {}
 
         self.properties_browser = PropertyBrowser(properties_widget)
         self.properties_browser.itemClicked.connect(self._handle_image_property_item_clicked)
@@ -783,6 +805,8 @@ class MainWindow(QMainWindow):
         self._angle_name_fields.clear()
         self._angle_visibility_fields.clear()
         self._angle_note_fields.clear()
+        self._angle_assessment_fields.clear()
+        self._angle_assessment_result_fields.clear()
         self.properties_browser.clear_children(self.angles_group_item)
         if record is None or not record.measurements.angles:
             self.properties_browser.add_property_to_item(
@@ -853,6 +877,33 @@ class MainWindow(QMainWindow):
                 self._property_value_label(_angle_measurement_value_text(angle)),
                 key=f"angle:{angle.id}:value",
             )
+            assessment_combo = self._oiv_assessment_combo(
+                "angle",
+                _measurement_oiv_code(angle.assessment),
+            )
+            assessment_combo.currentIndexChanged.connect(
+                lambda _index, angle_id=angle.id, editor=assessment_combo: self._handle_angle_assessment_changed(
+                    angle_id,
+                    editor,
+                )
+            )
+            self._angle_assessment_fields[angle.id] = assessment_combo
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "Оценка",
+                assessment_combo,
+                key=f"angle:{angle.id}:assessment",
+            )
+            assessment_result = self._property_value_label(
+                _oiv_result_text(self._angle_oiv_result(angle))
+            )
+            self._angle_assessment_result_fields[angle.id] = assessment_result
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "Результат оценки",
+                assessment_result,
+                key=f"angle:{angle.id}:assessment_result",
+            )
             self.properties_browser.add_property_to_item(
                 angle_group,
                 "Первая точка",
@@ -908,6 +959,8 @@ class MainWindow(QMainWindow):
         self._segment_start_label_fields.clear()
         self._segment_end_label_fields.clear()
         self._segment_note_fields.clear()
+        self._segment_assessment_fields.clear()
+        self._segment_assessment_result_fields.clear()
         self.properties_browser.clear_children(self.segments_group_item)
         if record is None or not record.measurements.segments:
             self.properties_browser.add_property_to_item(
@@ -977,6 +1030,33 @@ class MainWindow(QMainWindow):
                 "Длина",
                 self._property_value_label(_segment_measurement_length_text(segment, record.calibration)),
                 key=f"segment:{segment.id}:length",
+            )
+            assessment_combo = self._oiv_assessment_combo(
+                "segment",
+                _measurement_oiv_code(segment.assessment),
+            )
+            assessment_combo.currentIndexChanged.connect(
+                lambda _index, segment_id=segment.id, editor=assessment_combo: self._handle_segment_assessment_changed(
+                    segment_id,
+                    editor,
+                )
+            )
+            self._segment_assessment_fields[segment.id] = assessment_combo
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Оценка",
+                assessment_combo,
+                key=f"segment:{segment.id}:assessment",
+            )
+            assessment_result = self._property_value_label(
+                _oiv_result_text(self._segment_oiv_result(segment, record))
+            )
+            self._segment_assessment_result_fields[segment.id] = assessment_result
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Результат оценки",
+                assessment_result,
+                key=f"segment:{segment.id}:assessment_result",
             )
             self.properties_browser.add_property_to_item(
                 segment_group,
@@ -1061,6 +1141,170 @@ class MainWindow(QMainWindow):
         label = PropertyValueLabel(text)
         label.setObjectName("propertyValue")
         return label
+
+    def _oiv_assessment_combo(self, tool_kind: str, selected_code: str) -> QComboBox:
+        combo = QComboBox(self.properties_browser)
+        combo.setMinimumContentsLength(18)
+        combo.addItem("Не выбрано", "")
+
+        normalized_selected_code = normalize_oiv_code(selected_code)
+        available_codes: set[str] = set()
+        if self._oiv_catalog is None:
+            combo.setEnabled(False)
+            combo.setToolTip(self._oiv_catalog_error or "Шкалы OIV недоступны.")
+        else:
+            for trait in self._oiv_catalog.traits_for_tool(tool_kind):
+                combo.addItem(_oiv_trait_option_text(trait), trait.code)
+                available_codes.add(trait.code)
+
+            if normalized_selected_code and normalized_selected_code not in available_codes:
+                selected_trait = self._oiv_catalog.trait_by_code(normalized_selected_code)
+                if selected_trait is None:
+                    label = f"{normalized_selected_code} - неизвестный признак"
+                else:
+                    label = _oiv_trait_option_text(selected_trait)
+                combo.addItem(label, normalized_selected_code)
+
+        selected_index = combo.findData(normalized_selected_code)
+        combo.setCurrentIndex(selected_index if selected_index >= 0 else 0)
+        return combo
+
+    def _angle_oiv_result(
+        self,
+        angle: ProjectAngleMeasurement,
+    ) -> OivClassificationResult | None:
+        unsupported_result = self._unsupported_assessment_result(angle.assessment)
+        if unsupported_result is not None:
+            return unsupported_result
+
+        code = _measurement_oiv_code(angle.assessment)
+        if not code:
+            return None
+
+        selection_error = self._oiv_selection_error(code, "angle")
+        if selection_error is not None:
+            return selection_error
+
+        value = _angle_degrees(angle.first, angle.vertex, angle.second)
+        trait = self._oiv_trait_by_code(code)
+        if value is None:
+            return make_status_result(
+                status="invalid_geometry",
+                message="-",
+                code=code,
+                unit="deg",
+                trait=trait,
+            )
+        return self._classify_oiv_value(code, value, "angle")
+
+    def _segment_oiv_result(
+        self,
+        segment: ProjectSegmentMeasurement,
+        record: ProjectImageRecord,
+    ) -> OivClassificationResult | None:
+        unsupported_result = self._unsupported_assessment_result(segment.assessment)
+        if unsupported_result is not None:
+            return unsupported_result
+
+        code = _measurement_oiv_code(segment.assessment)
+        if not code:
+            return None
+
+        selection_error = self._oiv_selection_error(code, "segment")
+        if selection_error is not None:
+            return selection_error
+
+        pixel_length = math.hypot(segment.end.x - segment.start.x, segment.end.y - segment.start.y)
+        trait = self._oiv_trait_by_code(code)
+        if pixel_length <= 1e-6:
+            return make_status_result(
+                status="invalid_geometry",
+                message="-",
+                code=code,
+                unit="mm",
+                trait=trait,
+            )
+        if record.calibration_error:
+            return make_status_result(
+                status="calibration_error",
+                message="Ошибка калибровки",
+                code=code,
+                unit="mm",
+                trait=trait,
+            )
+        if record.calibration is None:
+            return make_status_result(
+                status="missing_calibration",
+                message="Нужна калибровка",
+                code=code,
+                unit="mm",
+                trait=trait,
+            )
+
+        value_mm = pixel_length * record.calibration.mm_per_pixel()
+        return self._classify_oiv_value(code, value_mm, "segment")
+
+    def _unsupported_assessment_result(
+        self,
+        assessment: ProjectMeasurementAssessment | None,
+    ) -> OivClassificationResult | None:
+        if assessment is None:
+            return None
+        if assessment.system.strip().upper() == OIV_SYSTEM_NAME:
+            return None
+        return make_status_result(
+            status="unsupported_system",
+            message="Неподдерживаемая система оценки",
+        )
+
+    def _oiv_selection_error(
+        self,
+        code: str,
+        tool_kind: str,
+    ) -> OivClassificationResult | None:
+        if self._oiv_catalog is None:
+            return make_status_result(
+                status="catalog_error",
+                message="Шкалы OIV недоступны",
+                code=code,
+            )
+
+        trait = self._oiv_catalog.trait_by_code(code)
+        if trait is None:
+            return make_status_result(
+                status="unknown_trait",
+                message="Неизвестный признак",
+                code=code,
+            )
+        if tool_kind not in trait.tool_kinds:
+            return make_status_result(
+                status="incompatible_tool",
+                message="Несовместимый признак",
+                code=trait.code,
+                unit=trait.unit,
+                trait=trait,
+            )
+        return None
+
+    def _oiv_trait_by_code(self, code: str) -> OivTrait | None:
+        if self._oiv_catalog is None:
+            return None
+        return self._oiv_catalog.trait_by_code(code)
+
+    def _classify_oiv_value(
+        self,
+        code: str,
+        value: float,
+        tool_kind: str,
+    ) -> OivClassificationResult:
+        if self._oiv_catalog is None:
+            return make_status_result(
+                status="catalog_error",
+                message="Шкалы OIV недоступны",
+                code=code,
+                value=value,
+            )
+        return self._oiv_catalog.classify(code, value, tool_kind=tool_kind)
 
     def _metadata_line_edit(self) -> QLineEdit:
         field = QLineEdit()
@@ -2199,20 +2443,31 @@ class MainWindow(QMainWindow):
         angle_groups: list[ExportTreeItem] = []
         for index, angle in enumerate(record.measurements.angles, start=1):
             angle_title = _angle_display_name(angle, index)
+            angle_leaves = [
+                (f"angle:{angle.id}:name", "Имя"),
+                (f"angle:{angle.id}:id", "ID"),
+                (f"angle:{angle.id}:value", "Значение"),
+                (f"angle:{angle.id}:first", "Первая точка"),
+                (f"angle:{angle.id}:vertex", "Вершина"),
+                (f"angle:{angle.id}:second", "Вторая точка"),
+                (f"angle:{angle.id}:note", "Примечание"),
+            ]
+            if _measurement_oiv_code(angle.assessment):
+                angle_leaves.extend(
+                    [
+                        (f"angle:{angle.id}:oiv_code", "OIV-код"),
+                        (f"angle:{angle.id}:oiv_short_name", "OIV-признак"),
+                        (f"angle:{angle.id}:oiv_value", "Фактическое значение"),
+                        (f"angle:{angle.id}:oiv_score", "Оценка OIV"),
+                        (f"angle:{angle.id}:oiv_label", "Значение шкалы"),
+                    ]
+                )
             angle_groups.append(
                 ExportTreeItem(
                     label=angle_title,
                     children=tuple(
                         _export_leaf(key, label)
-                        for key, label in (
-                            (f"angle:{angle.id}:name", "Имя"),
-                            (f"angle:{angle.id}:id", "ID"),
-                            (f"angle:{angle.id}:value", "Значение"),
-                            (f"angle:{angle.id}:first", "Первая точка"),
-                            (f"angle:{angle.id}:vertex", "Вершина"),
-                            (f"angle:{angle.id}:second", "Вторая точка"),
-                            (f"angle:{angle.id}:note", "Примечание"),
-                        )
+                        for key, label in angle_leaves
                     ),
                 )
             )
@@ -2222,21 +2477,32 @@ class MainWindow(QMainWindow):
         segment_groups: list[ExportTreeItem] = []
         for index, segment in enumerate(record.measurements.segments, start=1):
             segment_title = _segment_display_name(segment, index)
+            segment_leaves = [
+                (f"segment:{segment.id}:name", "Имя"),
+                (f"segment:{segment.id}:id", "ID"),
+                (f"segment:{segment.id}:length", "Длина"),
+                (f"segment:{segment.id}:start", "Первая точка"),
+                (f"segment:{segment.id}:end", "Вторая точка"),
+                (f"segment:{segment.id}:start_label", "Подпись первой точки"),
+                (f"segment:{segment.id}:end_label", "Подпись второй точки"),
+                (f"segment:{segment.id}:note", "Примечание"),
+            ]
+            if _measurement_oiv_code(segment.assessment):
+                segment_leaves.extend(
+                    [
+                        (f"segment:{segment.id}:oiv_code", "OIV-код"),
+                        (f"segment:{segment.id}:oiv_short_name", "OIV-признак"),
+                        (f"segment:{segment.id}:oiv_value", "Фактическое значение"),
+                        (f"segment:{segment.id}:oiv_score", "Оценка OIV"),
+                        (f"segment:{segment.id}:oiv_label", "Значение шкалы"),
+                    ]
+                )
             segment_groups.append(
                 ExportTreeItem(
                     label=segment_title,
                     children=tuple(
                         _export_leaf(key, label)
-                        for key, label in (
-                            (f"segment:{segment.id}:name", "Имя"),
-                            (f"segment:{segment.id}:id", "ID"),
-                            (f"segment:{segment.id}:length", "Длина"),
-                            (f"segment:{segment.id}:start", "Первая точка"),
-                            (f"segment:{segment.id}:end", "Вторая точка"),
-                            (f"segment:{segment.id}:start_label", "Подпись первой точки"),
-                            (f"segment:{segment.id}:end_label", "Подпись второй точки"),
-                            (f"segment:{segment.id}:note", "Примечание"),
-                        )
+                        for key, label in segment_leaves
                     ),
                 )
             )
@@ -2382,6 +2648,7 @@ class MainWindow(QMainWindow):
                     f"{prefix}:note": angle.note,
                 }
             )
+            values.update(self._oiv_export_values(prefix, angle.assessment, self._angle_oiv_result(angle)))
 
         for segment in record.measurements.segments:
             prefix = f"segment:{segment.id}"
@@ -2397,7 +2664,40 @@ class MainWindow(QMainWindow):
                     f"{prefix}:note": segment.note,
                 }
             )
+            values.update(
+                self._oiv_export_values(prefix, segment.assessment, self._segment_oiv_result(segment, record))
+            )
         return values
+
+    def _oiv_export_values(
+        self,
+        prefix: str,
+        assessment: ProjectMeasurementAssessment | None,
+        result: OivClassificationResult | None,
+    ) -> dict[str, str]:
+        code = _measurement_oiv_code(assessment)
+        if not code:
+            return {}
+
+        trait = result.trait if result is not None else self._oiv_trait_by_code(code)
+        value_text = ""
+        score_text = ""
+        scale_label = ""
+        if result is not None:
+            value_text = _oiv_value_text(result.value, result.unit)
+            if result.ok and result.score is not None:
+                score_text = str(result.score)
+                scale_label = result.label
+            elif result.message and result.message != "ok":
+                scale_label = result.message
+
+        return {
+            f"{prefix}:oiv_code": code,
+            f"{prefix}:oiv_short_name": trait.short_name if trait is not None else "",
+            f"{prefix}:oiv_value": value_text,
+            f"{prefix}:oiv_score": score_text,
+            f"{prefix}:oiv_label": scale_label,
+        }
 
     def _project_export_row(self, record: ProjectImageRecord) -> dict[str, str]:
         self._normalize_record_metadata(record)
@@ -2633,6 +2933,9 @@ class MainWindow(QMainWindow):
 
         existing_names = {angle.id: angle.name for angle in record.measurements.angles}
         existing_notes = {angle.id: angle.note for angle in record.measurements.angles}
+        existing_assessments = {
+            angle.id: angle.assessment for angle in record.measurements.angles
+        }
         new_angles = [
             ProjectAngleMeasurement(
                 id=angle_id,
@@ -2641,6 +2944,7 @@ class MainWindow(QMainWindow):
                 second=second,
                 name=existing_names.get(angle_id, canvas_name),
                 note=existing_notes.get(angle_id, ""),
+                assessment=existing_assessments.get(angle_id),
             )
             for angle_id, first, vertex, second, canvas_name in self.canvas.angle_measurement_records(
                 include_names=True
@@ -2666,6 +2970,9 @@ class MainWindow(QMainWindow):
         }
         existing_names = {segment.id: segment.name for segment in record.measurements.segments}
         existing_notes = {segment.id: segment.note for segment in record.measurements.segments}
+        existing_assessments = {
+            segment.id: segment.assessment for segment in record.measurements.segments
+        }
         new_segments = [
             ProjectSegmentMeasurement(
                 id=segment_id,
@@ -2675,6 +2982,7 @@ class MainWindow(QMainWindow):
                 start_label=existing_start_labels.get(segment_id, canvas_start_label),
                 end_label=existing_end_labels.get(segment_id, canvas_end_label),
                 note=existing_notes.get(segment_id, ""),
+                assessment=existing_assessments.get(segment_id),
             )
             for (
                 segment_id,
@@ -2725,6 +3033,22 @@ class MainWindow(QMainWindow):
         angle.note = note
         self._schedule_project_save()
 
+    def _handle_angle_assessment_changed(self, angle_id: str, field: QComboBox) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        angle = _angle_by_id(record, angle_id)
+        if angle is None:
+            return
+
+        new_assessment = _assessment_from_combo(field)
+        if _measurement_assessments_equal(angle.assessment, new_assessment):
+            return
+
+        angle.assessment = new_assessment
+        self._update_angle_assessment_result_field(angle)
+        self._schedule_project_save()
+
     def _handle_angle_visibility_changed(self, angle_id: str, checked: bool) -> None:
         field = self._angle_visibility_fields.get(angle_id)
         if field is None:
@@ -2768,6 +3092,38 @@ class MainWindow(QMainWindow):
             return
         segment.note = note
         self._schedule_project_save()
+
+    def _handle_segment_assessment_changed(self, segment_id: str, field: QComboBox) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        segment = _segment_by_id(record, segment_id)
+        if segment is None:
+            return
+
+        new_assessment = _assessment_from_combo(field)
+        if _measurement_assessments_equal(segment.assessment, new_assessment):
+            return
+
+        segment.assessment = new_assessment
+        self._update_segment_assessment_result_field(segment, record)
+        self._schedule_project_save()
+
+    def _update_angle_assessment_result_field(self, angle: ProjectAngleMeasurement) -> None:
+        field = self._angle_assessment_result_fields.get(angle.id)
+        if field is None:
+            return
+        field.setText(_oiv_result_text(self._angle_oiv_result(angle)))
+
+    def _update_segment_assessment_result_field(
+        self,
+        segment: ProjectSegmentMeasurement,
+        record: ProjectImageRecord,
+    ) -> None:
+        field = self._segment_assessment_result_fields.get(segment.id)
+        if field is None:
+            return
+        field.setText(_oiv_result_text(self._segment_oiv_result(segment, record)))
 
     def _handle_segment_visibility_changed(self, segment_id: str, checked: bool) -> None:
         field = self._segment_visibility_fields.get(segment_id)
@@ -4153,6 +4509,38 @@ def _segment_by_id(
     return None
 
 
+def _assessment_from_combo(field: QComboBox) -> ProjectMeasurementAssessment | None:
+    code = normalize_oiv_code(field.currentData())
+    if not code:
+        return None
+    return ProjectMeasurementAssessment(system=OIV_SYSTEM_NAME, code=code)
+
+
+def _measurement_oiv_code(assessment: ProjectMeasurementAssessment | None) -> str:
+    if assessment is None:
+        return ""
+    if assessment.system.strip().upper() != OIV_SYSTEM_NAME:
+        return ""
+    return normalize_oiv_code(assessment.code)
+
+
+def _measurement_assessments_equal(
+    left: ProjectMeasurementAssessment | None,
+    right: ProjectMeasurementAssessment | None,
+) -> bool:
+    return _measurement_assessment_key(left) == _measurement_assessment_key(right)
+
+
+def _measurement_assessment_key(
+    assessment: ProjectMeasurementAssessment | None,
+) -> tuple[str, str]:
+    if assessment is None:
+        return "", ""
+    system = assessment.system.strip().upper()
+    code = normalize_oiv_code(assessment.code) if system == OIV_SYSTEM_NAME else assessment.code.strip()
+    return system, code
+
+
 def _angle_canvas_records(record: ProjectImageRecord) -> list[tuple[str, Point, Point, Point, str]]:
     return [
         (angle.id, angle.first, angle.vertex, angle.second, angle.name)
@@ -4187,6 +4575,7 @@ def _angle_measurements_equal(
         and left_angle.second == right_angle.second
         and left_angle.name == right_angle.name
         and left_angle.note == right_angle.note
+        and _measurement_assessments_equal(left_angle.assessment, right_angle.assessment)
         for left_angle, right_angle in zip(left, right)
     )
 
@@ -4205,6 +4594,7 @@ def _segment_measurements_equal(
         and left_segment.start_label == right_segment.start_label
         and left_segment.end_label == right_segment.end_label
         and left_segment.note == right_segment.note
+        and _measurement_assessments_equal(left_segment.assessment, right_segment.assessment)
         for left_segment, right_segment in zip(left, right)
     )
 
@@ -4215,6 +4605,39 @@ def _angle_display_name(angle: ProjectAngleMeasurement, angle_index: int) -> str
 
 def _segment_display_name(segment: ProjectSegmentMeasurement, segment_index: int) -> str:
     return segment.name or f"Отрезок {segment_index}"
+
+
+def _oiv_trait_option_text(trait: OivTrait) -> str:
+    return f"{trait.code} - {trait.short_name}"
+
+
+def _oiv_result_text(result: OivClassificationResult | None) -> str:
+    if result is None:
+        return "-"
+    if not result.ok:
+        return result.message or "-"
+
+    value_text = _oiv_value_text(result.value, result.unit)
+    score_text = str(result.score) if result.score is not None else "-"
+    label_text = result.label or "-"
+    if value_text:
+        return f"{value_text}; оценка {score_text} - {label_text}"
+    return f"оценка {score_text} - {label_text}"
+
+
+def _oiv_value_text(value: float | None, unit: str) -> str:
+    if value is None:
+        return ""
+    if unit == "deg":
+        rounded = round(value, 1)
+        if math.isclose(rounded, round(rounded), abs_tol=1e-9):
+            return f"{int(round(rounded))}°"
+        return f"{rounded:.1f}°"
+    if unit == "mm":
+        return f"{_compact_float(value, 2)} мм"
+    unit_suffix = str(unit or "").strip()
+    value_text = _compact_float(value, 2)
+    return f"{value_text} {unit_suffix}".strip()
 
 
 def _angle_measurement_value_text(angle: ProjectAngleMeasurement) -> str:

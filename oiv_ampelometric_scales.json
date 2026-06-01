@@ -1,0 +1,274 @@
+{
+  "version": 1,
+  "source": "doc/oiv_ampelometric_traits_601_615_617.md",
+  "boundary_rule": "lower inclusive, upper exclusive; open final interval includes greater values",
+  "traits": [
+    {
+      "code": "OIV 601",
+      "short_name": "длина жилки N1",
+      "official_name": "Mature leaf: length of vein N1",
+      "measurement_kind": "length",
+      "tool_kinds": ["segment"],
+      "unit": "mm",
+      "boundary_method": "midpoints_between_oiv_reference_values",
+      "reference_values": [75, 105, 135, 165, 195],
+      "scale": [
+        {"score": 1, "label": "очень короткая", "min": null, "max": 90, "include_min": true, "include_max": false, "comment": "До примерно 75 мм по справочнику; граница построена по середине до следующей опоры."},
+        {"score": 3, "label": "короткая", "min": 90, "max": 120, "include_min": true, "include_max": false, "comment": "Около 105 мм."},
+        {"score": 5, "label": "средняя", "min": 120, "max": 150, "include_min": true, "include_max": false, "comment": "Около 135 мм."},
+        {"score": 7, "label": "длинная", "min": 150, "max": 180, "include_min": true, "include_max": false, "comment": "Около 165 мм."},
+        {"score": 9, "label": "очень длинная", "min": 180, "max": null, "include_min": true, "include_max": true, "comment": "Около 195 мм и более."}
+      ]
+    },
+    {
+      "code": "OIV 602",
+      "short_name": "длина жилки N2",
+      "official_name": "Mature leaf: length of vein N2",
+      "measurement_kind": "length",
+      "tool_kinds": ["segment"],
+      "unit": "mm",
+      "boundary_method": "midpoints_between_oiv_reference_values",
+      "reference_values": [65, 85, 105, 125, 145],
+      "scale": [
+        {"score": 1, "label": "очень короткая", "min": null, "max": 75, "include_min": true, "include_max": false, "comment": "До примерно 65 мм."},
+        {"score": 3, "label": "короткая", "min": 75, "max": 95, "include_min": true, "include_max": false, "comment": "Около 85 мм."},
+        {"score": 5, "label": "средняя", "min": 95, "max": 115, "include_min": true, "include_max": false, "comment": "Около 105 мм."},
+        {"score": 7, "label": "длинная", "min": 115, "max": 135, "include_min": true, "include_max": false, "comment": "Около 125 мм."},
+        {"score": 9, "label": "очень длинная", "min": 135, "max": null, "include_min": true, "include_max": true, "comment": "Около 145 мм и более."}
+      ]
+    },
+    {
+      "code": "OIV 603",
+      "short_name": "длина жилки N3",
+      "official_name": "Mature leaf: length of vein N3",
+      "measurement_kind": "length",
+      "tool_kinds": ["segment"],
+      "unit": "mm",
+      "boundary_method": "midpoints_between_oiv_reference_values",
+      "reference_values": [35, 55, 75, 95, 115],
+      "scale": [
+        {"score": 1, "label": "очень короткая", "min": null, "max": 45, "include_min": true, "include_max": false, "comment": "До примерно 35 мм."},
+        {"score": 3, "label": "короткая", "min": 45, "max": 65, "include_min": true, "include_max": false, "comment": "Около 55 мм."},
+        {"score": 5, "label": "средняя", "min": 65, "max": 85, "include_min": true, "include_max": false, "comment": "Около 75 мм."},
+        {"score": 7, "label": "длинная", "min": 85, "max": 105, "include_min": true, "include_max": false, "comment": "Около 95 мм."},
+        {"score": 9, "label": "очень длинная", "min": 105, "max": null, "include_min": true, "include_max": true, "comment": "Около 115 мм и более."}
+      ]
+    },
+    {
+      "code": "OIV 604",
+      "short_name": "длина жилки N4",
+      "official_name": "Mature leaf: length of vein N4",
+      "measurement_kind": "length",
+      "tool_kinds": ["segment"],
+      "unit": "mm",
+      "boundary_method": "midpoints_between_oiv_reference_values",
+      "reference_values": [15, 25, 35, 45, 55],
+      "scale": [
+        {"score": 1, "label": "очень короткая", "min": null, "max": 20, "include_min": true, "include_max": false, "comment": "До примерно 15 мм."},
+        {"score": 3, "label": "короткая", "min": 20, "max": 30, "include_min": true, "include_max": false, "comment": "Около 25 мм."},
+        {"score": 5, "label": "средняя", "min": 30, "max": 40, "include_min": true, "include_max": false, "comment": "Около 35 мм."},
+        {"score": 7, "label": "длинная", "min": 40, "max": 50, "include_min": true, "include_max": false, "comment": "Около 45 мм."},
+        {"score": 9, "label": "очень длинная", "min": 50, "max": null, "include_min": true, "include_max": true, "comment": "Около 55 мм и более."}
+      ]
+    },
+    {
+      "code": "OIV 605",
+      "short_name": "расстояние до верхней боковой выемки",
+      "official_name": "Mature leaf: length petiole sinus to upper lateral leaf sinus",
+      "measurement_kind": "length",
+      "tool_kinds": ["segment"],
+      "unit": "mm",
+      "boundary_method": "midpoints_between_oiv_reference_values",
+      "reference_values": [30, 50, 70, 90, 110],
+      "scale": [
+        {"score": 1, "label": "очень короткое", "min": null, "max": 40, "include_min": true, "include_max": false, "comment": "До примерно 30 мм."},
+        {"score": 3, "label": "короткое", "min": 40, "max": 60, "include_min": true, "include_max": false, "comment": "Около 50 мм."},
+        {"score": 5, "label": "среднее", "min": 60, "max": 80, "include_min": true, "include_max": false, "comment": "Около 70 мм."},
+        {"score": 7, "label": "длинное", "min": 80, "max": 100, "include_min": true, "include_max": false, "comment": "Около 90 мм."},
+        {"score": 9, "label": "очень длинное", "min": 100, "max": null, "include_min": true, "include_max": true, "comment": "Около 110 мм и более."}
+      ]
+    },
+    {
+      "code": "OIV 606",
+      "short_name": "расстояние до нижней боковой выемки",
+      "official_name": "Mature leaf: length petiole sinus to lower lateral leaf sinus",
+      "measurement_kind": "length",
+      "tool_kinds": ["segment"],
+      "unit": "mm",
+      "boundary_method": "midpoints_between_oiv_reference_values",
+      "reference_values": [30, 45, 60, 75, 90],
+      "scale": [
+        {"score": 1, "label": "очень короткое", "min": null, "max": 37.5, "include_min": true, "include_max": false, "comment": "До примерно 30 мм."},
+        {"score": 3, "label": "короткое", "min": 37.5, "max": 52.5, "include_min": true, "include_max": false, "comment": "Около 45 мм."},
+        {"score": 5, "label": "среднее", "min": 52.5, "max": 67.5, "include_min": true, "include_max": false, "comment": "Около 60 мм."},
+        {"score": 7, "label": "длинное", "min": 67.5, "max": 82.5, "include_min": true, "include_max": false, "comment": "Около 75 мм."},
+        {"score": 9, "label": "очень длинное", "min": 82.5, "max": null, "include_min": true, "include_max": true, "comment": "Около 90 мм и более."}
+      ]
+    },
+    {
+      "code": "OIV 607",
+      "short_name": "угол между N1 и N2",
+      "official_name": "Mature leaf: angle between N1 and N2 measured at the first ramification",
+      "measurement_kind": "angle",
+      "tool_kinds": ["angle"],
+      "unit": "deg",
+      "boundary_method": "normalized_document_ranges",
+      "scale": [
+        {"score": 1, "label": "очень малый", "min": null, "max": 30, "include_min": true, "include_max": false, "comment": "До примерно 30 градусов."},
+        {"score": 3, "label": "малый", "min": 30, "max": 46, "include_min": true, "include_max": false, "comment": "Примерно 30-45 градусов."},
+        {"score": 5, "label": "средний", "min": 46, "max": 56, "include_min": true, "include_max": false, "comment": "Примерно 46-55 градусов."},
+        {"score": 7, "label": "большой", "min": 56, "max": 70, "include_min": true, "include_max": false, "comment": "Примерно 56-70 градусов."},
+        {"score": 9, "label": "очень большой", "min": 70, "max": null, "include_min": true, "include_max": true, "comment": "Около 70 градусов и более."}
+      ]
+    },
+    {
+      "code": "OIV 608",
+      "short_name": "угол между N2 и N3",
+      "official_name": "Mature leaf: angle between N2 and N3 measured at the first ramification",
+      "measurement_kind": "angle",
+      "tool_kinds": ["angle"],
+      "unit": "deg",
+      "boundary_method": "normalized_document_ranges",
+      "scale": [
+        {"score": 1, "label": "очень малый", "min": null, "max": 30, "include_min": true, "include_max": false, "comment": "До примерно 30 градусов."},
+        {"score": 3, "label": "малый", "min": 30, "max": 46, "include_min": true, "include_max": false, "comment": "Примерно 30-45 градусов."},
+        {"score": 5, "label": "средний", "min": 46, "max": 56, "include_min": true, "include_max": false, "comment": "Примерно 46-55 градусов."},
+        {"score": 7, "label": "большой", "min": 56, "max": 70, "include_min": true, "include_max": false, "comment": "Примерно 56-70 градусов."},
+        {"score": 9, "label": "очень большой", "min": 70, "max": null, "include_min": true, "include_max": true, "comment": "Около 70 градусов и более."}
+      ]
+    },
+    {
+      "code": "OIV 609",
+      "short_name": "угол между N3 и N4",
+      "official_name": "Mature leaf: angle between N3 and N4 measured at the first ramification",
+      "measurement_kind": "angle",
+      "tool_kinds": ["angle"],
+      "unit": "deg",
+      "boundary_method": "normalized_document_ranges",
+      "scale": [
+        {"score": 1, "label": "очень малый", "min": null, "max": 30, "include_min": true, "include_max": false, "comment": "До примерно 30 градусов."},
+        {"score": 3, "label": "малый", "min": 30, "max": 46, "include_min": true, "include_max": false, "comment": "Примерно 30-45 градусов."},
+        {"score": 5, "label": "средний", "min": 46, "max": 56, "include_min": true, "include_max": false, "comment": "Примерно 46-55 градусов."},
+        {"score": 7, "label": "большой", "min": 56, "max": 70, "include_min": true, "include_max": false, "comment": "Примерно 56-70 градусов."},
+        {"score": 9, "label": "очень большой", "min": 70, "max": null, "include_min": true, "include_max": true, "comment": "Около 70 градусов и более."}
+      ]
+    },
+    {
+      "code": "OIV 610",
+      "short_name": "угол между N3 и линией к N5",
+      "official_name": "Mature leaf: angle between N3 and the tangent between petiole point and the tooth tip of N5",
+      "measurement_kind": "angle",
+      "tool_kinds": ["angle"],
+      "unit": "deg",
+      "boundary_method": "normalized_document_ranges",
+      "scale": [
+        {"score": 1, "label": "очень малый", "min": null, "max": 30, "include_min": true, "include_max": false, "comment": "До примерно 30 градусов."},
+        {"score": 3, "label": "малый", "min": 30, "max": 46, "include_min": true, "include_max": false, "comment": "Примерно 30-45 градусов."},
+        {"score": 5, "label": "средний", "min": 46, "max": 56, "include_min": true, "include_max": false, "comment": "Примерно 46-55 градусов."},
+        {"score": 7, "label": "большой", "min": 56, "max": 70, "include_min": true, "include_max": false, "comment": "Примерно 56-70 градусов."},
+        {"score": 9, "label": "очень большой", "min": 70, "max": null, "include_min": true, "include_max": true, "comment": "Около 70 градусов и более."}
+      ]
+    },
+    {
+      "code": "OIV 611",
+      "short_name": "длина жилки N5",
+      "official_name": "Mature leaf: length of vein N5",
+      "measurement_kind": "length",
+      "tool_kinds": ["segment"],
+      "unit": "mm",
+      "boundary_method": "midpoints_between_oiv_reference_values",
+      "reference_values": [15, 25, 35, 45, 55],
+      "scale": [
+        {"score": 1, "label": "очень короткая", "min": null, "max": 20, "include_min": true, "include_max": false, "comment": "До примерно 15 мм."},
+        {"score": 3, "label": "короткая", "min": 20, "max": 30, "include_min": true, "include_max": false, "comment": "Около 25 мм."},
+        {"score": 5, "label": "средняя", "min": 30, "max": 40, "include_min": true, "include_max": false, "comment": "Около 35 мм."},
+        {"score": 7, "label": "длинная", "min": 40, "max": 50, "include_min": true, "include_max": false, "comment": "Около 45 мм."},
+        {"score": 9, "label": "очень длинная", "min": 50, "max": null, "include_min": true, "include_max": true, "comment": "Около 55 мм и более."}
+      ]
+    },
+    {
+      "code": "OIV 612",
+      "short_name": "длина зубца N2",
+      "official_name": "Mature leaf: length of tooth N2",
+      "measurement_kind": "length",
+      "tool_kinds": ["segment"],
+      "unit": "mm",
+      "boundary_method": "midpoints_between_oiv_reference_values",
+      "reference_values": [6, 10, 14, 18, 22],
+      "scale": [
+        {"score": 1, "label": "очень короткая", "min": null, "max": 8, "include_min": true, "include_max": false, "comment": "До примерно 6 мм."},
+        {"score": 3, "label": "короткая", "min": 8, "max": 12, "include_min": true, "include_max": false, "comment": "Около 10 мм."},
+        {"score": 5, "label": "средняя", "min": 12, "max": 16, "include_min": true, "include_max": false, "comment": "Около 14 мм."},
+        {"score": 7, "label": "длинная", "min": 16, "max": 20, "include_min": true, "include_max": false, "comment": "Около 18 мм."},
+        {"score": 9, "label": "очень длинная", "min": 20, "max": null, "include_min": true, "include_max": true, "comment": "Около 22 мм и более."}
+      ]
+    },
+    {
+      "code": "OIV 613",
+      "short_name": "ширина зубца N2",
+      "official_name": "Mature leaf: width of tooth N2",
+      "measurement_kind": "length",
+      "tool_kinds": ["segment"],
+      "unit": "mm",
+      "boundary_method": "midpoints_between_oiv_reference_values",
+      "reference_values": [6, 10, 14, 18, 22],
+      "scale": [
+        {"score": 1, "label": "очень узкая", "min": null, "max": 8, "include_min": true, "include_max": false, "comment": "До примерно 6 мм."},
+        {"score": 3, "label": "узкая", "min": 8, "max": 12, "include_min": true, "include_max": false, "comment": "Около 10 мм."},
+        {"score": 5, "label": "средняя", "min": 12, "max": 16, "include_min": true, "include_max": false, "comment": "Около 14 мм."},
+        {"score": 7, "label": "широкая", "min": 16, "max": 20, "include_min": true, "include_max": false, "comment": "Около 18 мм."},
+        {"score": 9, "label": "очень широкая", "min": 20, "max": null, "include_min": true, "include_max": true, "comment": "Около 22 мм и более."}
+      ]
+    },
+    {
+      "code": "OIV 614",
+      "short_name": "длина зубца N4",
+      "official_name": "Mature leaf: length of tooth N4",
+      "measurement_kind": "length",
+      "tool_kinds": ["segment"],
+      "unit": "mm",
+      "boundary_method": "midpoints_between_oiv_reference_values",
+      "reference_values": [6, 10, 14, 18, 22],
+      "scale": [
+        {"score": 1, "label": "очень короткая", "min": null, "max": 8, "include_min": true, "include_max": false, "comment": "До примерно 6 мм."},
+        {"score": 3, "label": "короткая", "min": 8, "max": 12, "include_min": true, "include_max": false, "comment": "Около 10 мм."},
+        {"score": 5, "label": "средняя", "min": 12, "max": 16, "include_min": true, "include_max": false, "comment": "Около 14 мм."},
+        {"score": 7, "label": "длинная", "min": 16, "max": 20, "include_min": true, "include_max": false, "comment": "Около 18 мм."},
+        {"score": 9, "label": "очень длинная", "min": 20, "max": null, "include_min": true, "include_max": true, "comment": "Около 22 мм и более."}
+      ]
+    },
+    {
+      "code": "OIV 615",
+      "short_name": "ширина зубца N4",
+      "official_name": "Mature leaf: width of tooth N4",
+      "measurement_kind": "length",
+      "tool_kinds": ["segment"],
+      "unit": "mm",
+      "boundary_method": "midpoints_between_oiv_reference_values",
+      "reference_values": [6, 10, 14, 18, 22],
+      "scale": [
+        {"score": 1, "label": "очень узкая", "min": null, "max": 8, "include_min": true, "include_max": false, "comment": "До примерно 6 мм."},
+        {"score": 3, "label": "узкая", "min": 8, "max": 12, "include_min": true, "include_max": false, "comment": "Около 10 мм."},
+        {"score": 5, "label": "средняя", "min": 12, "max": 16, "include_min": true, "include_max": false, "comment": "Около 14 мм."},
+        {"score": 7, "label": "широкая", "min": 16, "max": 20, "include_min": true, "include_max": false, "comment": "Около 18 мм."},
+        {"score": 9, "label": "очень широкая", "min": 20, "max": null, "include_min": true, "include_max": true, "comment": "Около 22 мм и более."}
+      ]
+    },
+    {
+      "code": "OIV 617",
+      "short_name": "расстояние между зубцами N2",
+      "official_name": "Mature leaf: length between the tooth tip of N2 and the tooth tip of the first secondary vein of N2",
+      "measurement_kind": "length",
+      "tool_kinds": ["segment"],
+      "unit": "mm",
+      "boundary_method": "normalized_document_ranges",
+      "scale": [
+        {"score": 1, "label": "очень короткое", "min": null, "max": 30, "include_min": true, "include_max": false, "comment": "До примерно 30 мм."},
+        {"score": 3, "label": "короткое", "min": 30, "max": 46, "include_min": true, "include_max": false, "comment": "Примерно 30-45 мм."},
+        {"score": 5, "label": "среднее", "min": 46, "max": 56, "include_min": true, "include_max": false, "comment": "Примерно 46-55 мм."},
+        {"score": 7, "label": "длинное", "min": 56, "max": 70, "include_min": true, "include_max": false, "comment": "Примерно 56-70 мм."},
+        {"score": 9, "label": "очень длинное", "min": 70, "max": null, "include_min": true, "include_max": true, "comment": "Около 70 мм и более."}
+      ]
+    }
+  ]
+}

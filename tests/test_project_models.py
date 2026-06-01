@@ -16,6 +16,7 @@ from magicborder.models import (
     ProjectImageRecord,
     ProjectImageMeasurements,
     ProjectInfo,
+    ProjectMeasurementAssessment,
     ProjectSegmentMeasurement,
 )
 
@@ -222,6 +223,66 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertEqual(loaded_segment.end_label, "B")
         self.assertEqual(loaded_segment.note, "измерить повторно")
         self.assertEqual(loaded_measurements.extra_groups, {"future": [{"kept": True}]})
+
+    def test_project_round_trip_preserves_measurement_oiv_assessments(self) -> None:
+        project = ProjectDocument(
+            name="assessments",
+            images=[
+                ProjectImageRecord(
+                    id="leaf-1",
+                    relative_path="images/leaf.png",
+                    display_name="leaf.png",
+                    measurements=ProjectImageMeasurements(
+                        angles=[
+                            ProjectAngleMeasurement(
+                                id="angle-1",
+                                first=Point(2, 10),
+                                vertex=Point(2, 2),
+                                second=Point(10, 2),
+                                assessment=ProjectMeasurementAssessment(
+                                    system="OIV",
+                                    code="OIV 607",
+                                ),
+                            )
+                        ],
+                        segments=[
+                            ProjectSegmentMeasurement(
+                                id="segment-1",
+                                start=Point(10, 20),
+                                end=Point(80, 20),
+                                assessment=ProjectMeasurementAssessment(
+                                    system="OIV",
+                                    code="OIV 601",
+                                ),
+                            )
+                        ],
+                    ),
+                )
+            ],
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_path = Path(temp_dir) / "assessments.json"
+            save_project(project_path, project)
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+
+            loaded_project = load_project(project_path)
+
+        image_payload = payload["images"][0]
+        self.assertEqual(
+            image_payload["measurements"]["angles"][0]["assessment"],
+            {"system": "OIV", "code": "OIV 607"},
+        )
+        self.assertEqual(
+            image_payload["measurements"]["segments"][0]["assessment"],
+            {"system": "OIV", "code": "OIV 601"},
+        )
+        self.assertNotIn("score", image_payload["measurements"]["angles"][0])
+        self.assertNotIn("score", image_payload["measurements"]["segments"][0])
+
+        loaded_measurements = loaded_project.images[0].measurements
+        self.assertEqual(loaded_measurements.angles[0].assessment.code, "OIV 607")
+        self.assertEqual(loaded_measurements.segments[0].assessment.code, "OIV 601")
 
     def test_project_loads_legacy_segment_measurement_without_name_and_note(self) -> None:
         project = ProjectDocument.from_dict(
