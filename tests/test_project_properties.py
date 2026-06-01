@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (  # noqa: E402
     QDialog,
     QSizePolicy,
     QHeaderView,
+    QLineEdit,
     QToolBar,
     QToolButton,
     QTreeWidget,
@@ -455,8 +456,10 @@ class ProjectPropertiesTest(unittest.TestCase):
             _project_property_panel_rows(window),
             [
                 "--- Общие свойства",
+                "Имя проекта",
+                "Путь",
+                "Количество файлов",
                 "Общая информация",
-                "Количество изображений",
                 "--- Цветовое пространство RGB",
                 "Средний R",
                 "Средний G",
@@ -479,6 +482,141 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Средний S",
             ],
         )
+
+    def test_project_properties_show_project_name_and_path(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_path = root / "display" / "display.json"
+            save_project(project_path, ProjectDocument(name="stale_name", images=[]))
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+            window._project_autosave_timer.stop()
+
+            self.assertIsInstance(window.project_name, QLineEdit)
+            self.assertIsInstance(window.project_path_field, QLineEdit)
+            self.assertEqual(window.project_name.text(), "display")
+            self.assertEqual(window.project_document.name, "display")
+            self.assertEqual(window.project_path_field.text(), str(project_path.resolve()))
+            self.assertTrue(window._save_project_silently(show_error=True))
+            self.assertEqual(load_project(project_path).name, "display")
+            self.assertTrue(window.project_path_field.isReadOnly())
+            self.assertTrue(window.project_path_field.isEnabled())
+            self.assertIs(
+                window.project_properties_browser.property_item("project_name").parent(),
+                _property_group(window.project_properties_browser, "Общие свойства"),
+            )
+            self.assertIs(
+                window.project_properties_browser.property_item("project_path").parent(),
+                _property_group(window.project_properties_browser, "Общие свойства"),
+            )
+
+    def test_project_name_edit_renames_project_file(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_dir = root / "original"
+            project_path = project_dir / "original.json"
+            save_project(
+                project_path,
+                ProjectDocument(
+                    name="original",
+                    images=[
+                        ProjectImageRecord(
+                            id="leaf-1",
+                            relative_path="images/leaf.png",
+                            display_name="leaf.png",
+                        )
+                    ],
+                ),
+            )
+            (project_dir / "images").mkdir()
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            window.project_name.setText("Renamed Project.json")
+            window.project_name.editingFinished.emit()
+            new_project_dir = root / "Renamed_Project"
+            new_project_path = new_project_dir / "Renamed_Project.json"
+
+            self.assertFalse(project_dir.exists())
+            self.assertFalse(project_path.exists())
+            self.assertTrue(new_project_dir.exists())
+            self.assertTrue((new_project_dir / "images").is_dir())
+            self.assertTrue(new_project_path.exists())
+            self.assertEqual(window.project_path, new_project_path.resolve())
+            self.assertEqual(window.project_path_field.text(), str(new_project_path.resolve()))
+            self.assertEqual(window.project_document.name, "Renamed_Project")
+            self.assertEqual(window.project_name.text(), "Renamed_Project")
+            self.assertEqual(window.project_document.images[0].relative_path, "images/leaf.png")
+            self.assertEqual(load_project(new_project_path).name, "Renamed_Project")
+            self.assertEqual(window.windowTitle(), "MagicBorder - Renamed_Project - leaf.png")
+
+            window.project_general_info.setPlainText("После переименования")
+            window._project_autosave_timer.stop()
+            self.assertTrue(window._save_project_silently(show_error=True))
+            self.assertFalse(project_path.exists())
+            self.assertEqual(
+                load_project(new_project_path).project_info.general_info,
+                "После переименования",
+            )
+
+    def test_project_name_edit_rejects_existing_project_directory(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_dir = root / "safe"
+            project_path = project_dir / "safe.json"
+            existing_dir = root / "taken"
+            existing_path = existing_dir / "taken.json"
+            save_project(project_path, ProjectDocument(name="safe", images=[]))
+            save_project(existing_path, ProjectDocument(name="taken", images=[]))
+            existing_payload = json.loads(existing_path.read_text(encoding="utf-8"))
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            with patch.object(window, "_show_warning") as show_warning:
+                window.project_name.setText("taken")
+                window.project_name.editingFinished.emit()
+
+                self.assertTrue(project_path.exists())
+                self.assertTrue(project_dir.exists())
+                self.assertTrue(existing_dir.exists())
+                self.assertTrue(existing_path.exists())
+                self.assertEqual(
+                    json.loads(existing_path.read_text(encoding="utf-8")),
+                    existing_payload,
+                )
+                self.assertEqual(window.project_path, project_path.resolve())
+                self.assertEqual(window.project_document.name, "safe")
+                self.assertEqual(window.project_name.text(), "safe")
+                self.assertEqual(window.project_path_field.text(), str(project_path.resolve()))
+                show_warning.assert_called_once()
+
+    def test_project_name_edit_rejects_empty_name_and_paths(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_path = root / "safe" / "safe.json"
+            save_project(project_path, ProjectDocument(name="safe", images=[]))
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+
+            for invalid_name in ("   ", ".", "..", "folder/unsafe", "folder\\unsafe"):
+                with self.subTest(invalid_name=invalid_name):
+                    with patch.object(window, "_show_warning") as show_warning:
+                        window.project_name.setText(invalid_name)
+                        window.project_name.editingFinished.emit()
+
+                        self.assertEqual(window.project_path, project_path.resolve())
+                        self.assertEqual(window.project_document.name, "safe")
+                        self.assertEqual(window.project_name.text(), "safe")
+                        self.assertTrue(project_path.exists())
+                        show_warning.assert_called_once()
 
     def test_left_project_sections_use_distinct_light_backgrounds(self) -> None:
         _app()

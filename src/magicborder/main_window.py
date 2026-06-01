@@ -300,6 +300,7 @@ class MainWindow(QMainWindow):
         self._current_project_image_id: str | None = None
         self._loading_project_image = False
         self._updating_project_list = False
+        self._updating_project_identity_fields = False
         self._updating_project_info_fields = False
         self._updating_metadata_fields = False
         self._updating_calibration_length_field = False
@@ -449,6 +450,12 @@ class MainWindow(QMainWindow):
         self.project_properties_empty_label.setWordWrap(True)
         self.project_properties_empty_label.setAlignment(Qt.AlignCenter)
 
+        self.project_name = self._metadata_line_edit()
+        self.project_name.setToolTip("Имя проекта без расширения .json.")
+        self.project_name.editingFinished.connect(self._handle_project_name_edit_finished)
+        self.project_path_field = self._metadata_line_edit()
+        self.project_path_field.setReadOnly(True)
+        self.project_path_field.setClearButtonEnabled(False)
         self.project_general_info = QTextEdit(properties_widget)
         self.project_general_info.setAcceptRichText(False)
         self.project_general_info.setMinimumHeight(58)
@@ -475,8 +482,10 @@ class MainWindow(QMainWindow):
             self.project_properties_browser,
             "Общие свойства",
             [
+                ("Имя проекта", self.project_name, "project_name"),
+                ("Путь", self.project_path_field, "project_path"),
+                ("Количество файлов", self.project_image_count),
                 ("Общая информация", self.project_general_info),
-                ("Количество изображений", self.project_image_count),
             ],
         )
         self._add_property_browser_group(
@@ -3354,6 +3363,7 @@ class MainWindow(QMainWindow):
     def _set_project(self, project_path: Path, document: ProjectDocument) -> None:
         self.project_path = project_path.resolve()
         self.project_document = document
+        project_name_was_synced = self._sync_project_document_name_with_path()
         self._current_project_image_id = None
         self._current_annotation_path = None
         self._refresh_project_list()
@@ -3363,6 +3373,19 @@ class MainWindow(QMainWindow):
             self._clear_current_image_display()
         self._update_project_panel()
         self._update_window_title()
+        if project_name_was_synced:
+            self._schedule_project_save()
+
+    def _sync_project_document_name_with_path(self) -> bool:
+        if self.project_document is None or self.project_path is None:
+            return False
+
+        project_name = self.project_path.stem
+        if not project_name or self.project_document.name == project_name:
+            return False
+
+        self.project_document.name = project_name
+        return True
 
     def _clear_project_state(self) -> None:
         self._project_autosave_timer.stop()
@@ -3659,7 +3682,10 @@ class MainWindow(QMainWindow):
         has_project = self.project_document is not None
         self.project_properties_empty_label.setVisible(not has_project)
         self.project_properties_browser.setVisible(has_project)
+        self.project_name.setEnabled(has_project)
+        self.project_path_field.setEnabled(has_project)
         self.project_general_info.setEnabled(has_project)
+        self._load_project_identity_fields()
 
         if self.project_document is None:
             self.project_properties_empty_label.setText("Создайте или откройте проект.")
@@ -3739,6 +3765,24 @@ class MainWindow(QMainWindow):
         self.project_mean_lms_l.setText(lms_l_text)
         self.project_mean_lms_m.setText(lms_m_text)
         self.project_mean_lms_s.setText(lms_s_text)
+
+    def _load_project_identity_fields(self) -> None:
+        project_name_text = "-"
+        project_path_text = "-"
+        if self.project_document is not None and self.project_path is not None:
+            project_name_text = _project_name_from_path(self.project_path, self.project_document.name)
+            project_path_text = str(self.project_path)
+
+        self._updating_project_identity_fields = True
+        try:
+            with QSignalBlocker(self.project_name), QSignalBlocker(self.project_path_field):
+                self.project_name.setText(project_name_text)
+                self.project_path_field.setText(project_path_text)
+                self.project_path_field.setToolTip(
+                    "" if project_path_text == "-" else project_path_text
+                )
+        finally:
+            self._updating_project_identity_fields = False
 
     def _project_contours_mean_color_stats(
         self,
@@ -3961,6 +4005,92 @@ class MainWindow(QMainWindow):
                 self.metadata_notes.setPlainText(str(record.metadata.get("notes", "")))
         finally:
             self._updating_metadata_fields = False
+
+    def _handle_project_name_edit_finished(self) -> None:
+        if self._updating_project_identity_fields:
+            return
+        if self.project_document is None or self.project_path is None:
+            return
+
+        raw_name = self.project_name.text()
+        normalized_name = _project_name_from_field_text(raw_name)
+        if normalized_name is None:
+            self._show_warning(
+                "Некорректное имя",
+                "Введите имя проекта без пути и без расширения .json.",
+            )
+            self._load_project_identity_fields()
+            return
+
+        self._rename_project_file(normalized_name)
+
+    def _rename_project_file(self, new_name: str) -> bool:
+        if self.project_document is None or self.project_path is None:
+            return False
+
+        old_path = self.project_path
+        old_dir = old_path.parent
+        old_document_name = self.project_document.name
+        new_dir = old_dir.with_name(new_name)
+        new_file_name = f"{new_name}.json"
+        renamed_file_path = old_dir / new_file_name
+        new_path = new_dir / new_file_name
+        needs_file_rename = old_path.name != new_file_name
+        needs_dir_rename = old_dir != new_dir
+        if not needs_file_rename and not needs_dir_rename:
+            if self.project_document.name != new_name:
+                self.project_document.name = new_name
+                self._schedule_project_save()
+                self._update_window_title()
+            self._load_project_identity_fields()
+            return True
+
+        if needs_dir_rename and new_dir.exists():
+            self._show_warning(
+                "Папка уже существует",
+                f"Папка проекта уже существует: {new_dir.name}",
+            )
+            self._load_project_identity_fields()
+            return False
+
+        if needs_file_rename and renamed_file_path.exists():
+            self._show_warning(
+                "Файл уже существует",
+                f"Файл проекта уже существует: {renamed_file_path.name}",
+            )
+            self._load_project_identity_fields()
+            return False
+
+        self._project_autosave_timer.stop()
+        try:
+            if needs_file_rename:
+                old_path.rename(renamed_file_path)
+            if needs_dir_rename:
+                old_dir.rename(new_dir)
+        except OSError as exc:
+            if needs_file_rename and renamed_file_path.exists() and not old_path.exists():
+                try:
+                    renamed_file_path.rename(old_path)
+                except OSError:
+                    pass
+            self.project_path = old_path
+            self.project_document.name = old_document_name
+            self._show_error(
+                "Ошибка переименования проекта",
+                f"Не удалось переименовать файл или папку проекта: {exc}",
+            )
+            self._load_project_identity_fields()
+            self._update_window_title()
+            return False
+
+        self.project_path = new_path.resolve()
+        self.project_document.name = new_name
+        self._load_project_identity_fields()
+        self._update_window_title()
+        if not self._save_project_silently(show_error=True):
+            return False
+        self.statusBar().showMessage(f"Проект переименован: {new_name}")
+        return True
 
     def _handle_project_general_info_changed(self) -> None:
         if self._updating_project_info_fields:
@@ -4889,6 +5019,29 @@ def _safe_project_name(raw_name: str) -> str:
         for char in raw_name.strip()
     )
     return "_".join(safe_name.split())
+
+
+def _project_name_without_json_suffix(raw_name: str) -> str:
+    name = str(raw_name or "").strip()
+    if name.lower().endswith(".json"):
+        name = name[:-5].strip()
+    return name
+
+
+def _project_name_from_path(project_path: Path | None, fallback: str = "") -> str:
+    if project_path is not None and project_path.stem:
+        return project_path.stem
+    return _project_name_without_json_suffix(fallback)
+
+
+def _project_name_from_field_text(raw_name: str) -> str | None:
+    name = _project_name_without_json_suffix(raw_name)
+    if not name or name in {".", ".."} or "/" in name or "\\" in name:
+        return None
+    safe_name = _safe_project_name(name)
+    if not safe_name or safe_name in {".", ".."}:
+        return None
+    return safe_name
 
 
 def _project_relative_path_key(value: str) -> str:
