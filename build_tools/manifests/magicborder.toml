@@ -13,6 +13,10 @@ recommended = "3.12"
 backend = "pyinstaller"
 output_root = "dist"
 
+[appimage]
+desktop_categories = ["Graphics", "Science", "Education"]
+icon = "build_tools/assets/magicborder.svg"
+
 [[data]]
 source = "src/magicborder/assets"
 target = "magicborder/assets"
@@ -20,4 +24,3 @@ target = "magicborder/assets"
 [[data]]
 source = "oiv_ampelometric_scales.json"
 target = "."
-

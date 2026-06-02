@@ -1,0 +1,8 @@
+Можно ли скриптом автоматизировать эти действия:
+```bash
+mkdir -p .tools
+curl -L \
+  https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+  -o .tools/appimagetool-x86_64.AppImage
+chmod +x .tools/appimagetool-x86_64.AppImage
+```

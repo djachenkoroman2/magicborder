@@ -5,6 +5,10 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
+
+
+BundleMode = Literal["onedir", "onefile"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +19,9 @@ class PyInstallerPlan:
     launcher_path: Path
     module_name: str
     function_name: str
+    app_name: str
+    platform_id: str
+    bundle_mode: BundleMode
 
 
 def create_plan(
@@ -23,7 +30,11 @@ def create_plan(
     manifest: dict,
     platform_id: str,
     clean: bool,
+    bundle_mode: BundleMode = "onedir",
 ) -> PyInstallerPlan:
+    if bundle_mode not in {"onedir", "onefile"}:
+        raise ValueError(f"Неподдерживаемый режим PyInstaller: {bundle_mode}")
+
     app = manifest["app"]
     app_name = str(app["name"])
     build_root = repo_root / "build" / "portable" / platform_id
@@ -52,6 +63,8 @@ def create_plan(
     ]
     if clean:
         command.append("--clean")
+    if bundle_mode == "onefile":
+        command.append("--onefile")
     if bool(app.get("gui", False)):
         command.append("--windowed")
 
@@ -68,6 +81,9 @@ def create_plan(
         launcher_path=launcher_path,
         module_name=module_name,
         function_name=function_name,
+        app_name=app_name,
+        platform_id=platform_id,
+        bundle_mode=bundle_mode,
     )
 
 
@@ -111,9 +127,10 @@ def _write_launcher(path: Path, module_name: str, function_name: str) -> None:
 
 
 def _find_bundle(plan: PyInstallerPlan) -> Path:
-    app_name = plan.command[plan.command.index("--name") + 1]
+    app_name = plan.app_name
     candidates = [
         plan.dist_path / app_name,
+        plan.dist_path / f"{app_name}.exe",
         plan.dist_path / f"{app_name}.app",
     ]
     for candidate in candidates:

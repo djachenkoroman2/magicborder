@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="MagicBorder">
+  <rect width="256" height="256" rx="48" fill="#f7fbf4"/>
+  <path d="M54 138c0-49 43-89 99-89 22 0 40 5 53 14-4 64-45 124-113 124-24 0-39-8-39-49z" fill="#6aa84f"/>
+  <path d="M90 183c21-50 55-84 112-119" fill="none" stroke="#245c3a" stroke-width="14" stroke-linecap="round"/>
+  <path d="M76 68h104c10 0 18 8 18 18v84c0 10-8 18-18 18H76c-10 0-18-8-18-18V86c0-10 8-18 18-18z" fill="none" stroke="#1f2937" stroke-width="12" stroke-linejoin="round" stroke-dasharray="24 18"/>
+</svg>

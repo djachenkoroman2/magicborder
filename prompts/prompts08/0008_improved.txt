@@ -1,0 +1,260 @@
+Задача: расширить существующий механизм portable-сборки MagicBorder опциональными форматами артефактов: Linux AppImage и Windows single-file exe.
+
+Исходная формулировка:
+"Необходимо опционально в дополнении к текущему механизму сборки портированных приложений под разные операционные системы добавить вариант сборки для Linux в формате *.AppImage и для операционной системы Windows вариант сборки всего проекта в одном exe файле"
+
+Контекст проекта:
+- MagicBorder - настольное приложение на Python и `PyQt5`.
+- Проект использует `pyproject.toml`, `uv.lock` и `uv`.
+- Текущий механизм portable-сборки уже реализован в:
+  - `build_tools/portable_build.py`;
+  - `build_tools/backends/pyinstaller.py`;
+  - `build_tools/manifests/magicborder.toml`;
+  - `doc/portable_build.md`.
+- Текущий backend сборки - `PyInstaller`.
+- Сейчас поддержаны платформы:
+  - `linux-x86_64`;
+  - `windows-x86_64`;
+  - `macos-x86_64`;
+  - `macos-arm64`.
+- Текущие форматы результата:
+  - Linux: `.tar.gz` с portable-папкой;
+  - Windows: `.zip` с portable-папкой;
+  - macOS: `.zip` с portable-папкой или app bundle внутри архива.
+- В portable-сборку обязательно должны попадать:
+  - `src/magicborder/assets`;
+  - `oiv_ampelometric_scales.json`.
+- Сборка чужой платформы не поддерживается: Windows нужно собирать на Windows, Linux - на Linux, macOS - на macOS. Dry-run для чужой платформы допустим только как просмотр плана.
+
+Цель:
+- Не заменять текущий механизм архивных portable-сборок.
+- Добавить опциональный выбор формата артефакта:
+  - обычный archive-режим, как сейчас;
+  - Linux AppImage для `linux-x86_64`;
+  - Windows onefile exe для `windows-x86_64`.
+- Сохранить единый CLI `build_tools/portable_build.py`.
+- Сохранить PyInstaller как основной backend для сборки приложения.
+- Сделать новые варианты явно выбираемыми, чтобы существующие команды и документация продолжали работать без изменений.
+
+Предлагаемая модель CLI:
+```bash
+uv run --extra build python build_tools/portable_build.py --artifact archive
+uv run --extra build python build_tools/portable_build.py --artifact appimage
+uv run --extra build python build_tools/portable_build.py --artifact onefile
+```
+
+Требования к `--artifact`:
+- Добавить аргумент:
+  - `--artifact archive|appimage|onefile`;
+  - значение по умолчанию: `archive`.
+- `archive` должен полностью сохранять текущее поведение.
+- `appimage` разрешен только для `linux-x86_64`.
+- `onefile` разрешен только для `windows-x86_64`.
+- Если пользователь выбрал несовместимую пару `--platform` и `--artifact`, команда должна завершаться понятной ошибкой.
+- Если выбрана чужая платформа без `--dry-run`, поведение должно остаться прежним: завершиться ошибкой о невозможности кросс-сборки.
+- Если выбрана чужая платформа с `--dry-run`, нужно вывести план и явное предупреждение, что реальная сборка должна выполняться на целевой ОС.
+
+Ожидаемая матрица артефактов:
+| Платформа | `--artifact archive` | `--artifact appimage` | `--artifact onefile` |
+|---|---|---|---|
+| `linux-x86_64` | `magicborder-0.1.0-linux-x86_64.tar.gz` | `magicborder-0.1.0-linux-x86_64.AppImage` | не поддерживается |
+| `windows-x86_64` | `magicborder-0.1.0-windows-x86_64.zip` | не поддерживается | `magicborder-0.1.0-windows-x86_64.exe` |
+| `macos-x86_64` | `magicborder-0.1.0-macos-x86_64.zip` | не поддерживается | не поддерживается |
+| `macos-arm64` | `magicborder-0.1.0-macos-arm64.zip` | не поддерживается | не поддерживается |
+
+Windows onefile exe:
+- Реализовать через PyInstaller `--onefile`.
+- Для GUI-приложения сохранить режим без консоли:
+  - `--windowed` / `--noconsole`, как сейчас.
+- Включаемые данные должны остаться подключенными через `--add-data`.
+- Итоговый распространяемый файл должен быть один:
+  - `dist/windows-x86_64/magicborder-0.1.0-windows-x86_64.exe`.
+- Не упаковывать onefile exe дополнительно в `.zip`, если пользователь явно выбрал `--artifact onefile`.
+- Учитывать нормальное поведение PyInstaller onefile: при запуске exe может временно распаковывать внутренние файлы. Это не ошибка, требование относится к одному распространяемому `.exe`.
+- `_find_bundle` или аналогичный helper должен уметь находить файл `magicborder.exe`, а не только папку `magicborder`.
+- Smoke-test для onefile не должен требовать интерактивного запуска GUI. Достаточно проверить:
+  - файл существует;
+  - файл не пустой;
+  - имя и расширение ожидаемые;
+  - на Windows файл имеет `.exe`.
+- Если появится несложная возможность выполнить неинтерактивную проверку без открытия окна, ее можно добавить как опциональную, но не делать обязательной.
+
+Linux AppImage:
+- AppImage не создается PyInstaller напрямую. Использовать PyInstaller для получения Linux onedir bundle, а затем упаковывать его в AppDir и AppImage.
+- `--artifact appimage` должен работать только на Linux `x86_64`.
+- Для AppImage использовать внешний инструмент, например `appimagetool`.
+- Не скачивать `appimagetool` автоматически из интернета во время сборки.
+- Поддержать один или несколько способов указать инструмент:
+  - аргумент CLI `--appimagetool PATH`;
+  - переменная окружения `APPIMAGETOOL`;
+  - поиск `appimagetool` в `PATH`.
+- Если инструмент не найден, завершить сборку понятной ошибкой с краткой подсказкой, как указать путь к нему.
+- Не добавлять `appimagetool` в Python runtime-зависимости проекта. Это внешний сборочный инструмент.
+
+Рекомендуемая структура временного AppDir:
+```text
+build/portable/linux-x86_64/appimage/
+  MagicBorder.AppDir/
+    AppRun
+    magicborder.desktop
+    magicborder.svg
+    usr/
+      bin/
+        magicborder/
+          magicborder
+          ...файлы PyInstaller onedir bundle...
+      share/
+        applications/
+          magicborder.desktop
+        icons/
+          hicolor/
+            scalable/
+              apps/
+                magicborder.svg
+```
+
+Требования к AppDir:
+- `AppRun` должен запускать исполняемый файл PyInstaller bundle и передавать аргументы:
+```sh
+#!/bin/sh
+HERE="$(dirname "$(readlink -f "$0")")"
+exec "$HERE/usr/bin/magicborder/magicborder" "$@"
+```
+- `AppRun` должен иметь executable bit.
+- `magicborder.desktop` должен быть валидным desktop entry, например:
+```ini
+[Desktop Entry]
+Type=Application
+Name=MagicBorder
+Exec=magicborder
+Icon=magicborder
+Categories=Graphics;Science;Education;
+Terminal=false
+```
+- В AppDir должен быть icon-файл с именем, совпадающим с `Icon=magicborder`.
+- Если в проекте нет отдельной иконки приложения, можно добавить минимальную сборочную иконку в `build_tools/assets/magicborder.svg` или использовать подходящий существующий SVG из `src/magicborder/assets/icons` как временный источник. Не нужно перерабатывать весь набор UI-иконок.
+- Внутри AppDir должны сохраниться runtime-данные PyInstaller bundle:
+  - `magicborder/assets`;
+  - `oiv_ampelometric_scales.json`.
+
+Выход AppImage:
+- Итоговый файл:
+  - `dist/linux-x86_64/magicborder-0.1.0-linux-x86_64.AppImage`.
+- Файл должен быть executable.
+- Не создавать дополнительно `.tar.gz`, если пользователь явно выбрал `--artifact appimage`.
+- AppImage-сборка наследует Linux/glibc-ограничение текущей portable-сборки: собирать нужно на самой старой Linux-системе или в самом старом контейнере, который планируется поддерживать.
+- Не требовать обязательного запуска AppImage как smoke-test, потому что headless/CI окружение может не иметь дисплея или FUSE.
+
+Рекомендуемые изменения в коде:
+- `build_tools/portable_build.py`:
+  - добавить `--artifact`;
+  - добавить `--appimagetool`;
+  - добавить валидацию совместимости `platform_id` и `artifact`;
+  - заменить archive-specific helpers на более общую модель результата;
+  - оставить текущую упаковку archive-режима без изменений поведения;
+  - добавить packaging-функцию для AppImage;
+  - добавить smoke-test для разных типов артефактов;
+  - обновить dry-run вывод так, чтобы он показывал тип артефакта и путь результата.
+- `build_tools/backends/pyinstaller.py`:
+  - дать backend-у режим bundle:
+    - `onedir` для `archive` и `appimage`;
+    - `onefile` для Windows `onefile`;
+  - при `onefile` добавлять `--onefile`;
+  - корректно находить результат в `_find_bundle`;
+  - не смешивать AppImage-логику с PyInstaller backend-ом.
+- `build_tools/manifests/magicborder.toml`:
+  - при необходимости добавить минимальные настройки для AppImage:
+```toml
+[appimage]
+desktop_categories = ["Graphics", "Science", "Education"]
+icon = "build_tools/assets/magicborder.svg"
+```
+  - Если выбран другой формат manifest-а, он должен оставаться читаемым TOML и не ломать существующие поля.
+- `.gitignore`:
+  - убедиться, что реальные build-output файлы не попадают в git:
+    - `dist/*`;
+    - `build/`;
+    - временные AppDir;
+    - PyInstaller output.
+  - Сохранить `dist/.gitkeep`, если он уже используется.
+
+Документация:
+- Обновить `doc/portable_build.md`.
+- В разделе поддерживаемых целей добавить новые опциональные форматы:
+  - Linux `.AppImage`;
+  - Windows single `.exe`.
+- Обновить примеры команд:
+```bash
+uv run --extra build python build_tools/portable_build.py --artifact archive --clean
+uv run --extra build python build_tools/portable_build.py --artifact appimage --clean
+uv run --extra build python build_tools/portable_build.py --artifact onefile --clean
+```
+- Для dry-run привести примеры:
+```bash
+uv run --extra build python build_tools/portable_build.py --artifact appimage --dry-run
+uv run --extra build python build_tools/portable_build.py --platform windows-x86_64 --artifact onefile --dry-run
+```
+- Описать, что AppImage требует внешний `appimagetool`.
+- Описать способы указания `appimagetool`:
+  - `--appimagetool`;
+  - `APPIMAGETOOL`;
+  - `PATH`.
+- Описать, что Windows onefile exe нужно собирать на Windows.
+- Описать, что onefile exe может временно распаковываться при запуске.
+- Описать, что AppImage может зависеть от glibc системы сборки и особенностей FUSE на целевой машине.
+
+Рекомендуемые тесты:
+- Добавить или расширить тесты для build wrapper-а, если в проекте еще нет отдельного файла, например `tests/test_portable_build.py`.
+- Тесты не должны запускать настоящий PyInstaller или `appimagetool`, если это можно проверить unit-тестами.
+- Проверить:
+  1. `--artifact archive` остается значением по умолчанию.
+  2. Для `archive` имена артефактов остались прежними:
+     - Linux `.tar.gz`;
+     - Windows `.zip`;
+     - macOS `.zip`.
+  3. Для Linux `appimage` строится имя `magicborder-0.1.0-linux-x86_64.AppImage`.
+  4. Для Windows `onefile` строится имя `magicborder-0.1.0-windows-x86_64.exe`.
+  5. `appimage` отклоняется для Windows и macOS.
+  6. `onefile` отклоняется для Linux и macOS.
+  7. Dry-run для чужой платформы выводит план, но реальная сборка чужой платформы запрещена.
+  8. PyInstaller-команда для `onefile` содержит `--onefile`.
+  9. PyInstaller-команда для `archive` и `appimage` не содержит `--onefile`.
+  10. Smoke-test archive-режима продолжает проверять исполняемый файл, OIV JSON и assets.
+  11. Smoke-test onefile проверяет один exe-файл.
+  12. AppImage packaging-функция формирует AppDir с `AppRun`, `.desktop` и icon-файлом. Внешний `appimagetool` в unit-тесте можно заменить stub-командой или mock-ом.
+
+Ограничения:
+- Не ломать существующие команды без `--artifact`.
+- Не менять default-форматы текущих portable-сборок.
+- Не пытаться кросс-компилировать Windows exe из Linux или Linux AppImage из Windows.
+- Не добавлять CI workflow, если это не требуется для минимальной реализации.
+- Не добавлять `Nuitka`, `cx_Freeze`, `Briefcase` или другие backend-и.
+- Не переносить AppImage-логику в PyInstaller backend: backend должен только собирать приложение, общий wrapper должен решать формат финального артефакта.
+- Не добавлять сетевые загрузки в сборочный сценарий.
+- Не коммитить реальные `.AppImage`, `.exe`, `.zip`, `.tar.gz`, AppDir, PyInstaller build-output.
+- Не менять runtime-логику приложения, кроме минимальных исправлений поиска ресурсов, если они действительно нужны для onefile/AppImage.
+
+Проверки перед завершением:
+- `uv lock --check`
+- `uv run pytest`
+- `uv run --extra build python build_tools/portable_build.py --dry-run`
+- `uv run --extra build python build_tools/portable_build.py --artifact archive --dry-run`
+- `uv run --extra build python build_tools/portable_build.py --artifact appimage --dry-run`
+- `uv run --extra build python build_tools/portable_build.py --platform windows-x86_64 --artifact onefile --dry-run`
+- Если текущая ОС Linux и доступен `appimagetool`:
+  - `uv run --extra build python build_tools/portable_build.py --artifact appimage --clean`
+- Если текущая ОС Windows:
+  - `uv run --extra build python build_tools/portable_build.py --artifact onefile --clean`
+- Если фактическая AppImage или Windows onefile сборка не выполнялась из-за ОС или отсутствия внешнего инструмента, явно указать это в отчете.
+
+Критерии готовности:
+- Старый archive-режим работает как раньше и остается режимом по умолчанию.
+- Для Linux можно запросить AppImage через `--artifact appimage`.
+- Для Windows можно запросить один exe-файл через `--artifact onefile`.
+- Несовместимые пары платформа/артефакт отклоняются понятными ошибками.
+- Dry-run показывает корректную команду backend-а и путь будущего артефакта.
+- AppImage-сборка использует внешний `appimagetool` без автоматических скачиваний.
+- Windows onefile-сборка использует PyInstaller `--onefile`.
+- `oiv_ampelometric_scales.json` и `magicborder/assets` остаются доступны в portable-артефактах.
+- Документация описывает новые форматы, команды, ограничения и требования к внешним инструментам.
+- Тесты проекта проходят.

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import os
 import platform
 import shlex
 import shutil
+import stat
+import subprocess
 import sys
 import tarfile
 import tomllib
@@ -20,6 +23,12 @@ SUPPORTED_PLATFORMS = {
     "macos-x86_64",
     "macos-arm64",
 }
+SUPPORTED_ARTIFACTS = {"archive", "appimage", "onefile"}
+ARTIFACT_PLATFORMS = {
+    "archive": SUPPORTED_PLATFORMS,
+    "appimage": {"linux-x86_64"},
+    "onefile": {"windows-x86_64"},
+}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -33,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     requested_platform = current_platform if args.platform == "auto" else args.platform
     if requested_platform not in SUPPORTED_PLATFORMS:
         raise SystemExit(f"Неподдерживаемая целевая платформа: {requested_platform}")
+    _validate_artifact_platform(args.artifact, requested_platform)
 
     backend_name = args.backend or str(manifest["build"]["backend"])
     if backend_name != "pyinstaller":
@@ -51,41 +61,76 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit(message)
         print(f"WARNING: {message}")
 
-    from backends import pyinstaller
+    appimagetool_path = None
+    if args.artifact == "appimage" and not args.dry_run:
+        appimagetool_path = _resolve_appimagetool(args.appimagetool)
 
+    pyinstaller = _load_pyinstaller_backend()
+    bundle_mode = "onefile" if args.artifact == "onefile" else "onedir"
     plan = pyinstaller.create_plan(
         repo_root=REPO_ROOT,
         manifest=manifest,
         platform_id=requested_platform,
         clean=args.clean,
+        bundle_mode=bundle_mode,
+    )
+    artifact_path = _artifact_output_path(
+        manifest=manifest,
+        platform_id=requested_platform,
+        output_root=output_root,
+        artifact=args.artifact,
     )
     _print_plan(
         manifest=manifest,
         platform_id=requested_platform,
-        output_root=output_root,
+        output_path=artifact_path,
         backend_name=backend_name,
+        artifact=args.artifact,
         command=plan.command,
     )
     if args.dry_run:
         return 0
 
     bundle_path = pyinstaller.build(plan, clean=args.clean)
-    archive_path = _package_bundle(
-        bundle_path=bundle_path,
-        manifest=manifest,
-        platform_id=requested_platform,
-        output_root=output_root,
-        build_root=plan.build_root,
-    )
+    if args.artifact == "archive":
+        artifact_path = _package_archive(
+            bundle_path=bundle_path,
+            manifest=manifest,
+            platform_id=requested_platform,
+            output_root=output_root,
+            build_root=plan.build_root,
+        )
+    elif args.artifact == "onefile":
+        artifact_path = _package_onefile(
+            bundle_path=bundle_path,
+            manifest=manifest,
+            platform_id=requested_platform,
+            output_root=output_root,
+        )
+    else:
+        artifact_path = _package_appimage(
+            bundle_path=bundle_path,
+            manifest=manifest,
+            platform_id=requested_platform,
+            output_root=output_root,
+            build_root=plan.build_root,
+            appimagetool=appimagetool_path,
+        )
+
     if not args.skip_smoke_test:
-        _smoke_test_archive(archive_path, manifest=manifest, platform_id=requested_platform)
-    print(f"Portable archive: {archive_path}")
+        _smoke_test_artifact(
+            artifact_path,
+            manifest=manifest,
+            platform_id=requested_platform,
+            artifact=args.artifact,
+        )
+    print(f"Portable {args.artifact}: {artifact_path}")
     return 0
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build a portable MagicBorder application archive for the current platform.",
+        description="Build a portable MagicBorder application artifact for the current platform.",
     )
     parser.add_argument("--manifest", default=str(DEFAULT_MANIFEST))
     parser.add_argument("--backend", choices=["pyinstaller"], default=None)
@@ -94,6 +139,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         choices=["auto", *sorted(SUPPORTED_PLATFORMS)],
         default="auto",
     )
+    parser.add_argument(
+        "--artifact",
+        choices=sorted(SUPPORTED_ARTIFACTS),
+        default="archive",
+    )
+    parser.add_argument("--appimagetool", default=None)
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--clean", action="store_true")
     parser.add_argument("--skip-smoke-test", action="store_true")
@@ -112,11 +163,22 @@ def _load_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(payload.get("data", []), list):
         raise ValueError("Manifest data должен быть списком [[data]].")
     for item in payload.get("data", []):
-        source = REPO_ROOT / str(item.get("source", ""))
+        source = _repo_path(str(item.get("source", "")))
         if not source.exists():
             raise FileNotFoundError(f"Файл данных не найден: {source}")
         if not str(item.get("target", "")).strip():
             raise ValueError("Каждый [[data]] должен содержать target.")
+
+    appimage = payload.get("appimage")
+    if appimage is not None and not isinstance(appimage, dict):
+        raise ValueError("Manifest [appimage] должен быть секцией TOML.")
+    if isinstance(appimage, dict):
+        icon = str(appimage.get("icon", "")).strip()
+        if icon and not _repo_path(icon).exists():
+            raise FileNotFoundError(f"Иконка AppImage не найдена: {_repo_path(icon)}")
+        categories = appimage.get("desktop_categories", [])
+        if categories and not isinstance(categories, list):
+            raise ValueError("Manifest [appimage].desktop_categories должен быть списком.")
     return payload
 
 
@@ -135,24 +197,45 @@ def _current_platform_id() -> str:
     raise SystemExit(f"Текущая платформа не поддержана: {system}/{machine}")
 
 
+def _validate_artifact_platform(artifact: str, platform_id: str) -> None:
+    if artifact not in SUPPORTED_ARTIFACTS:
+        raise SystemExit(f"Неподдерживаемый тип артефакта: {artifact}")
+    allowed_platforms = ARTIFACT_PLATFORMS[artifact]
+    if platform_id not in allowed_platforms:
+        supported = ", ".join(sorted(allowed_platforms))
+        raise SystemExit(
+            f"Artifact {artifact} не поддерживается для платформы {platform_id}. "
+            f"Поддерживаемые платформы: {supported}."
+        )
+
+
+def _load_pyinstaller_backend() -> Any:
+    try:
+        from build_tools.backends import pyinstaller
+    except ModuleNotFoundError:
+        from backends import pyinstaller
+    return pyinstaller
+
+
 def _print_plan(
     *,
     manifest: dict[str, Any],
     platform_id: str,
-    output_root: Path,
+    output_path: Path,
     backend_name: str,
+    artifact: str,
     command: list[str],
 ) -> None:
     app = manifest["app"]
-    archive_name = _archive_name(app["name"], app["version"], platform_id)
     print(f"App: {app.get('display_name', app['name'])} {app['version']}")
     print(f"Platform: {platform_id}")
+    print(f"Artifact: {artifact}")
     print(f"Backend: {backend_name}")
-    print(f"Output: {output_root / platform_id / archive_name}")
+    print(f"Output: {output_path}")
     print(f"Command: {shlex.join(command)}")
 
 
-def _package_bundle(
+def _package_archive(
     *,
     bundle_path: Path,
     manifest: dict[str, Any],
@@ -189,9 +272,190 @@ def _package_bundle(
     return Path(created)
 
 
-def _archive_name(app_name: str, version: str, platform_id: str) -> str:
-    suffix = ".zip" if platform_id.startswith(("windows-", "macos-")) else ".tar.gz"
-    return f"{app_name}-{version}-{platform_id}{suffix}"
+def _package_onefile(
+    *,
+    bundle_path: Path,
+    manifest: dict[str, Any],
+    platform_id: str,
+    output_root: Path,
+) -> Path:
+    if not bundle_path.is_file():
+        raise RuntimeError(f"PyInstaller onefile должен вернуть файл, получено: {bundle_path}")
+
+    output_path = _artifact_output_path(
+        manifest=manifest,
+        platform_id=platform_id,
+        output_root=output_root,
+        artifact="onefile",
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(bundle_path, output_path)
+    return output_path
+
+
+def _package_appimage(
+    *,
+    bundle_path: Path,
+    manifest: dict[str, Any],
+    platform_id: str,
+    output_root: Path,
+    build_root: Path,
+    appimagetool: Path | str | None,
+) -> Path:
+    if platform_id != "linux-x86_64":
+        raise RuntimeError(f"AppImage поддержан только для linux-x86_64, получено: {platform_id}")
+
+    tool_path = appimagetool if isinstance(appimagetool, Path) else _resolve_appimagetool(appimagetool)
+    app_dir = _prepare_app_dir(bundle_path=bundle_path, manifest=manifest, build_root=build_root)
+    output_path = _artifact_output_path(
+        manifest=manifest,
+        platform_id=platform_id,
+        output_root=output_root,
+        artifact="appimage",
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        output_path.unlink()
+
+    env = os.environ.copy()
+    env.setdefault("ARCH", "x86_64")
+    subprocess.run([str(tool_path), str(app_dir), str(output_path)], check=True, env=env)
+    if not output_path.exists():
+        raise RuntimeError(f"appimagetool не создал ожидаемый файл: {output_path}")
+    _add_executable_bits(output_path)
+    return output_path
+
+
+def _prepare_app_dir(*, bundle_path: Path, manifest: dict[str, Any], build_root: Path) -> Path:
+    app = manifest["app"]
+    app_name = str(app["name"])
+    app_dir = build_root / "appimage" / _app_dir_name(manifest)
+    if app_dir.exists():
+        shutil.rmtree(app_dir)
+
+    bundle_destination = app_dir / "usr" / "bin" / app_name
+    bundle_destination.parent.mkdir(parents=True, exist_ok=True)
+    if bundle_path.is_dir():
+        shutil.copytree(bundle_path, bundle_destination)
+        executable_name = app_name
+    else:
+        bundle_destination.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(bundle_path, bundle_destination / bundle_path.name)
+        executable_name = bundle_path.name
+
+    _write_apprun(app_dir / "AppRun", app_name=app_name, executable_name=executable_name)
+    _write_desktop_entries(app_dir, manifest=manifest)
+    _copy_appimage_icon(app_dir, manifest=manifest)
+    return app_dir
+
+
+def _write_apprun(path: Path, *, app_name: str, executable_name: str) -> None:
+    path.write_text(
+        "\n".join(
+            [
+                "#!/bin/sh",
+                'HERE="$(dirname "$(readlink -f "$0")")"',
+                f'exec "$HERE/usr/bin/{app_name}/{executable_name}" "$@"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    _add_executable_bits(path)
+
+
+def _write_desktop_entries(app_dir: Path, *, manifest: dict[str, Any]) -> None:
+    app = manifest["app"]
+    app_name = str(app["name"])
+    display_name = str(app.get("display_name", app_name))
+    categories = _appimage_categories(manifest)
+    desktop_text = "\n".join(
+        [
+            "[Desktop Entry]",
+            "Type=Application",
+            f"Name={display_name}",
+            f"Exec={app_name}",
+            f"Icon={app_name}",
+            f"Categories={categories}",
+            "Terminal=false",
+            "",
+        ]
+    )
+
+    root_desktop = app_dir / f"{app_name}.desktop"
+    root_desktop.write_text(desktop_text, encoding="utf-8")
+
+    share_desktop = app_dir / "usr" / "share" / "applications" / f"{app_name}.desktop"
+    share_desktop.parent.mkdir(parents=True, exist_ok=True)
+    share_desktop.write_text(desktop_text, encoding="utf-8")
+
+
+def _copy_appimage_icon(app_dir: Path, *, manifest: dict[str, Any]) -> None:
+    app_name = str(manifest["app"]["name"])
+    icon_source = _appimage_icon_source(manifest)
+    icon_suffix = icon_source.suffix or ".svg"
+
+    root_icon = app_dir / f"{app_name}{icon_suffix}"
+    root_icon.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(icon_source, root_icon)
+
+    share_icon = app_dir / "usr" / "share" / "icons" / "hicolor" / "scalable" / "apps" / f"{app_name}{icon_suffix}"
+    share_icon.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(icon_source, share_icon)
+
+
+def _resolve_appimagetool(raw_path: str | None) -> Path:
+    candidates = [raw_path, os.environ.get("APPIMAGETOOL")]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        resolved = _resolve_executable(candidate)
+        if resolved is not None:
+            return resolved
+        raise RuntimeError(
+            "appimagetool не найден. Укажите путь через --appimagetool, "
+            "переменную APPIMAGETOOL или добавьте appimagetool в PATH."
+        )
+
+    found = shutil.which("appimagetool")
+    if found:
+        return Path(found)
+    raise RuntimeError(
+        "appimagetool не найден. Укажите путь через --appimagetool, "
+        "переменную APPIMAGETOOL или добавьте appimagetool в PATH."
+    )
+
+
+def _resolve_executable(value: str) -> Path | None:
+    if not _has_path_separator(value):
+        found = shutil.which(value)
+        if found:
+            return Path(found)
+    path = Path(value)
+    if path.exists():
+        return path
+    return None
+
+
+def _has_path_separator(value: str) -> bool:
+    return os.sep in value or bool(os.altsep and os.altsep in value)
+
+
+def _smoke_test_artifact(
+    artifact_path: Path,
+    *,
+    manifest: dict[str, Any],
+    platform_id: str,
+    artifact: str,
+) -> None:
+    if artifact == "archive":
+        _smoke_test_archive(artifact_path, manifest=manifest, platform_id=platform_id)
+    elif artifact == "onefile":
+        _smoke_test_onefile(artifact_path, manifest=manifest, platform_id=platform_id)
+    elif artifact == "appimage":
+        _smoke_test_appimage(artifact_path)
+    else:
+        raise RuntimeError(f"Неподдерживаемый smoke-test для artifact={artifact}")
 
 
 def _smoke_test_archive(
@@ -214,6 +478,35 @@ def _smoke_test_archive(
         raise RuntimeError("В архиве не найдены assets MagicBorder.")
 
 
+def _smoke_test_onefile(
+    artifact_path: Path,
+    *,
+    manifest: dict[str, Any],
+    platform_id: str,
+) -> None:
+    expected_name = _artifact_name(
+        str(manifest["app"]["name"]),
+        str(manifest["app"]["version"]),
+        platform_id,
+        "onefile",
+    )
+    if not artifact_path.exists() or artifact_path.stat().st_size <= 0:
+        raise RuntimeError(f"Onefile exe не создан или пуст: {artifact_path}")
+    if artifact_path.name != expected_name:
+        raise RuntimeError(f"Onefile exe имеет неожиданное имя: {artifact_path.name}")
+    if platform_id.startswith("windows-") and artifact_path.suffix.lower() != ".exe":
+        raise RuntimeError(f"Windows onefile должен иметь расширение .exe: {artifact_path}")
+
+
+def _smoke_test_appimage(artifact_path: Path) -> None:
+    if not artifact_path.exists() or artifact_path.stat().st_size <= 0:
+        raise RuntimeError(f"AppImage не создан или пуст: {artifact_path}")
+    if artifact_path.suffix != ".AppImage":
+        raise RuntimeError(f"AppImage имеет неожиданное расширение: {artifact_path}")
+    if not os.access(artifact_path, os.X_OK):
+        raise RuntimeError(f"AppImage должен быть исполняемым: {artifact_path}")
+
+
 def _archive_members(archive_path: Path) -> list[str]:
     if archive_path.suffix == ".zip":
         with zipfile.ZipFile(archive_path) as archive:
@@ -224,6 +517,70 @@ def _archive_members(archive_path: Path) -> list[str]:
     raise RuntimeError(f"Неподдерживаемый формат архива: {archive_path}")
 
 
+def _artifact_output_path(
+    *,
+    manifest: dict[str, Any],
+    platform_id: str,
+    output_root: Path,
+    artifact: str,
+) -> Path:
+    app = manifest["app"]
+    return output_root / platform_id / _artifact_name(str(app["name"]), str(app["version"]), platform_id, artifact)
+
+
+def _archive_name(app_name: str, version: str, platform_id: str) -> str:
+    return _artifact_name(app_name, version, platform_id, "archive")
+
+
+def _artifact_name(app_name: str, version: str, platform_id: str, artifact: str) -> str:
+    if artifact == "archive":
+        suffix = ".zip" if platform_id.startswith(("windows-", "macos-")) else ".tar.gz"
+    elif artifact == "appimage":
+        suffix = ".AppImage"
+    elif artifact == "onefile":
+        suffix = ".exe"
+    else:
+        raise ValueError(f"Неподдерживаемый тип артефакта: {artifact}")
+    return f"{app_name}-{version}-{platform_id}{suffix}"
+
+
+def _app_dir_name(manifest: dict[str, Any]) -> str:
+    app = manifest["app"]
+    display_name = str(app.get("display_name", app["name"]))
+    safe_name = "".join(ch for ch in display_name if ch.isalnum() or ch in {"-", "_"})
+    return f"{safe_name or app['name']}.AppDir"
+
+
+def _appimage_categories(manifest: dict[str, Any]) -> str:
+    categories = manifest.get("appimage", {}).get("desktop_categories", ["Graphics", "Science", "Education"])
+    cleaned = [str(category).strip().strip(";") for category in categories]
+    cleaned = [category for category in cleaned if category]
+    if not cleaned:
+        cleaned = ["Graphics"]
+    return ";".join(cleaned) + ";"
+
+
+def _appimage_icon_source(manifest: dict[str, Any]) -> Path:
+    configured = str(manifest.get("appimage", {}).get("icon", "")).strip()
+    if configured:
+        return _repo_path(configured)
+
+    default_icon = REPO_ROOT / "build_tools" / "assets" / "magicborder.svg"
+    if default_icon.exists():
+        return default_icon
+    return REPO_ROOT / "src" / "magicborder" / "assets" / "icons" / "about.svg"
+
+
+def _repo_path(raw_path: str) -> Path:
+    path = Path(raw_path)
+    if path.is_absolute():
+        return path
+    return REPO_ROOT / path
+
+
+def _add_executable_bits(path: Path) -> None:
+    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
-
