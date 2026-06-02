@@ -115,7 +115,8 @@ PROJECT_EXPORT_COLUMNS = [
 ]
 PROJECT_EXPORT_FIELDNAMES = [field_name for field_name, _label in PROJECT_EXPORT_COLUMNS]
 PROJECT_EXPORT_COLUMN_LABELS = dict(PROJECT_EXPORT_COLUMNS)
-IMAGE_PROPERTY_GROUPS = [
+COLOR_SPACES_GROUP_TITLE = "Цветовые пространства"
+IMAGE_FILE_PROPERTY_GROUPS = [
     (
         "Общая информация о файле",
         [
@@ -144,6 +145,8 @@ IMAGE_PROPERTY_GROUPS = [
             ("contour_area_mm2", "Площадь контура, мм²"),
         ],
     ),
+]
+IMAGE_COLOR_SPACE_PROPERTY_GROUPS = [
     (
         "Цветовое пространство RGB",
         [
@@ -185,6 +188,8 @@ IMAGE_PROPERTY_GROUPS = [
             ("lms_s", "S"),
         ],
     ),
+]
+IMAGE_TRAILING_PROPERTY_GROUPS = [
     (
         "Локация",
         [
@@ -204,6 +209,11 @@ IMAGE_PROPERTY_GROUPS = [
         ],
     ),
 ]
+IMAGE_PROPERTY_GROUPS = [
+    *IMAGE_FILE_PROPERTY_GROUPS,
+    *IMAGE_COLOR_SPACE_PROPERTY_GROUPS,
+    *IMAGE_TRAILING_PROPERTY_GROUPS,
+]
 IMAGE_PROPERTY_EXPORT_ITEMS = [
     item
     for _group_title, group_items in IMAGE_PROPERTY_GROUPS
@@ -217,13 +227,30 @@ def _export_leaf(key: str, label: str, *, export_label: str | None = None) -> Ex
     return ExportTreeItem(label=label, key=key, export_label=export_label or label)
 
 
+def _export_group(group_title: str, group_items: list[tuple[str, str]]) -> ExportTreeItem:
+    return ExportTreeItem(
+        label=group_title,
+        children=tuple(_export_leaf(field_name, label) for field_name, label in group_items),
+    )
+
+
 def _static_image_property_export_groups() -> list[ExportTreeItem]:
     return [
+        *(
+            _export_group(group_title, group_items)
+            for group_title, group_items in IMAGE_FILE_PROPERTY_GROUPS
+        ),
         ExportTreeItem(
-            label=group_title,
-            children=tuple(_export_leaf(field_name, label) for field_name, label in group_items),
-        )
-        for group_title, group_items in IMAGE_PROPERTY_GROUPS
+            label=COLOR_SPACES_GROUP_TITLE,
+            children=tuple(
+                _export_group(group_title, group_items)
+                for group_title, group_items in IMAGE_COLOR_SPACE_PROPERTY_GROUPS
+            ),
+        ),
+        *(
+            _export_group(group_title, group_items)
+            for group_title, group_items in IMAGE_TRAILING_PROPERTY_GROUPS
+        ),
     ]
 
 
@@ -488,6 +515,10 @@ class MainWindow(QMainWindow):
                 ("Общая информация", self.project_general_info),
             ],
         )
+        project_color_spaces_group = self.project_properties_browser.add_group(
+            COLOR_SPACES_GROUP_TITLE,
+            expanded=False,
+        )
         self._add_property_browser_group(
             self.project_properties_browser,
             "Цветовое пространство RGB",
@@ -496,6 +527,7 @@ class MainWindow(QMainWindow):
                 ("Средний G", self.project_mean_green),
                 ("Средний B", self.project_mean_blue),
             ],
+            parent=project_color_spaces_group,
         )
         self._add_property_browser_group(
             self.project_properties_browser,
@@ -505,6 +537,7 @@ class MainWindow(QMainWindow):
                 ("Средний a", self.project_mean_lab_a),
                 ("Средний b", self.project_mean_lab_b),
             ],
+            parent=project_color_spaces_group,
         )
         self._add_property_browser_group(
             self.project_properties_browser,
@@ -514,6 +547,7 @@ class MainWindow(QMainWindow):
                 ("Средний S", self.project_mean_hsv_s),
                 ("Средний V", self.project_mean_hsv_v),
             ],
+            parent=project_color_spaces_group,
         )
         self._add_property_browser_group(
             self.project_properties_browser,
@@ -523,6 +557,7 @@ class MainWindow(QMainWindow):
                 ("Средний U", self.project_mean_yuv_u),
                 ("Средний V", self.project_mean_yuv_v),
             ],
+            parent=project_color_spaces_group,
         )
         self._add_property_browser_group(
             self.project_properties_browser,
@@ -532,6 +567,7 @@ class MainWindow(QMainWindow):
                 ("Средний M", self.project_mean_lms_m),
                 ("Средний S", self.project_mean_lms_s),
             ],
+            parent=project_color_spaces_group,
         )
 
         layout = QVBoxLayout(properties_widget)
@@ -718,6 +754,10 @@ class MainWindow(QMainWindow):
             parent=self.measurements_group_item,
             key="measurements:segments",
         )
+        image_color_spaces_group = self.properties_browser.add_group(
+            COLOR_SPACES_GROUP_TITLE,
+            expanded=False,
+        )
         self._add_property_browser_group(
             self.properties_browser,
             "Цветовое пространство RGB",
@@ -727,6 +767,7 @@ class MainWindow(QMainWindow):
                 ("Синий", self.property_blue),
                 ("Средний цвет", self.average_color_swatch),
             ],
+            parent=image_color_spaces_group,
         )
         self._add_property_browser_group(
             self.properties_browser,
@@ -736,6 +777,7 @@ class MainWindow(QMainWindow):
                 ("a", self.property_lab_a),
                 ("b", self.property_lab_b),
             ],
+            parent=image_color_spaces_group,
         )
         self._add_property_browser_group(
             self.properties_browser,
@@ -745,6 +787,7 @@ class MainWindow(QMainWindow):
                 ("S", self.property_hsv_s),
                 ("V", self.property_hsv_v),
             ],
+            parent=image_color_spaces_group,
         )
         self._add_property_browser_group(
             self.properties_browser,
@@ -754,6 +797,7 @@ class MainWindow(QMainWindow):
                 ("U", self.property_yuv_u),
                 ("V", self.property_yuv_v),
             ],
+            parent=image_color_spaces_group,
         )
         self._add_property_browser_group(
             self.properties_browser,
@@ -763,6 +807,7 @@ class MainWindow(QMainWindow):
                 ("M", self.property_lms_m),
                 ("S", self.property_lms_s),
             ],
+            parent=image_color_spaces_group,
         )
         self._add_property_browser_group(
             self.properties_browser,
@@ -800,15 +845,20 @@ class MainWindow(QMainWindow):
         rows: list[tuple[str, QWidget] | tuple[str, QWidget, str]],
         *,
         key: str | None = None,
-    ) -> None:
-        group_item = browser.add_group(title, expanded=False)
+        parent: QTreeWidgetItem | None = None,
+    ) -> QTreeWidgetItem:
+        group_item = browser.add_group(title, expanded=False, parent=parent)
         if key is not None:
             group_item.setData(0, Qt.UserRole + 1, key)
         for row in rows:
             label, widget = row[0], row[1]
             row_key = row[2] if len(row) > 2 else None
             aliases = [label] if row_key is not None else None
-            browser.add_property(title, label, widget, key=row_key, aliases=aliases)
+            if parent is None:
+                browser.add_property(title, label, widget, key=row_key, aliases=aliases)
+            else:
+                browser.add_property_to_item(group_item, label, widget, key=row_key, aliases=aliases)
+        return group_item
 
     def _rebuild_angle_measurement_properties(self, record: ProjectImageRecord | None) -> None:
         self._angle_name_fields.clear()

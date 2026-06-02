@@ -239,6 +239,7 @@ class PropertyBrowser(QTreeWidget):
         editor: QWidget,
         *,
         key: str | None = None,
+        aliases: list[str] | tuple[str, ...] | None = None,
     ) -> QTreeWidgetItem:
         property_item = QTreeWidgetItem([label, ""])
         property_item.setData(0, Qt.UserRole, "property")
@@ -256,6 +257,8 @@ class PropertyBrowser(QTreeWidget):
         property_item.setSizeHint(1, size_hint)
 
         self._properties[key or label] = property_item
+        for alias in aliases or ():
+            self._properties[alias] = property_item
         self._sync_grid_overlay()
         return property_item
 

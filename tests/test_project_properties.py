@@ -388,6 +388,7 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Нет углов",
                 "--- Отрезки",
                 "Нет отрезков",
+                "--- Цветовые пространства",
                 "--- Цветовое пространство RGB",
                 "Красный",
                 "Зелёный",
@@ -423,6 +424,12 @@ class ProjectPropertiesTest(unittest.TestCase):
         )
         calibration_group = _property_group(window.properties_browser, "Калибровка")
         contour_group = _property_group(window.properties_browser, "Информация о главном контуре")
+        color_spaces_group = _property_group(window.properties_browser, "Цветовые пространства")
+        rgb_group = _property_group(window.properties_browser, "Цветовое пространство RGB")
+        lab_group = _property_group(window.properties_browser, "Цветовое пространство Lab")
+        hsv_group = _property_group(window.properties_browser, "Цветовое пространство HSV")
+        yuv_group = _property_group(window.properties_browser, "Цветовое пространство YUV")
+        lms_group = _property_group(window.properties_browser, "Цветовое пространство LMS")
 
         self.assertIs(
             window.properties_browser.property_item("Длина калибровки, мм").parent(),
@@ -444,6 +451,18 @@ class ProjectPropertiesTest(unittest.TestCase):
             window.properties_browser.indexOfTopLevelItem(calibration_group),
             window.properties_browser.indexOfTopLevelItem(contour_group),
         )
+        for group in (rgb_group, lab_group, hsv_group, yuv_group, lms_group):
+            self.assertIs(group.parent(), color_spaces_group)
+        self.assertIs(window.properties_browser.property_item("Красный").parent(), rgb_group)
+        self.assertEqual(window.properties_browser.indexOfTopLevelItem(rgb_group), -1)
+        self.assertLess(
+            window.properties_browser.indexOfTopLevelItem(window.measurements_group_item),
+            window.properties_browser.indexOfTopLevelItem(color_spaces_group),
+        )
+        self.assertLess(
+            window.properties_browser.indexOfTopLevelItem(color_spaces_group),
+            window.properties_browser.indexOfTopLevelItem(_property_group(window.properties_browser, "Локация")),
+        )
 
     def test_project_properties_panel_is_between_images_and_image_properties(self) -> None:
         _app()
@@ -460,6 +479,7 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Путь",
                 "Количество файлов",
                 "Общая информация",
+                "--- Цветовые пространства",
                 "--- Цветовое пространство RGB",
                 "Средний R",
                 "Средний G",
@@ -482,6 +502,17 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Средний S",
             ],
         )
+        project_color_spaces_group = _property_group(window.project_properties_browser, "Цветовые пространства")
+        for group_title in (
+            "Цветовое пространство RGB",
+            "Цветовое пространство Lab",
+            "Цветовое пространство HSV",
+            "Цветовое пространство YUV",
+            "Цветовое пространство LMS",
+        ):
+            group = _property_group(window.project_properties_browser, group_title)
+            self.assertIs(group.parent(), project_color_spaces_group)
+            self.assertEqual(window.project_properties_browser.indexOfTopLevelItem(group), -1)
 
     def test_project_properties_show_project_name_and_path(self) -> None:
         _app()
@@ -1964,6 +1995,7 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(
                 _read_xlsx_dict_rows(export_path),
                 [
+                    {"Свойство": "Цветовые пространства", "Значение": ""},
                     {"Свойство": "Цветовое пространство Lab", "Значение": ""},
                     {"Свойство": "L", "Значение": "6"},
                     {"Свойство": "a", "Значение": "0"},
@@ -2762,6 +2794,7 @@ class ProjectPropertiesTest(unittest.TestCase):
                 _tree_item_by_text(tree, "Информация о главном контуре").checkState(0),
                 Qt.Unchecked,
             )
+            self.assertEqual(_tree_item_by_text(tree, "Цветовые пространства").checkState(0), Qt.Unchecked)
             return QDialog.Accepted
 
         with patch("magicborder.main_window.QDialog.exec_", new=accept_and_check_defaults):
@@ -2797,6 +2830,25 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertNotIn("Показывать контур", labels)
             self.assertNotIn("Контрольный угол / Показывать на канвасе", labels)
             self.assertNotIn("Контрольный отрезок / Показывать на канвасе", labels)
+            for key in (
+                "red",
+                "green",
+                "blue",
+                "average_color",
+                "lab_l",
+                "lab_a",
+                "lab_b",
+                "hsv_h",
+                "hsv_s",
+                "hsv_v",
+                "yuv_y",
+                "yuv_u",
+                "yuv_v",
+                "lms_l",
+                "lms_m",
+                "lms_s",
+            ):
+                self.assertIn(key, keys)
 
     def test_image_properties_excel_export_contains_measurement_properties(self) -> None:
         _app()
@@ -2869,16 +2921,19 @@ class ProjectPropertiesTest(unittest.TestCase):
     def test_image_properties_export_dialog_toggles_whole_groups(self) -> None:
         _app()
         window = MainWindow()
+        observed_states: dict[str, Qt.CheckState] = {}
 
         def check_rgb_group(dialog: QDialog) -> int:
             tree = dialog.findChild(QTreeWidget, "exportItemTree")
             self.assertIsNotNone(tree)
             _tree_item_by_text(tree, "Цветовое пространство RGB").setCheckState(0, Qt.Checked)
+            observed_states["color_spaces"] = _tree_item_by_text(tree, "Цветовые пространства").checkState(0)
             return QDialog.Accepted
 
         with patch("magicborder.main_window.QDialog.exec_", new=check_rgb_group):
             selected_properties = window._select_image_property_export_items()
 
+        self.assertEqual(observed_states["color_spaces"], Qt.PartiallyChecked)
         self.assertIn("red", selected_properties)
         self.assertIn("green", selected_properties)
         self.assertIn("blue", selected_properties)
@@ -2886,6 +2941,73 @@ class ProjectPropertiesTest(unittest.TestCase):
         self.assertIn("file_name", selected_properties)
         self.assertNotIn("lab_l", selected_properties)
         self.assertNotIn("annotation", selected_properties)
+
+    def test_image_properties_export_dialog_toggles_color_spaces_parent_group(self) -> None:
+        _app()
+        window = MainWindow()
+
+        def check_color_spaces_group(dialog: QDialog) -> int:
+            tree = dialog.findChild(QTreeWidget, "exportItemTree")
+            self.assertIsNotNone(tree)
+            _tree_item_by_text(tree, "Цветовые пространства").setCheckState(0, Qt.Checked)
+            return QDialog.Accepted
+
+        with patch("magicborder.main_window.QDialog.exec_", new=check_color_spaces_group):
+            selected_properties = window._select_image_property_export_items()
+
+        for key in (
+            "red",
+            "green",
+            "blue",
+            "average_color",
+            "lab_l",
+            "lab_a",
+            "lab_b",
+            "hsv_h",
+            "hsv_s",
+            "hsv_v",
+            "yuv_y",
+            "yuv_u",
+            "yuv_v",
+            "lms_l",
+            "lms_m",
+            "lms_s",
+        ):
+            self.assertIn(key, selected_properties)
+        self.assertIn("file_name", selected_properties)
+        self.assertNotIn("annotation", selected_properties)
+
+    def test_image_properties_excel_export_groups_color_space_rows_under_parent(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window = _minimal_export_window(root)
+            window.property_red.setText("10")
+            window.property_green.setText("20")
+            window.property_blue.setText("30")
+
+            export_path = root / "rgb_properties.xlsx"
+            window._write_image_properties_excel(
+                export_path,
+                ["red", "green", "blue", "average_color"],
+            )
+
+            self.assertEqual(
+                _read_xlsx_dict_rows(export_path),
+                [
+                    {"Свойство": "Цветовые пространства", "Значение": ""},
+                    {"Свойство": "Цветовое пространство RGB", "Значение": ""},
+                    {"Свойство": "Красный", "Значение": "10"},
+                    {"Свойство": "Зелёный", "Значение": "20"},
+                    {"Свойство": "Синий", "Значение": "30"},
+                    {"Свойство": "Средний цвет", "Значение": "RGB(10, 20, 30)"},
+                ],
+            )
+            cell_styles = _read_xlsx_cell_styles(export_path)
+            for cell_ref in ("A2", "B2", "A3", "B3"):
+                self.assertEqual(cell_styles[cell_ref], "1")
+            for cell_ref in ("A4", "B4", "A5", "B5", "A6", "B6", "A7", "B7"):
+                self.assertEqual(cell_styles[cell_ref], "")
 
     def test_image_properties_export_dialog_toggles_nested_measurement_groups(self) -> None:
         _app()
