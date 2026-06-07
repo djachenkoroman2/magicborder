@@ -12,9 +12,14 @@ from PyQt5.QtCore import QEvent, QPointF, Qt  # noqa: E402
 from PyQt5.QtGui import QMouseEvent  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QGraphicsView  # noqa: E402
 
-from magicborder.canvas import ImageCanvas  # noqa: E402
+from magicborder.canvas import ANGLE_ARC_COLOR, ImageCanvas  # noqa: E402
 from magicborder.io_utils import loaded_image_from_rgb_array  # noqa: E402
-from magicborder.models import Point  # noqa: E402
+from magicborder.models import (  # noqa: E402
+    ANGLE_LINE_COLOR,
+    CONTOUR_LINE_COLOR,
+    SEGMENT_LINE_COLOR,
+    Point,
+)
 
 _APP: QApplication | None = None
 
@@ -78,6 +83,126 @@ def _path_signature(path) -> list[tuple[float, float]]:
         (round(path.elementAt(index).x, 3), round(path.elementAt(index).y, 3))
         for index in range(path.elementCount())
     ]
+
+
+class ImageCanvasLineColorTest(unittest.TestCase):
+    def test_contour_line_color_updates_and_survives_highlight(self) -> None:
+        canvas = _canvas_with_image()
+        canvas.set_contour([Point(1, 1), Point(18, 1), Point(18, 18), Point(1, 18)])
+
+        self.assertEqual(canvas.contour_line_color(), CONTOUR_LINE_COLOR)
+        self.assertEqual(canvas._path_item.pen().color().name(), CONTOUR_LINE_COLOR)
+
+        self.assertTrue(canvas.set_contour_line_color("#DC2626"))
+        canvas.highlight_contour()
+        canvas.clear_contour_highlight()
+
+        self.assertEqual(canvas.contour_line_color(), "#dc2626")
+        self.assertEqual(canvas._path_item.pen().color().name(), "#dc2626")
+
+        canvas.set_contour([Point(2, 2), Point(20, 2), Point(20, 20), Point(2, 20)])
+
+        self.assertEqual(canvas.contour_line_color(), "#dc2626")
+        self.assertEqual(canvas._path_item.pen().color().name(), "#dc2626")
+
+        canvas.clear_contour()
+
+        self.assertEqual(canvas.contour_line_color(), CONTOUR_LINE_COLOR)
+
+    def test_angle_line_colors_are_individual_and_do_not_change_arc_color(self) -> None:
+        canvas = _canvas_with_image()
+        canvas.set_angle_measurement_records(
+            [
+                (
+                    "angle-a",
+                    Point(10, 20),
+                    Point(10, 10),
+                    Point(20, 10),
+                    "",
+                    "#dc2626",
+                ),
+                (
+                    "angle-b",
+                    Point(30, 20),
+                    Point(30, 10),
+                    Point(40, 10),
+                    "",
+                    ANGLE_LINE_COLOR,
+                ),
+            ]
+        )
+
+        self.assertEqual(canvas.angle_measurement_line_color("angle-a"), "#dc2626")
+        self.assertEqual(
+            canvas._angle_graphics[0].first_line.pen().color().name(),
+            "#dc2626",
+        )
+        self.assertEqual(
+            canvas._angle_graphics[1].first_line.pen().color().name(),
+            ANGLE_LINE_COLOR,
+        )
+        self.assertEqual(
+            canvas._angle_graphics[0].arc.pen().color().name(),
+            ANGLE_ARC_COLOR,
+        )
+
+        self.assertTrue(canvas.set_angle_measurement_line_color("angle-b", "#2563EB"))
+        canvas.highlight_angle_measurement("angle-b")
+        canvas.angle_handle_moved(1, 2, QPointF(40, 20))
+        canvas.clear_measurement_highlight()
+
+        self.assertEqual(canvas.angle_measurement_line_color("angle-b"), "#2563eb")
+        self.assertEqual(
+            canvas._angle_graphics[1].second_line.pen().color().name(),
+            "#2563eb",
+        )
+        self.assertEqual(
+            canvas._angle_graphics[1].arc.pen().color().name(),
+            ANGLE_ARC_COLOR,
+        )
+
+    def test_segment_line_colors_are_individual_and_survive_rebuild(self) -> None:
+        canvas = _canvas_with_image()
+        canvas.set_segment_measurement_records(
+            [
+                (
+                    "segment-a",
+                    Point(10, 10),
+                    Point(30, 10),
+                    "",
+                    "",
+                    "",
+                    "#dc2626",
+                ),
+                (
+                    "segment-b",
+                    Point(10, 20),
+                    Point(30, 20),
+                    "",
+                    "",
+                    "",
+                    SEGMENT_LINE_COLOR,
+                ),
+            ]
+        )
+
+        self.assertEqual(canvas.segment_measurement_line_color("segment-a"), "#dc2626")
+        self.assertEqual(canvas._segment_graphics[0].line.pen().color().name(), "#dc2626")
+        self.assertEqual(
+            canvas._segment_graphics[1].line.pen().color().name(),
+            SEGMENT_LINE_COLOR,
+        )
+
+        self.assertTrue(canvas.set_segment_measurement_line_color("segment-b", "#2563EB"))
+        canvas.highlight_segment_measurement("segment-b")
+        canvas.segment_handle_moved(1, 1, QPointF(40, 20))
+        canvas.clear_measurement_highlight()
+
+        self.assertEqual(canvas.segment_measurement_line_color("segment-b"), "#2563eb")
+        self.assertEqual(
+            canvas._segment_graphics[1].line.pen().color().name(),
+            "#2563eb",
+        )
 
 
 class ImageCanvasContourVisibilityTest(unittest.TestCase):
@@ -359,6 +484,11 @@ class ImageCanvasAngleMeasurementTest(unittest.TestCase):
         self.assertFalse(canvas._angle_preview_vertex_item.isVisible())
         self.assertFalse(canvas._angle_preview_line_item.isVisible())
         self.assertEqual(len(canvas.angle_measurements()), 1)
+        created_angle_id = canvas.angle_measurement_records()[0][0]
+        self.assertEqual(
+            canvas.angle_measurement_line_color(created_angle_id),
+            ANGLE_LINE_COLOR,
+        )
         self.assertEqual(canvas._angle_graphics[0].label.toPlainText(), "Угол 1: 90°")
         self.assertTrue(canvas._angle_graphics[0].arc.isVisible())
         self.assertFalse(canvas._angle_graphics[0].arc.path().isEmpty())
@@ -662,6 +792,11 @@ class ImageCanvasSegmentMeasurementTest(unittest.TestCase):
         self.assertFalse(canvas._segment_preview_start_item.isVisible())
         self.assertFalse(canvas._segment_preview_line_item.isVisible())
         self.assertEqual(len(canvas.segment_measurements()), 1)
+        created_segment_id = canvas.segment_measurement_records()[0][0]
+        self.assertEqual(
+            canvas.segment_measurement_line_color(created_segment_id),
+            SEGMENT_LINE_COLOR,
+        )
         self.assertTrue(
             canvas._segment_graphics[0].length_label.toPlainText().startswith("Отрезок 1\n")
         )

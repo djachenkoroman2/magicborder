@@ -1,12 +1,27 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
 
 PROJECT_FORMAT_VERSION = 2
+CONTOUR_LINE_COLOR = "#0b84c6"
+ANGLE_LINE_COLOR = "#22c55e"
+SEGMENT_LINE_COLOR = "#f97316"
+_HEX_RGB_COLOR_PATTERN = re.compile(r"#[0-9a-fA-F]{6}")
+
+
+def normalize_line_color(value: Any, default: str) -> str:
+    text = str(value or "").strip()
+    if _HEX_RGB_COLOR_PATTERN.fullmatch(text):
+        return text.lower()
+    fallback = str(default or "").strip()
+    if _HEX_RGB_COLOR_PATTERN.fullmatch(fallback):
+        return fallback.lower()
+    return "#000000"
 
 
 def _require_number(value: Any, field_name: str) -> float:
@@ -134,6 +149,7 @@ class ProjectAngleMeasurement:
     name: str = ""
     note: str = ""
     assessment: ProjectMeasurementAssessment | None = None
+    line_color: str = ANGLE_LINE_COLOR
 
     def __post_init__(self) -> None:
         self.id = str(self.id or "").strip() or _new_angle_measurement_id()
@@ -144,11 +160,13 @@ class ProjectAngleMeasurement:
         if not isinstance(self.second, Point):
             self.second = Point.from_dict(self.second)
         self.name = str(self.name or "").strip()
+        self.line_color = normalize_line_color(self.line_color, ANGLE_LINE_COLOR)
         self.note = str(self.note or "")
         if not isinstance(self.assessment, ProjectMeasurementAssessment):
             self.assessment = ProjectMeasurementAssessment.from_dict(self.assessment)
 
     def to_dict(self) -> dict[str, Any]:
+        self.line_color = normalize_line_color(self.line_color, ANGLE_LINE_COLOR)
         payload: dict[str, Any] = {"id": self.id}
         if self.name:
             payload["name"] = self.name
@@ -157,6 +175,7 @@ class ProjectAngleMeasurement:
                 "first": self.first.to_dict(),
                 "vertex": self.vertex.to_dict(),
                 "second": self.second.to_dict(),
+                "line_color": self.line_color,
                 "note": self.note,
             }
         )
@@ -174,6 +193,7 @@ class ProjectAngleMeasurement:
             vertex=Point.from_dict(data.get("vertex")),
             second=Point.from_dict(data.get("second")),
             name=str(data.get("name") or ""),
+            line_color=normalize_line_color(data.get("line_color"), ANGLE_LINE_COLOR),
             note=str(data.get("note", "")),
             assessment=ProjectMeasurementAssessment.from_dict(data.get("assessment")),
         )
@@ -189,6 +209,7 @@ class ProjectSegmentMeasurement:
     end_label: str = ""
     note: str = ""
     assessment: ProjectMeasurementAssessment | None = None
+    line_color: str = SEGMENT_LINE_COLOR
 
     def __post_init__(self) -> None:
         self.id = str(self.id or "").strip() or _new_segment_measurement_id()
@@ -197,6 +218,7 @@ class ProjectSegmentMeasurement:
         if not isinstance(self.end, Point):
             self.end = Point.from_dict(self.end)
         self.name = str(self.name or "").strip()
+        self.line_color = normalize_line_color(self.line_color, SEGMENT_LINE_COLOR)
         self.start_label = str(self.start_label or "").strip()
         self.end_label = str(self.end_label or "").strip()
         self.note = str(self.note or "")
@@ -204,6 +226,7 @@ class ProjectSegmentMeasurement:
             self.assessment = ProjectMeasurementAssessment.from_dict(self.assessment)
 
     def to_dict(self) -> dict[str, Any]:
+        self.line_color = normalize_line_color(self.line_color, SEGMENT_LINE_COLOR)
         payload: dict[str, Any] = {"id": self.id}
         if self.name:
             payload["name"] = self.name
@@ -211,6 +234,7 @@ class ProjectSegmentMeasurement:
             {
                 "start": self.start.to_dict(),
                 "end": self.end.to_dict(),
+                "line_color": self.line_color,
                 "start_label": self.start_label,
                 "end_label": self.end_label,
                 "note": self.note,
@@ -229,6 +253,7 @@ class ProjectSegmentMeasurement:
             start=Point.from_dict(data.get("start")),
             end=Point.from_dict(data.get("end")),
             name=str(data.get("name") or ""),
+            line_color=normalize_line_color(data.get("line_color"), SEGMENT_LINE_COLOR),
             start_label=str(data.get("start_label") or ""),
             end_label=str(data.get("end_label") or ""),
             note=str(data.get("note", "")),
@@ -294,17 +319,20 @@ class Annotation:
     points: list[Point]
     closed: bool = True
     version: int = 1
+    line_color: str = CONTOUR_LINE_COLOR
 
     def __post_init__(self) -> None:
         self.image_width = _require_int(self.image_width, "image_width")
         self.image_height = _require_int(self.image_height, "image_height")
         self.image_path = str(self.image_path or "")
+        self.line_color = normalize_line_color(self.line_color, CONTOUR_LINE_COLOR)
         self.closed = bool(self.closed)
         self.version = max(1, int(self.version))
         if len(self.points) < 3:
             raise ValueError("Контур должен содержать минимум 3 точки.")
 
     def to_dict(self) -> dict[str, Any]:
+        self.line_color = normalize_line_color(self.line_color, CONTOUR_LINE_COLOR)
         return {
             "version": self.version,
             "image_path": self.image_path,
@@ -314,6 +342,7 @@ class Annotation:
             },
             "closed": self.closed,
             "points": [point.to_dict() for point in self.points],
+            "line_color": self.line_color,
         }
 
     @classmethod
@@ -335,6 +364,7 @@ class Annotation:
             image_path=str(data.get("image_path", "")),
             image_width=_require_int(image_width, "image_width"),
             image_height=_require_int(image_height, "image_height"),
+            line_color=normalize_line_color(data.get("line_color"), CONTOUR_LINE_COLOR),
             closed=bool(data.get("closed", True)),
             version=int(data.get("version", 1)),
             points=[Point.from_dict(item) for item in raw_points],

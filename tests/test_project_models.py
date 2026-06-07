@@ -5,9 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from magicborder.io_utils import load_project, save_project
+from magicborder.io_utils import load_annotation, load_project, save_annotation, save_project
 from magicborder.models import (
+    ANGLE_LINE_COLOR,
+    CONTOUR_LINE_COLOR,
     PROJECT_FORMAT_VERSION,
+    SEGMENT_LINE_COLOR,
     Annotation,
     ImageCalibration,
     Point,
@@ -28,6 +31,7 @@ class ProjectModelsTest(unittest.TestCase):
             image_width=10,
             image_height=8,
             points=[Point(1, 1), Point(8, 1), Point(6, 6)],
+            line_color="#123ABC",
         )
         project = ProjectDocument(
             name="leaves",
@@ -61,6 +65,10 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertEqual(record_payload["file"]["id"], "leaf-1")
         self.assertEqual(record_payload["file"]["path"], "images/leaf.png")
         self.assertIsNotNone(record_payload["contour"]["annotation"])
+        self.assertEqual(
+            record_payload["contour"]["annotation"]["line_color"],
+            "#123abc",
+        )
         self.assertEqual(loaded_project.name, "leaves")
         self.assertEqual(len(loaded_project.images), 1)
         loaded_record = loaded_project.images[0]
@@ -68,6 +76,7 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertIsNotNone(loaded_record.annotation)
         self.assertEqual(loaded_record.annotation.image_width, 10)
         self.assertEqual(len(loaded_record.annotation.points), 3)
+        self.assertEqual(loaded_record.annotation.line_color, "#123abc")
 
     def test_project_round_trip_preserves_image_calibration(self) -> None:
         calibration = ImageCalibration(
@@ -127,6 +136,7 @@ class ProjectModelsTest(unittest.TestCase):
                                 vertex=Point(2, 2),
                                 second=Point(10, 2),
                                 name="Контрольный угол",
+                                line_color="#16A34A",
                                 note="контрольный угол",
                             )
                         ]
@@ -152,6 +162,7 @@ class ProjectModelsTest(unittest.TestCase):
                     "vertex": {"x": 2.0, "y": 2.0},
                     "second": {"x": 10.0, "y": 2.0},
                     "name": "Контрольный угол",
+                    "line_color": "#16a34a",
                     "note": "контрольный угол",
                 }
             ],
@@ -162,6 +173,7 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertEqual(loaded_angle.vertex, Point(2, 2))
         self.assertEqual(loaded_angle.second, Point(10, 2))
         self.assertEqual(loaded_angle.name, "Контрольный угол")
+        self.assertEqual(loaded_angle.line_color, "#16a34a")
         self.assertEqual(loaded_angle.note, "контрольный угол")
 
     def test_project_round_trip_preserves_image_segment_measurements(self) -> None:
@@ -179,6 +191,7 @@ class ProjectModelsTest(unittest.TestCase):
                                 start=Point(10, 20),
                                 end=Point(80, 20),
                                 name="Контрольный отрезок",
+                                line_color="#EA580C",
                                 start_label="A",
                                 end_label="B",
                                 note="измерить повторно",
@@ -206,6 +219,7 @@ class ProjectModelsTest(unittest.TestCase):
                     "name": "Контрольный отрезок",
                     "start": {"x": 10.0, "y": 20.0},
                     "end": {"x": 80.0, "y": 20.0},
+                    "line_color": "#ea580c",
                     "start_label": "A",
                     "end_label": "B",
                     "note": "измерить повторно",
@@ -219,10 +233,92 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertEqual(loaded_segment.start, Point(10, 20))
         self.assertEqual(loaded_segment.end, Point(80, 20))
         self.assertEqual(loaded_segment.name, "Контрольный отрезок")
+        self.assertEqual(loaded_segment.line_color, "#ea580c")
         self.assertEqual(loaded_segment.start_label, "A")
         self.assertEqual(loaded_segment.end_label, "B")
         self.assertEqual(loaded_segment.note, "измерить повторно")
         self.assertEqual(loaded_measurements.extra_groups, {"future": [{"kept": True}]})
+
+    def test_line_colors_default_and_invalid_values_are_backward_compatible(self) -> None:
+        annotation_payload = {
+            "image_path": "images/leaf.png",
+            "image_size": {"width": 10, "height": 8},
+            "points": [
+                {"x": 1, "y": 1},
+                {"x": 8, "y": 1},
+                {"x": 6, "y": 6},
+            ],
+        }
+        self.assertEqual(
+            Annotation.from_dict(annotation_payload).line_color,
+            CONTOUR_LINE_COLOR,
+        )
+        invalid_annotation = Annotation.from_dict(annotation_payload)
+        invalid_annotation.line_color = "still-not-a-color"
+        self.assertEqual(
+            invalid_annotation.to_dict()["line_color"],
+            CONTOUR_LINE_COLOR,
+        )
+        annotation_payload["line_color"] = "not-a-color"
+        self.assertEqual(
+            Annotation.from_dict(annotation_payload).line_color,
+            CONTOUR_LINE_COLOR,
+        )
+
+        angle_payload = {
+            "id": "angle-1",
+            "first": {"x": 2, "y": 10},
+            "vertex": {"x": 2, "y": 2},
+            "second": {"x": 10, "y": 2},
+        }
+        self.assertEqual(
+            ProjectAngleMeasurement.from_dict(angle_payload).line_color,
+            ANGLE_LINE_COLOR,
+        )
+        invalid_angle = ProjectAngleMeasurement.from_dict(angle_payload)
+        invalid_angle.line_color = "still-not-a-color"
+        self.assertEqual(invalid_angle.to_dict()["line_color"], ANGLE_LINE_COLOR)
+        angle_payload["line_color"] = "#12"
+        self.assertEqual(
+            ProjectAngleMeasurement.from_dict(angle_payload).line_color,
+            ANGLE_LINE_COLOR,
+        )
+
+        segment_payload = {
+            "id": "segment-1",
+            "start": {"x": 10, "y": 20},
+            "end": {"x": 80, "y": 20},
+        }
+        self.assertEqual(
+            ProjectSegmentMeasurement.from_dict(segment_payload).line_color,
+            SEGMENT_LINE_COLOR,
+        )
+        invalid_segment = ProjectSegmentMeasurement.from_dict(segment_payload)
+        invalid_segment.line_color = "still-not-a-color"
+        self.assertEqual(invalid_segment.to_dict()["line_color"], SEGMENT_LINE_COLOR)
+        segment_payload["line_color"] = "orange"
+        self.assertEqual(
+            ProjectSegmentMeasurement.from_dict(segment_payload).line_color,
+            SEGMENT_LINE_COLOR,
+        )
+
+    def test_annotation_file_round_trip_preserves_line_color(self) -> None:
+        annotation = Annotation(
+            image_path="images/leaf.png",
+            image_width=10,
+            image_height=8,
+            points=[Point(1, 1), Point(8, 1), Point(6, 6)],
+            line_color="#A855F7",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            annotation_path = Path(temp_dir) / "leaf.json"
+            save_annotation(annotation_path, annotation)
+            payload = json.loads(annotation_path.read_text(encoding="utf-8"))
+            loaded_annotation = load_annotation(annotation_path)
+
+        self.assertEqual(payload["line_color"], "#a855f7")
+        self.assertEqual(loaded_annotation.line_color, "#a855f7")
 
     def test_project_round_trip_preserves_measurement_oiv_assessments(self) -> None:
         project = ProjectDocument(

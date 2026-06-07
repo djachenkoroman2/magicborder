@@ -9,13 +9,14 @@ from uuid import uuid4
 
 import numpy as np
 import cv2
-from PyQt5.QtCore import QDateTime, QSignalBlocker, Qt, QTimer
-from PyQt5.QtGui import QColor
+from PyQt5.QtCore import QDateTime, QSize, QSignalBlocker, Qt, QTimer
+from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
     QCheckBox,
     QComboBox,
+    QColorDialog,
     QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
@@ -64,6 +65,9 @@ from .io_utils import (
     write_xlsx_table,
 )
 from .models import (
+    ANGLE_LINE_COLOR,
+    CONTOUR_LINE_COLOR,
+    SEGMENT_LINE_COLOR,
     Annotation,
     ImageCalibration,
     Point,
@@ -73,6 +77,7 @@ from .models import (
     ProjectSegmentMeasurement,
     ProjectMeasurementAssessment,
     default_project_image_metadata,
+    normalize_line_color,
 )
 from .oiv import (
     OIV_SYSTEM_NAME,
@@ -618,6 +623,14 @@ class MainWindow(QMainWindow):
         self.property_contour_visible.setEnabled(False)
         self.property_contour_visible.setToolTip("Показать или скрыть главный контур на канвасе.")
         self.property_contour_visible.toggled.connect(self._handle_contour_visibility_changed)
+        self.property_contour_line_color = self._line_color_button(
+            properties_widget,
+            CONTOUR_LINE_COLOR,
+            "Выбрать цвет линии главного контура",
+        )
+        self.property_contour_line_color.clicked.connect(
+            self._open_contour_line_color_dialog
+        )
         self.property_points = self._property_value_label()
         self.property_contour_pixels = self._property_value_label()
         self.property_contour_area_mm2 = self._property_value_label()
@@ -690,11 +703,13 @@ class MainWindow(QMainWindow):
             )
         self._angle_name_fields: dict[str, QLineEdit] = {}
         self._angle_visibility_fields: dict[str, QCheckBox] = {}
+        self._angle_line_color_fields: dict[str, QToolButton] = {}
         self._angle_note_fields: dict[str, QLineEdit] = {}
         self._angle_assessment_fields: dict[str, QComboBox] = {}
         self._angle_assessment_result_fields: dict[str, QLabel] = {}
         self._segment_name_fields: dict[str, QLineEdit] = {}
         self._segment_visibility_fields: dict[str, QCheckBox] = {}
+        self._segment_line_color_fields: dict[str, QToolButton] = {}
         self._segment_start_label_fields: dict[str, QLineEdit] = {}
         self._segment_end_label_fields: dict[str, QLineEdit] = {}
         self._segment_note_fields: dict[str, QLineEdit] = {}
@@ -731,6 +746,11 @@ class MainWindow(QMainWindow):
             [
                 ("Аннотация", self.property_annotation, "contour:annotation"),
                 ("Показывать контур", self.property_contour_visible, "contour:visible"),
+                (
+                    "Цвет линии",
+                    self.property_contour_line_color,
+                    "contour:line_color",
+                ),
                 ("Количество узлов контура", self.property_points, "contour:point_count"),
                 ("Количество пикселов контура", self.property_contour_pixels, "contour:pixel_count"),
                 ("Площадь контура, мм²", self.property_contour_area_mm2, "contour:area_mm2"),
@@ -863,6 +883,7 @@ class MainWindow(QMainWindow):
     def _rebuild_angle_measurement_properties(self, record: ProjectImageRecord | None) -> None:
         self._angle_name_fields.clear()
         self._angle_visibility_fields.clear()
+        self._angle_line_color_fields.clear()
         self._angle_note_fields.clear()
         self._angle_assessment_fields.clear()
         self._angle_assessment_result_fields.clear()
@@ -923,6 +944,23 @@ class MainWindow(QMainWindow):
                 "Показывать на канвасе",
                 visible_checkbox,
                 key=f"angle:{angle.id}:visible",
+            )
+            line_color_button = self._line_color_button(
+                self.properties_browser,
+                angle.line_color,
+                "Выбрать цвет линии угла",
+            )
+            line_color_button.clicked.connect(
+                lambda _checked=False, angle_id=angle.id: self._open_angle_line_color_dialog(
+                    angle_id
+                )
+            )
+            self._angle_line_color_fields[angle.id] = line_color_button
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "Цвет линии",
+                line_color_button,
+                key=f"angle:{angle.id}:line_color",
             )
             self.properties_browser.add_property_to_item(
                 angle_group,
@@ -1015,6 +1053,7 @@ class MainWindow(QMainWindow):
     def _rebuild_segment_measurement_properties(self, record: ProjectImageRecord | None) -> None:
         self._segment_name_fields.clear()
         self._segment_visibility_fields.clear()
+        self._segment_line_color_fields.clear()
         self._segment_start_label_fields.clear()
         self._segment_end_label_fields.clear()
         self._segment_note_fields.clear()
@@ -1077,6 +1116,23 @@ class MainWindow(QMainWindow):
                 "Показывать на канвасе",
                 visible_checkbox,
                 key=f"segment:{segment.id}:visible",
+            )
+            line_color_button = self._line_color_button(
+                self.properties_browser,
+                segment.line_color,
+                "Выбрать цвет линии отрезка",
+            )
+            line_color_button.clicked.connect(
+                lambda _checked=False, segment_id=segment.id: self._open_segment_line_color_dialog(
+                    segment_id
+                )
+            )
+            self._segment_line_color_fields[segment.id] = line_color_button
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Цвет линии",
+                line_color_button,
+                key=f"segment:{segment.id}:line_color",
             )
             self.properties_browser.add_property_to_item(
                 segment_group,
@@ -1200,6 +1256,38 @@ class MainWindow(QMainWindow):
         label = PropertyValueLabel(text)
         label.setObjectName("propertyValue")
         return label
+
+    def _line_color_button(
+        self,
+        parent: QWidget,
+        color_name: str,
+        tooltip: str,
+    ) -> QToolButton:
+        button = QToolButton(parent)
+        button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        button.setIconSize(QSize(18, 18))
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        button.setToolTip(tooltip)
+        self._set_line_color_button_value(button, color_name)
+        return button
+
+    def _set_line_color_button_value(
+        self,
+        button: QToolButton,
+        color_name: str,
+    ) -> None:
+        normalized_color = normalize_line_color(color_name, "#000000")
+        swatch = QPixmap(18, 18)
+        swatch.fill(QColor(normalized_color))
+        button.setIcon(QIcon(swatch))
+        button.setText(normalized_color)
+        button.setProperty("lineColor", normalized_color)
+
+    def _choose_line_color(self, current_color: str, title: str) -> str | None:
+        selected_color = QColorDialog.getColor(QColor(current_color), self, title)
+        if not selected_color.isValid():
+            return None
+        return selected_color.name().lower()
 
     def _oiv_assessment_combo(self, tool_kind: str, selected_code: str) -> QComboBox:
         combo = QComboBox(self.properties_browser)
@@ -2995,6 +3083,9 @@ class MainWindow(QMainWindow):
         existing_assessments = {
             angle.id: angle.assessment for angle in record.measurements.angles
         }
+        existing_line_colors = {
+            angle.id: angle.line_color for angle in record.measurements.angles
+        }
         new_angles = [
             ProjectAngleMeasurement(
                 id=angle_id,
@@ -3002,6 +3093,10 @@ class MainWindow(QMainWindow):
                 vertex=vertex,
                 second=second,
                 name=existing_names.get(angle_id, canvas_name),
+                line_color=(
+                    self.canvas.angle_measurement_line_color(angle_id)
+                    or existing_line_colors.get(angle_id, ANGLE_LINE_COLOR)
+                ),
                 note=existing_notes.get(angle_id, ""),
                 assessment=existing_assessments.get(angle_id),
             )
@@ -3032,12 +3127,19 @@ class MainWindow(QMainWindow):
         existing_assessments = {
             segment.id: segment.assessment for segment in record.measurements.segments
         }
+        existing_line_colors = {
+            segment.id: segment.line_color for segment in record.measurements.segments
+        }
         new_segments = [
             ProjectSegmentMeasurement(
                 id=segment_id,
                 start=start,
                 end=end,
                 name=existing_names.get(segment_id, canvas_name),
+                line_color=(
+                    self.canvas.segment_measurement_line_color(segment_id)
+                    or existing_line_colors.get(segment_id, SEGMENT_LINE_COLOR)
+                ),
                 start_label=existing_start_labels.get(segment_id, canvas_start_label),
                 end_label=existing_end_labels.get(segment_id, canvas_end_label),
                 note=existing_notes.get(segment_id, ""),
@@ -3119,6 +3221,25 @@ class MainWindow(QMainWindow):
                 field.setChecked(actual_visible)
         self._update_action_states()
 
+    def _open_angle_line_color_dialog(self, angle_id: str) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        angle = _angle_by_id(record, angle_id)
+        field = self._angle_line_color_fields.get(angle_id)
+        if angle is None or field is None:
+            return
+
+        line_color = self._choose_line_color(angle.line_color, "Цвет линии угла")
+        if line_color is None or line_color == angle.line_color:
+            return
+
+        angle.line_color = line_color
+        if record.id == self._current_project_image_id:
+            self.canvas.set_angle_measurement_line_color(angle_id, line_color)
+        self._set_line_color_button_value(field, line_color)
+        self._schedule_project_save()
+
     def _handle_segment_name_edit_finished(self, segment_id: str, field: QLineEdit) -> None:
         record = self._selected_project_image()
         if record is None:
@@ -3194,6 +3315,25 @@ class MainWindow(QMainWindow):
             with QSignalBlocker(field):
                 field.setChecked(actual_visible)
         self._update_action_states()
+
+    def _open_segment_line_color_dialog(self, segment_id: str) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        segment = _segment_by_id(record, segment_id)
+        field = self._segment_line_color_fields.get(segment_id)
+        if segment is None or field is None:
+            return
+
+        line_color = self._choose_line_color(segment.line_color, "Цвет линии отрезка")
+        if line_color is None or line_color == segment.line_color:
+            return
+
+        segment.line_color = line_color
+        if record.id == self._current_project_image_id:
+            self.canvas.set_segment_measurement_line_color(segment_id, line_color)
+        self._set_line_color_button_value(field, line_color)
+        self._schedule_project_save()
 
     def _handle_segment_label_edit_finished(
         self,
@@ -3402,6 +3542,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
+            self.canvas.set_contour_line_color(annotation.line_color)
             self.canvas.set_contour(annotation.points)
         except ValueError as exc:
             self._show_error("Ошибка загрузки контура", str(exc))
@@ -3589,6 +3730,9 @@ class MainWindow(QMainWindow):
                             )
                         else:
                             try:
+                                self.canvas.set_contour_line_color(
+                                    record.annotation.line_color
+                                )
                                 self.canvas.set_contour(record.annotation.points)
                             except ValueError as exc:
                                 record.annotation_error = str(exc)
@@ -3639,6 +3783,44 @@ class MainWindow(QMainWindow):
         self.canvas.set_contour_visible(checked)
         self._update_contour_visibility_field()
 
+    def _open_contour_line_color_dialog(self) -> None:
+        record = self._selected_project_image()
+        if (
+            record is None
+            or record.annotation is None
+            or not self.canvas.has_contour()
+        ):
+            return
+
+        line_color = self._choose_line_color(
+            record.annotation.line_color,
+            "Цвет линии главного контура",
+        )
+        if line_color is None or line_color == record.annotation.line_color:
+            return
+
+        record.annotation.line_color = line_color
+        self.canvas.set_contour_line_color(line_color)
+        self._set_line_color_button_value(self.property_contour_line_color, line_color)
+        self._schedule_project_save()
+
+    def _update_contour_line_color_field(
+        self,
+        record: ProjectImageRecord | None,
+    ) -> None:
+        line_color = (
+            record.annotation.line_color
+            if record is not None and record.annotation is not None
+            else CONTOUR_LINE_COLOR
+        )
+        self._set_line_color_button_value(self.property_contour_line_color, line_color)
+        self.property_contour_line_color.setEnabled(
+            record is not None
+            and record.annotation is not None
+            and record.id == self._current_project_image_id
+            and self.canvas.has_contour()
+        )
+
     def _update_contour_visibility_field(self) -> None:
         has_visible_contour = self.canvas.has_image() and self.canvas.has_contour()
         with QSignalBlocker(self.property_contour_visible):
@@ -3670,6 +3852,7 @@ class MainWindow(QMainWindow):
                 image_width=width,
                 image_height=height,
                 points=self.canvas.contour_points(),
+                line_color=self.canvas.contour_line_color(),
                 closed=True,
             )
             record.annotation_error = None
@@ -3916,6 +4099,7 @@ class MainWindow(QMainWindow):
             )
             self._update_calibration_length_field(None)
             self._update_contour_visibility_field()
+            self._update_contour_line_color_field(None)
             self._rebuild_angle_measurement_properties(None)
             self._rebuild_segment_measurement_properties(None)
             self._set_average_color_swatch(None)
@@ -3986,6 +4170,7 @@ class MainWindow(QMainWindow):
         self.property_size.setText(size_text)
         self.property_annotation.setText(annotation_text)
         self._update_contour_visibility_field()
+        self._update_contour_line_color_field(record)
         self.property_points.setText(point_count_text)
         self.property_contour_pixels.setText(contour_pixels_text)
         self.property_contour_area_mm2.setText(contour_area_mm2_text)
@@ -4567,6 +4752,7 @@ class MainWindow(QMainWindow):
             image_width=width,
             image_height=height,
             points=self.canvas.contour_points(),
+            line_color=self.canvas.contour_line_color(),
             closed=True,
         )
 
@@ -4721,14 +4907,25 @@ def _measurement_assessment_key(
     return system, code
 
 
-def _angle_canvas_records(record: ProjectImageRecord) -> list[tuple[str, Point, Point, Point, str]]:
+def _angle_canvas_records(
+    record: ProjectImageRecord,
+) -> list[tuple[str, Point, Point, Point, str, str]]:
     return [
-        (angle.id, angle.first, angle.vertex, angle.second, angle.name)
+        (
+            angle.id,
+            angle.first,
+            angle.vertex,
+            angle.second,
+            angle.name,
+            angle.line_color,
+        )
         for angle in record.measurements.angles
     ]
 
 
-def _segment_canvas_records(record: ProjectImageRecord) -> list[tuple[str, Point, Point, str, str, str]]:
+def _segment_canvas_records(
+    record: ProjectImageRecord,
+) -> list[tuple[str, Point, Point, str, str, str, str]]:
     return [
         (
             segment.id,
@@ -4737,6 +4934,7 @@ def _segment_canvas_records(record: ProjectImageRecord) -> list[tuple[str, Point
             segment.start_label,
             segment.end_label,
             segment.name,
+            segment.line_color,
         )
         for segment in record.measurements.segments
     ]
@@ -4754,6 +4952,7 @@ def _angle_measurements_equal(
         and left_angle.vertex == right_angle.vertex
         and left_angle.second == right_angle.second
         and left_angle.name == right_angle.name
+        and left_angle.line_color == right_angle.line_color
         and left_angle.note == right_angle.note
         and _measurement_assessments_equal(left_angle.assessment, right_angle.assessment)
         for left_angle, right_angle in zip(left, right)
@@ -4771,6 +4970,7 @@ def _segment_measurements_equal(
         and left_segment.start == right_segment.start
         and left_segment.end == right_segment.end
         and left_segment.name == right_segment.name
+        and left_segment.line_color == right_segment.line_color
         and left_segment.start_label == right_segment.start_label
         and left_segment.end_label == right_segment.end_label
         and left_segment.note == right_segment.note

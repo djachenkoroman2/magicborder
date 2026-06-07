@@ -15,6 +15,7 @@ from PIL import Image
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import QPointF, Qt  # noqa: E402
+from PyQt5.QtGui import QColor  # noqa: E402
 from PyQt5.QtWidgets import (  # noqa: E402
     QAction,
     QApplication,
@@ -37,6 +38,9 @@ from magicborder.main_window import (  # noqa: E402
     _qdatetime_from_text,
 )
 from magicborder.models import (  # noqa: E402
+    ANGLE_LINE_COLOR,
+    CONTOUR_LINE_COLOR,
+    SEGMENT_LINE_COLOR,
     Annotation,
     ImageCalibration,
     Point,
@@ -380,6 +384,7 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "--- Информация о главном контуре",
                 "Аннотация",
                 "Показывать контур",
+                "Цвет линии",
                 "Количество узлов контура",
                 "Количество пикселов контура",
                 "Площадь контура, мм²",
@@ -1026,6 +1031,278 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertTrue(window.canvas.is_contour_visible())
             self.assertTrue(window.canvas._path_item.isVisible())
             self.assertTrue(all(handle.isVisible() for handle in window.canvas._handles))
+
+    def test_line_color_properties_update_canvas_save_and_restore(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, project_path = _measurement_export_window(root)
+            _add_test_contour(window)
+            record = window._selected_project_image()
+            self.assertIsNotNone(record)
+
+            contour_item = window.properties_browser.property_item("contour:line_color")
+            angle_item = window.properties_browser.property_item("angle:angle-a:line_color")
+            segment_item = window.properties_browser.property_item("segment:segment-a:line_color")
+            self.assertIsNotNone(contour_item)
+            self.assertIsNotNone(angle_item)
+            self.assertIsNotNone(segment_item)
+            self.assertEqual(window.property_contour_line_color.text(), CONTOUR_LINE_COLOR)
+            self.assertEqual(window._angle_line_color_fields["angle-a"].text(), ANGLE_LINE_COLOR)
+            self.assertEqual(
+                window._segment_line_color_fields["segment-a"].text(),
+                SEGMENT_LINE_COLOR,
+            )
+
+            window._project_autosave_timer.stop()
+            with patch(
+                "magicborder.main_window.QColorDialog.getColor",
+                return_value=QColor("#dc2626"),
+            ):
+                window.property_contour_line_color.click()
+
+            self.assertEqual(record.annotation.line_color, "#dc2626")
+            self.assertEqual(window.canvas.contour_line_color(), "#dc2626")
+            self.assertEqual(window.canvas._path_item.pen().color().name(), "#dc2626")
+            self.assertEqual(window.property_contour_line_color.text(), "#dc2626")
+            self.assertTrue(window._project_autosave_timer.isActive())
+
+            window._project_autosave_timer.stop()
+            with patch(
+                "magicborder.main_window.QColorDialog.getColor",
+                return_value=QColor("#2563eb"),
+            ):
+                window._angle_line_color_fields["angle-a"].click()
+
+            self.assertEqual(record.measurements.angles[0].line_color, "#2563eb")
+            self.assertEqual(
+                window.canvas._angle_graphics[0].first_line.pen().color().name(),
+                "#2563eb",
+            )
+            self.assertEqual(
+                window.canvas._angle_graphics[0].second_line.pen().color().name(),
+                "#2563eb",
+            )
+            self.assertEqual(
+                window._angle_line_color_fields["angle-a"].text(),
+                "#2563eb",
+            )
+            self.assertTrue(window._project_autosave_timer.isActive())
+
+            window._project_autosave_timer.stop()
+            with patch(
+                "magicborder.main_window.QColorDialog.getColor",
+                return_value=QColor("#a855f7"),
+            ):
+                window._segment_line_color_fields["segment-a"].click()
+
+            self.assertEqual(record.measurements.segments[0].line_color, "#a855f7")
+            self.assertEqual(
+                window.canvas._segment_graphics[0].line.pen().color().name(),
+                "#a855f7",
+            )
+            self.assertEqual(
+                window._segment_line_color_fields["segment-a"].text(),
+                "#a855f7",
+            )
+            self.assertTrue(window._project_autosave_timer.isActive())
+
+            window._project_autosave_timer.stop()
+            with patch(
+                "magicborder.main_window.QColorDialog.getColor",
+                return_value=QColor(),
+            ):
+                window._angle_line_color_fields["angle-a"].click()
+
+            self.assertEqual(record.measurements.angles[0].line_color, "#2563eb")
+            self.assertFalse(window._project_autosave_timer.isActive())
+
+            window.canvas.angle_handle_moved(0, 2, QPointF(12, 12))
+            window.canvas.segment_handle_moved(0, 1, QPointF(14, 2))
+            self.assertEqual(record.measurements.angles[0].line_color, "#2563eb")
+            self.assertEqual(record.measurements.segments[0].line_color, "#a855f7")
+
+            export_keys = window._image_property_export_leaf_keys(record)
+            self.assertNotIn("contour:line_color", export_keys)
+            self.assertNotIn("angle:angle-a:line_color", export_keys)
+            self.assertNotIn("segment:segment-a:line_color", export_keys)
+
+            window.save_project_file()
+            payload = json.loads(project_path.read_text(encoding="utf-8"))
+            image_payload = payload["images"][0]
+            self.assertEqual(
+                image_payload["contour"]["annotation"]["line_color"],
+                "#dc2626",
+            )
+            self.assertEqual(
+                image_payload["measurements"]["angles"][0]["line_color"],
+                "#2563eb",
+            )
+            self.assertEqual(
+                image_payload["measurements"]["segments"][0]["line_color"],
+                "#a855f7",
+            )
+
+            restored = MainWindow()
+            restored._set_project(project_path, load_project(project_path))
+            self.assertEqual(restored.canvas.contour_line_color(), "#dc2626")
+            self.assertEqual(
+                restored.canvas.angle_measurement_line_color("angle-a"),
+                "#2563eb",
+            )
+            self.assertEqual(
+                restored.canvas.segment_measurement_line_color("segment-a"),
+                "#a855f7",
+            )
+            self.assertEqual(restored.property_contour_line_color.text(), "#dc2626")
+            self.assertEqual(
+                restored._angle_line_color_fields["angle-a"].text(),
+                "#2563eb",
+            )
+            self.assertEqual(
+                restored._segment_line_color_fields["segment-a"].text(),
+                "#a855f7",
+            )
+
+    def test_line_colors_follow_selected_image_without_state_leak(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            Image.new("RGB", (40, 30), (120, 80, 40)).save(image_dir / "leaf_a.png")
+            Image.new("RGB", (40, 30), (60, 120, 80)).save(image_dir / "leaf_b.png")
+            points = [Point(4, 4), Point(36, 4), Point(36, 26), Point(4, 26)]
+
+            project = ProjectDocument(
+                name="line_colors",
+                images=[
+                    ProjectImageRecord(
+                        id="leaf-a",
+                        relative_path="images/leaf_a.png",
+                        display_name="leaf_a.png",
+                        annotation=Annotation(
+                            image_path="images/leaf_a.png",
+                            image_width=40,
+                            image_height=30,
+                            points=points,
+                            line_color="#111111",
+                        ),
+                        measurements=ProjectImageMeasurements(
+                            angles=[
+                                ProjectAngleMeasurement(
+                                    id="angle-a",
+                                    first=Point(2, 10),
+                                    vertex=Point(2, 2),
+                                    second=Point(10, 2),
+                                    line_color="#222222",
+                                )
+                            ],
+                            segments=[
+                                ProjectSegmentMeasurement(
+                                    id="segment-a",
+                                    start=Point(2, 2),
+                                    end=Point(12, 2),
+                                    line_color="#333333",
+                                )
+                            ],
+                        ),
+                    ),
+                    ProjectImageRecord(
+                        id="leaf-b",
+                        relative_path="images/leaf_b.png",
+                        display_name="leaf_b.png",
+                        annotation=Annotation(
+                            image_path="images/leaf_b.png",
+                            image_width=40,
+                            image_height=30,
+                            points=points,
+                            line_color="#444444",
+                        ),
+                        measurements=ProjectImageMeasurements(
+                            angles=[
+                                ProjectAngleMeasurement(
+                                    id="angle-b",
+                                    first=Point(20, 10),
+                                    vertex=Point(20, 2),
+                                    second=Point(28, 2),
+                                    line_color="#555555",
+                                )
+                            ],
+                            segments=[
+                                ProjectSegmentMeasurement(
+                                    id="segment-b",
+                                    start=Point(20, 2),
+                                    end=Point(30, 2),
+                                    line_color="#666666",
+                                )
+                            ],
+                        ),
+                    ),
+                ],
+            )
+            project_path = root / "line_colors.json"
+            save_project(project_path, project)
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+            self.assertEqual(window.canvas.contour_line_color(), "#111111")
+            self.assertEqual(window.canvas.angle_measurement_line_color("angle-a"), "#222222")
+            self.assertEqual(
+                window.canvas.segment_measurement_line_color("segment-a"),
+                "#333333",
+            )
+
+            window.project_list.setCurrentRow(1)
+
+            self.assertEqual(window.canvas.contour_line_color(), "#444444")
+            self.assertEqual(window.canvas.angle_measurement_line_color("angle-b"), "#555555")
+            self.assertEqual(
+                window.canvas.segment_measurement_line_color("segment-b"),
+                "#666666",
+            )
+            self.assertEqual(window.property_contour_line_color.text(), "#444444")
+
+            window.project_list.setCurrentRow(0)
+
+            self.assertEqual(window.canvas.contour_line_color(), "#111111")
+            self.assertEqual(window.canvas.angle_measurement_line_color("angle-a"), "#222222")
+            self.assertEqual(
+                window.canvas.segment_measurement_line_color("segment-a"),
+                "#333333",
+            )
+            self.assertEqual(window.property_contour_line_color.text(), "#111111")
+
+    def test_open_annotation_restores_contour_line_color(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+            annotation_path = root / "imported_annotation.json"
+            annotation = Annotation(
+                image_path="images/leaf.png",
+                image_width=40,
+                image_height=30,
+                points=[Point(4, 4), Point(36, 4), Point(36, 26), Point(4, 26)],
+                line_color="#0f766e",
+            )
+            annotation_path.write_text(
+                json.dumps(annotation.to_dict(), ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            with patch(
+                "magicborder.main_window.QFileDialog.getOpenFileName",
+                return_value=(str(annotation_path), "JSON (*.json)"),
+            ):
+                window.open_annotation_file()
+
+            record = window._selected_project_image()
+            self.assertIsNotNone(record.annotation)
+            self.assertEqual(record.annotation.line_color, "#0f766e")
+            self.assertEqual(window.canvas.contour_line_color(), "#0f766e")
+            self.assertEqual(window.canvas._path_item.pen().color().name(), "#0f766e")
+            self.assertEqual(window.property_contour_line_color.text(), "#0f766e")
 
     def test_canvas_visibility_commands_toggle_all_elements_and_fields(self) -> None:
         _app()

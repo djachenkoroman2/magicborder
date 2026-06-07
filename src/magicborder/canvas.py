@@ -22,13 +22,16 @@ from PyQt5.QtWidgets import (
 )
 
 from .io_utils import LoadedImage, loaded_image_from_rgb_array
-from .models import Point
+from .models import (
+    ANGLE_LINE_COLOR,
+    CONTOUR_LINE_COLOR,
+    SEGMENT_LINE_COLOR,
+    Point,
+    normalize_line_color,
+)
 
 
-ANGLE_LINE_COLOR = "#22c55e"
 ANGLE_ARC_COLOR = "#7c3aed"
-SEGMENT_LINE_COLOR = "#f97316"
-CONTOUR_LINE_COLOR = "#0b84c6"
 CONTOUR_LINE_WIDTH = 2.0
 CONTOUR_Z = 10
 MEASUREMENT_LINE_WIDTH = 2.0
@@ -47,6 +50,7 @@ class AngleMeasurement:
     second: QPointF
     name: str = ""
     visible: bool = True
+    line_color: str = ANGLE_LINE_COLOR
 
 
 @dataclass
@@ -67,6 +71,7 @@ class SegmentMeasurement:
     start_label: str = ""
     end_label: str = ""
     visible: bool = True
+    line_color: str = SEGMENT_LINE_COLOR
 
 
 @dataclass
@@ -255,8 +260,9 @@ class ImageCanvas(QGraphicsView):
         self._image_item.setTransformationMode(Qt.SmoothTransformation)
         self._scene.addItem(self._image_item)
 
+        self._contour_line_color = CONTOUR_LINE_COLOR
         self._path_item = QGraphicsPathItem()
-        contour_pen = QPen(QColor(CONTOUR_LINE_COLOR), CONTOUR_LINE_WIDTH)
+        contour_pen = QPen(QColor(self._contour_line_color), CONTOUR_LINE_WIDTH)
         contour_pen.setCosmetic(True)
         self._path_item.setPen(contour_pen)
         self._path_item.setBrush(QBrush(Qt.NoBrush))
@@ -390,6 +396,17 @@ class ImageCanvas(QGraphicsView):
     def is_contour_visible(self) -> bool:
         return self.has_contour() and self._contour_visible
 
+    def contour_line_color(self) -> str:
+        return self._contour_line_color
+
+    def set_contour_line_color(self, color_name: str) -> bool:
+        normalized_color = normalize_line_color(color_name, CONTOUR_LINE_COLOR)
+        if normalized_color == self._contour_line_color:
+            return False
+        self._contour_line_color = normalized_color
+        self._apply_contour_highlight()
+        return True
+
     def has_calibration(self) -> bool:
         return len(self._calibration_points) == 2
 
@@ -435,6 +452,24 @@ class ImageCanvas(QGraphicsView):
             return True
         return False
 
+    def angle_measurement_line_color(self, angle_id: str) -> str | None:
+        for measurement in self._angle_measurements:
+            if measurement.id == angle_id:
+                return measurement.line_color
+        return None
+
+    def set_angle_measurement_line_color(self, angle_id: str, color_name: str) -> bool:
+        normalized_color = normalize_line_color(color_name, ANGLE_LINE_COLOR)
+        for index, measurement in enumerate(self._angle_measurements):
+            if measurement.id != angle_id:
+                continue
+            if measurement.line_color == normalized_color:
+                return False
+            measurement.line_color = normalized_color
+            self._apply_angle_highlight(index)
+            return True
+        return False
+
     def is_segment_measurement_visible(self, segment_id: str) -> bool:
         for measurement in self._segment_measurements:
             if measurement.id == segment_id:
@@ -451,6 +486,24 @@ class ImageCanvas(QGraphicsView):
             measurement.visible = normalized_visible
             self._apply_segment_visibility(index)
             self.segment_state_changed.emit()
+            return True
+        return False
+
+    def segment_measurement_line_color(self, segment_id: str) -> str | None:
+        for measurement in self._segment_measurements:
+            if measurement.id == segment_id:
+                return measurement.line_color
+        return None
+
+    def set_segment_measurement_line_color(self, segment_id: str, color_name: str) -> bool:
+        normalized_color = normalize_line_color(color_name, SEGMENT_LINE_COLOR)
+        for index, measurement in enumerate(self._segment_measurements):
+            if measurement.id != segment_id:
+                continue
+            if measurement.line_color == normalized_color:
+                return False
+            measurement.line_color = normalized_color
+            self._apply_segment_highlight(index)
             return True
         return False
 
@@ -702,6 +755,7 @@ class ImageCanvas(QGraphicsView):
 
     def clear_contour(self) -> None:
         self._contour_points.clear()
+        self._contour_line_color = CONTOUR_LINE_COLOR
         self._contour_visible = True
         self._contour_highlighted = False
         self._path_item.setPath(QPainterPath())
@@ -838,6 +892,7 @@ class ImageCanvas(QGraphicsView):
         self.cancel_angle_measurement(show_message=False)
         self._angle_measurements = []
         for measurement in measurements:
+            line_color = ANGLE_LINE_COLOR
             if len(measurement) == 4:
                 angle_id, first_point, vertex_point, second_point = measurement
                 name = ""
@@ -847,6 +902,12 @@ class ImageCanvas(QGraphicsView):
                     first_point, vertex_point, second_point, name = measurement[1:]
                 else:
                     name, first_point, vertex_point, second_point = measurement[1:]
+            elif len(measurement) == 6:
+                angle_id = measurement[0]
+                if hasattr(measurement[1], "x"):
+                    first_point, vertex_point, second_point, name, line_color = measurement[1:]
+                else:
+                    name, first_point, vertex_point, second_point, line_color = measurement[1:]
             else:
                 continue
             try:
@@ -859,11 +920,12 @@ class ImageCanvas(QGraphicsView):
                 continue
             self._angle_measurements.append(
                 AngleMeasurement(
-                    str(angle_id or _new_angle_id()),
-                    first,
-                    vertex,
-                    second,
-                    str(name or "").strip(),
+                    id=str(angle_id or _new_angle_id()),
+                    first=first,
+                    vertex=vertex,
+                    second=second,
+                    name=str(name or "").strip(),
+                    line_color=normalize_line_color(line_color, ANGLE_LINE_COLOR),
                 )
             )
 
@@ -941,6 +1003,7 @@ class ImageCanvas(QGraphicsView):
         self.cancel_segment_measurement(show_message=False)
         self._segment_measurements = []
         for measurement in measurements:
+            line_color = SEGMENT_LINE_COLOR
             if len(measurement) == 5:
                 segment_id, start_point, end_point, start_label, end_label = measurement
                 name = ""
@@ -950,6 +1013,26 @@ class ImageCanvas(QGraphicsView):
                     start_point, end_point, start_label, end_label, name = measurement[1:]
                 else:
                     name, start_point, end_point, start_label, end_label = measurement[1:]
+            elif len(measurement) == 7:
+                segment_id = measurement[0]
+                if hasattr(measurement[1], "x"):
+                    (
+                        start_point,
+                        end_point,
+                        start_label,
+                        end_label,
+                        name,
+                        line_color,
+                    ) = measurement[1:]
+                else:
+                    (
+                        name,
+                        start_point,
+                        end_point,
+                        start_label,
+                        end_label,
+                        line_color,
+                    ) = measurement[1:]
             else:
                 continue
             try:
@@ -961,12 +1044,13 @@ class ImageCanvas(QGraphicsView):
                 continue
             self._segment_measurements.append(
                 SegmentMeasurement(
-                    str(segment_id or _new_segment_id()),
-                    start,
-                    end,
-                    str(name or "").strip(),
-                    str(start_label or "").strip(),
-                    str(end_label or "").strip(),
+                    id=str(segment_id or _new_segment_id()),
+                    start=start,
+                    end=end,
+                    name=str(name or "").strip(),
+                    start_label=str(start_label or "").strip(),
+                    end_label=str(end_label or "").strip(),
+                    line_color=normalize_line_color(line_color, SEGMENT_LINE_COLOR),
                 )
             )
 
@@ -1607,7 +1691,7 @@ class ImageCanvas(QGraphicsView):
         angle_index: int,
         measurement: AngleMeasurement,
     ) -> AngleGraphics:
-        line_pen = self._measurement_pen(ANGLE_LINE_COLOR, MEASUREMENT_LINE_WIDTH)
+        line_pen = self._measurement_pen(measurement.line_color, MEASUREMENT_LINE_WIDTH)
 
         first_line = QGraphicsLineItem()
         first_line.setPen(line_pen)
@@ -1720,7 +1804,7 @@ class ImageCanvas(QGraphicsView):
         measurement: SegmentMeasurement,
     ) -> SegmentGraphics:
         line = QGraphicsLineItem()
-        line.setPen(self._measurement_pen(SEGMENT_LINE_COLOR, MEASUREMENT_LINE_WIDTH))
+        line.setPen(self._measurement_pen(measurement.line_color, MEASUREMENT_LINE_WIDTH))
         line.setZValue(SEGMENT_LINE_Z)
         self._scene.addItem(line)
 
@@ -1853,7 +1937,7 @@ class ImageCanvas(QGraphicsView):
         line_width = MEASUREMENT_HIGHLIGHT_LINE_WIDTH if highlighted else CONTOUR_LINE_WIDTH
         line_z = CONTOUR_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else CONTOUR_Z
 
-        pen = QPen(QColor(CONTOUR_LINE_COLOR), line_width)
+        pen = QPen(QColor(self._contour_line_color), line_width)
         pen.setCosmetic(True)
         self._path_item.setPen(pen)
         self._path_item.setZValue(line_z)
@@ -1992,8 +2076,8 @@ class ImageCanvas(QGraphicsView):
         line_z = ANGLE_LINE_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else ANGLE_LINE_Z
         arc_z = ANGLE_ARC_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else ANGLE_ARC_Z
 
-        graphics.first_line.setPen(self._measurement_pen(ANGLE_LINE_COLOR, line_width))
-        graphics.second_line.setPen(self._measurement_pen(ANGLE_LINE_COLOR, line_width))
+        graphics.first_line.setPen(self._measurement_pen(measurement.line_color, line_width))
+        graphics.second_line.setPen(self._measurement_pen(measurement.line_color, line_width))
         graphics.arc.setPen(self._measurement_pen(ANGLE_ARC_COLOR, line_width))
         graphics.first_line.setZValue(line_z)
         graphics.second_line.setZValue(line_z)
@@ -2014,7 +2098,7 @@ class ImageCanvas(QGraphicsView):
         line_width = MEASUREMENT_HIGHLIGHT_LINE_WIDTH if highlighted else MEASUREMENT_LINE_WIDTH
         line_z = SEGMENT_LINE_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else SEGMENT_LINE_Z
 
-        graphics.line.setPen(self._measurement_pen(SEGMENT_LINE_COLOR, line_width))
+        graphics.line.setPen(self._measurement_pen(measurement.line_color, line_width))
         graphics.line.setZValue(line_z)
         for handle in graphics.handles:
             handle.set_highlighted(highlighted)
