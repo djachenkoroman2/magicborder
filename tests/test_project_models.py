@@ -7,9 +7,11 @@ from pathlib import Path
 
 from magicborder.io_utils import load_annotation, load_project, save_annotation, save_project
 from magicborder.models import (
+    ANGLE_LABEL_COLOR,
     ANGLE_LINE_COLOR,
     CONTOUR_LINE_COLOR,
     PROJECT_FORMAT_VERSION,
+    SEGMENT_LABEL_COLOR,
     SEGMENT_LINE_COLOR,
     Annotation,
     ImageCalibration,
@@ -137,6 +139,7 @@ class ProjectModelsTest(unittest.TestCase):
                                 second=Point(10, 2),
                                 name="Контрольный угол",
                                 line_color="#16A34A",
+                                label_color="#15803D",
                                 note="контрольный угол",
                             )
                         ]
@@ -163,6 +166,7 @@ class ProjectModelsTest(unittest.TestCase):
                     "second": {"x": 10.0, "y": 2.0},
                     "name": "Контрольный угол",
                     "line_color": "#16a34a",
+                    "label_color": "#15803d",
                     "note": "контрольный угол",
                 }
             ],
@@ -174,6 +178,7 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertEqual(loaded_angle.second, Point(10, 2))
         self.assertEqual(loaded_angle.name, "Контрольный угол")
         self.assertEqual(loaded_angle.line_color, "#16a34a")
+        self.assertEqual(loaded_angle.label_color, "#15803d")
         self.assertEqual(loaded_angle.note, "контрольный угол")
 
     def test_project_round_trip_preserves_image_segment_measurements(self) -> None:
@@ -192,6 +197,7 @@ class ProjectModelsTest(unittest.TestCase):
                                 end=Point(80, 20),
                                 name="Контрольный отрезок",
                                 line_color="#EA580C",
+                                label_color="#C2410C",
                                 start_label="A",
                                 end_label="B",
                                 note="измерить повторно",
@@ -220,6 +226,7 @@ class ProjectModelsTest(unittest.TestCase):
                     "start": {"x": 10.0, "y": 20.0},
                     "end": {"x": 80.0, "y": 20.0},
                     "line_color": "#ea580c",
+                    "label_color": "#c2410c",
                     "start_label": "A",
                     "end_label": "B",
                     "note": "измерить повторно",
@@ -234,6 +241,7 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertEqual(loaded_segment.end, Point(80, 20))
         self.assertEqual(loaded_segment.name, "Контрольный отрезок")
         self.assertEqual(loaded_segment.line_color, "#ea580c")
+        self.assertEqual(loaded_segment.label_color, "#c2410c")
         self.assertEqual(loaded_segment.start_label, "A")
         self.assertEqual(loaded_segment.end_label, "B")
         self.assertEqual(loaded_segment.note, "измерить повторно")
@@ -275,13 +283,24 @@ class ProjectModelsTest(unittest.TestCase):
             ProjectAngleMeasurement.from_dict(angle_payload).line_color,
             ANGLE_LINE_COLOR,
         )
+        self.assertEqual(
+            ProjectAngleMeasurement.from_dict(angle_payload).label_color,
+            ANGLE_LABEL_COLOR,
+        )
         invalid_angle = ProjectAngleMeasurement.from_dict(angle_payload)
         invalid_angle.line_color = "still-not-a-color"
+        invalid_angle.label_color = "still-not-a-color"
         self.assertEqual(invalid_angle.to_dict()["line_color"], ANGLE_LINE_COLOR)
+        self.assertEqual(invalid_angle.to_dict()["label_color"], ANGLE_LABEL_COLOR)
         angle_payload["line_color"] = "#12"
+        angle_payload["label_color"] = "#12"
         self.assertEqual(
             ProjectAngleMeasurement.from_dict(angle_payload).line_color,
             ANGLE_LINE_COLOR,
+        )
+        self.assertEqual(
+            ProjectAngleMeasurement.from_dict(angle_payload).label_color,
+            ANGLE_LABEL_COLOR,
         )
 
         segment_payload = {
@@ -293,13 +312,24 @@ class ProjectModelsTest(unittest.TestCase):
             ProjectSegmentMeasurement.from_dict(segment_payload).line_color,
             SEGMENT_LINE_COLOR,
         )
+        self.assertEqual(
+            ProjectSegmentMeasurement.from_dict(segment_payload).label_color,
+            SEGMENT_LABEL_COLOR,
+        )
         invalid_segment = ProjectSegmentMeasurement.from_dict(segment_payload)
         invalid_segment.line_color = "still-not-a-color"
+        invalid_segment.label_color = "still-not-a-color"
         self.assertEqual(invalid_segment.to_dict()["line_color"], SEGMENT_LINE_COLOR)
+        self.assertEqual(invalid_segment.to_dict()["label_color"], SEGMENT_LABEL_COLOR)
         segment_payload["line_color"] = "orange"
+        segment_payload["label_color"] = "orange"
         self.assertEqual(
             ProjectSegmentMeasurement.from_dict(segment_payload).line_color,
             SEGMENT_LINE_COLOR,
+        )
+        self.assertEqual(
+            ProjectSegmentMeasurement.from_dict(segment_payload).label_color,
+            SEGMENT_LABEL_COLOR,
         )
 
     def test_annotation_file_round_trip_preserves_line_color(self) -> None:

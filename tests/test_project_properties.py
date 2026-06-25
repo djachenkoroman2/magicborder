@@ -38,8 +38,10 @@ from magicborder.main_window import (  # noqa: E402
     _qdatetime_from_text,
 )
 from magicborder.models import (  # noqa: E402
+    ANGLE_LABEL_COLOR,
     ANGLE_LINE_COLOR,
     CONTOUR_LINE_COLOR,
+    SEGMENT_LABEL_COLOR,
     SEGMENT_LINE_COLOR,
     Annotation,
     ImageCalibration,
@@ -1043,15 +1045,32 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             contour_item = window.properties_browser.property_item("contour:line_color")
             angle_item = window.properties_browser.property_item("angle:angle-a:line_color")
+            angle_label_item = window.properties_browser.property_item("angle:angle-a:label_color")
             segment_item = window.properties_browser.property_item("segment:segment-a:line_color")
+            segment_label_item = window.properties_browser.property_item("segment:segment-a:label_color")
             self.assertIsNotNone(contour_item)
             self.assertIsNotNone(angle_item)
+            self.assertIsNotNone(angle_label_item)
             self.assertIsNotNone(segment_item)
+            self.assertIsNotNone(segment_label_item)
+            self.assertEqual(
+                angle_item.parent().indexOfChild(angle_label_item),
+                angle_item.parent().indexOfChild(angle_item) + 1,
+            )
+            self.assertEqual(
+                segment_item.parent().indexOfChild(segment_label_item),
+                segment_item.parent().indexOfChild(segment_item) + 1,
+            )
             self.assertEqual(window.property_contour_line_color.text(), CONTOUR_LINE_COLOR)
             self.assertEqual(window._angle_line_color_fields["angle-a"].text(), ANGLE_LINE_COLOR)
+            self.assertEqual(window._angle_label_color_fields["angle-a"].text(), ANGLE_LABEL_COLOR)
             self.assertEqual(
                 window._segment_line_color_fields["segment-a"].text(),
                 SEGMENT_LINE_COLOR,
+            )
+            self.assertEqual(
+                window._segment_label_color_fields["segment-a"].text(),
+                SEGMENT_LABEL_COLOR,
             )
 
             window._project_autosave_timer.stop()
@@ -1092,6 +1111,24 @@ class ProjectPropertiesTest(unittest.TestCase):
             window._project_autosave_timer.stop()
             with patch(
                 "magicborder.main_window.QColorDialog.getColor",
+                return_value=QColor("#0f766e"),
+            ):
+                window._angle_label_color_fields["angle-a"].click()
+
+            self.assertEqual(record.measurements.angles[0].label_color, "#0f766e")
+            self.assertEqual(
+                window.canvas._angle_graphics[0].label.defaultTextColor().name(),
+                "#0f766e",
+            )
+            self.assertEqual(
+                window._angle_label_color_fields["angle-a"].text(),
+                "#0f766e",
+            )
+            self.assertTrue(window._project_autosave_timer.isActive())
+
+            window._project_autosave_timer.stop()
+            with patch(
+                "magicborder.main_window.QColorDialog.getColor",
                 return_value=QColor("#a855f7"),
             ):
                 window._segment_line_color_fields["segment-a"].click()
@@ -1110,22 +1147,53 @@ class ProjectPropertiesTest(unittest.TestCase):
             window._project_autosave_timer.stop()
             with patch(
                 "magicborder.main_window.QColorDialog.getColor",
+                return_value=QColor("#c2410c"),
+            ):
+                window._segment_label_color_fields["segment-a"].click()
+
+            self.assertEqual(record.measurements.segments[0].label_color, "#c2410c")
+            self.assertEqual(
+                window.canvas._segment_graphics[0].length_label.defaultTextColor().name(),
+                "#c2410c",
+            )
+            self.assertEqual(
+                window.canvas._segment_graphics[0].start_label.defaultTextColor().name(),
+                "#c2410c",
+            )
+            self.assertEqual(
+                window.canvas._segment_graphics[0].end_label.defaultTextColor().name(),
+                "#c2410c",
+            )
+            self.assertEqual(
+                window._segment_label_color_fields["segment-a"].text(),
+                "#c2410c",
+            )
+            self.assertTrue(window._project_autosave_timer.isActive())
+
+            window._project_autosave_timer.stop()
+            with patch(
+                "magicborder.main_window.QColorDialog.getColor",
                 return_value=QColor(),
             ):
-                window._angle_line_color_fields["angle-a"].click()
+                window._angle_label_color_fields["angle-a"].click()
 
             self.assertEqual(record.measurements.angles[0].line_color, "#2563eb")
+            self.assertEqual(record.measurements.angles[0].label_color, "#0f766e")
             self.assertFalse(window._project_autosave_timer.isActive())
 
             window.canvas.angle_handle_moved(0, 2, QPointF(12, 12))
             window.canvas.segment_handle_moved(0, 1, QPointF(14, 2))
             self.assertEqual(record.measurements.angles[0].line_color, "#2563eb")
+            self.assertEqual(record.measurements.angles[0].label_color, "#0f766e")
             self.assertEqual(record.measurements.segments[0].line_color, "#a855f7")
+            self.assertEqual(record.measurements.segments[0].label_color, "#c2410c")
 
             export_keys = window._image_property_export_leaf_keys(record)
             self.assertNotIn("contour:line_color", export_keys)
             self.assertNotIn("angle:angle-a:line_color", export_keys)
+            self.assertNotIn("angle:angle-a:label_color", export_keys)
             self.assertNotIn("segment:segment-a:line_color", export_keys)
+            self.assertNotIn("segment:segment-a:label_color", export_keys)
 
             window.save_project_file()
             payload = json.loads(project_path.read_text(encoding="utf-8"))
@@ -1139,8 +1207,16 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "#2563eb",
             )
             self.assertEqual(
+                image_payload["measurements"]["angles"][0]["label_color"],
+                "#0f766e",
+            )
+            self.assertEqual(
                 image_payload["measurements"]["segments"][0]["line_color"],
                 "#a855f7",
+            )
+            self.assertEqual(
+                image_payload["measurements"]["segments"][0]["label_color"],
+                "#c2410c",
             )
 
             restored = MainWindow()
@@ -1151,8 +1227,16 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "#2563eb",
             )
             self.assertEqual(
+                restored.canvas.angle_measurement_label_color("angle-a"),
+                "#0f766e",
+            )
+            self.assertEqual(
                 restored.canvas.segment_measurement_line_color("segment-a"),
                 "#a855f7",
+            )
+            self.assertEqual(
+                restored.canvas.segment_measurement_label_color("segment-a"),
+                "#c2410c",
             )
             self.assertEqual(restored.property_contour_line_color.text(), "#dc2626")
             self.assertEqual(
@@ -1160,8 +1244,16 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "#2563eb",
             )
             self.assertEqual(
+                restored._angle_label_color_fields["angle-a"].text(),
+                "#0f766e",
+            )
+            self.assertEqual(
                 restored._segment_line_color_fields["segment-a"].text(),
                 "#a855f7",
+            )
+            self.assertEqual(
+                restored._segment_label_color_fields["segment-a"].text(),
+                "#c2410c",
             )
 
     def test_line_colors_follow_selected_image_without_state_leak(self) -> None:
@@ -1196,6 +1288,7 @@ class ProjectPropertiesTest(unittest.TestCase):
                                     vertex=Point(2, 2),
                                     second=Point(10, 2),
                                     line_color="#222222",
+                                    label_color="#223344",
                                 )
                             ],
                             segments=[
@@ -1204,6 +1297,7 @@ class ProjectPropertiesTest(unittest.TestCase):
                                     start=Point(2, 2),
                                     end=Point(12, 2),
                                     line_color="#333333",
+                                    label_color="#334455",
                                 )
                             ],
                         ),
@@ -1227,6 +1321,7 @@ class ProjectPropertiesTest(unittest.TestCase):
                                     vertex=Point(20, 2),
                                     second=Point(28, 2),
                                     line_color="#555555",
+                                    label_color="#556677",
                                 )
                             ],
                             segments=[
@@ -1235,6 +1330,7 @@ class ProjectPropertiesTest(unittest.TestCase):
                                     start=Point(20, 2),
                                     end=Point(30, 2),
                                     line_color="#666666",
+                                    label_color="#667788",
                                 )
                             ],
                         ),
@@ -1248,30 +1344,49 @@ class ProjectPropertiesTest(unittest.TestCase):
             window._set_project(project_path, load_project(project_path))
             self.assertEqual(window.canvas.contour_line_color(), "#111111")
             self.assertEqual(window.canvas.angle_measurement_line_color("angle-a"), "#222222")
+            self.assertEqual(window.canvas.angle_measurement_label_color("angle-a"), "#223344")
             self.assertEqual(
                 window.canvas.segment_measurement_line_color("segment-a"),
                 "#333333",
+            )
+            self.assertEqual(
+                window.canvas.segment_measurement_label_color("segment-a"),
+                "#334455",
             )
 
             window.project_list.setCurrentRow(1)
 
             self.assertEqual(window.canvas.contour_line_color(), "#444444")
             self.assertEqual(window.canvas.angle_measurement_line_color("angle-b"), "#555555")
+            self.assertEqual(window.canvas.angle_measurement_label_color("angle-b"), "#556677")
             self.assertEqual(
                 window.canvas.segment_measurement_line_color("segment-b"),
                 "#666666",
             )
+            self.assertEqual(
+                window.canvas.segment_measurement_label_color("segment-b"),
+                "#667788",
+            )
             self.assertEqual(window.property_contour_line_color.text(), "#444444")
+            self.assertEqual(window._angle_label_color_fields["angle-b"].text(), "#556677")
+            self.assertEqual(window._segment_label_color_fields["segment-b"].text(), "#667788")
 
             window.project_list.setCurrentRow(0)
 
             self.assertEqual(window.canvas.contour_line_color(), "#111111")
             self.assertEqual(window.canvas.angle_measurement_line_color("angle-a"), "#222222")
+            self.assertEqual(window.canvas.angle_measurement_label_color("angle-a"), "#223344")
             self.assertEqual(
                 window.canvas.segment_measurement_line_color("segment-a"),
                 "#333333",
             )
+            self.assertEqual(
+                window.canvas.segment_measurement_label_color("segment-a"),
+                "#334455",
+            )
             self.assertEqual(window.property_contour_line_color.text(), "#111111")
+            self.assertEqual(window._angle_label_color_fields["angle-a"].text(), "#223344")
+            self.assertEqual(window._segment_label_color_fields["segment-a"].text(), "#334455")
 
     def test_open_annotation_restores_contour_line_color(self) -> None:
         _app()

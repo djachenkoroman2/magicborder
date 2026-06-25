@@ -10,7 +10,9 @@ from uuid import uuid4
 PROJECT_FORMAT_VERSION = 2
 CONTOUR_LINE_COLOR = "#0b84c6"
 ANGLE_LINE_COLOR = "#22c55e"
+ANGLE_LABEL_COLOR = "#166534"
 SEGMENT_LINE_COLOR = "#f97316"
+SEGMENT_LABEL_COLOR = "#9a3412"
 _HEX_RGB_COLOR_PATTERN = re.compile(r"#[0-9a-fA-F]{6}")
 
 
@@ -150,6 +152,7 @@ class ProjectAngleMeasurement:
     note: str = ""
     assessment: ProjectMeasurementAssessment | None = None
     line_color: str = ANGLE_LINE_COLOR
+    label_color: str = ANGLE_LABEL_COLOR
 
     def __post_init__(self) -> None:
         self.id = str(self.id or "").strip() or _new_angle_measurement_id()
@@ -161,12 +164,14 @@ class ProjectAngleMeasurement:
             self.second = Point.from_dict(self.second)
         self.name = str(self.name or "").strip()
         self.line_color = normalize_line_color(self.line_color, ANGLE_LINE_COLOR)
+        self.label_color = normalize_line_color(self.label_color, ANGLE_LABEL_COLOR)
         self.note = str(self.note or "")
         if not isinstance(self.assessment, ProjectMeasurementAssessment):
             self.assessment = ProjectMeasurementAssessment.from_dict(self.assessment)
 
     def to_dict(self) -> dict[str, Any]:
         self.line_color = normalize_line_color(self.line_color, ANGLE_LINE_COLOR)
+        self.label_color = normalize_line_color(self.label_color, ANGLE_LABEL_COLOR)
         payload: dict[str, Any] = {"id": self.id}
         if self.name:
             payload["name"] = self.name
@@ -176,6 +181,7 @@ class ProjectAngleMeasurement:
                 "vertex": self.vertex.to_dict(),
                 "second": self.second.to_dict(),
                 "line_color": self.line_color,
+                "label_color": self.label_color,
                 "note": self.note,
             }
         )
@@ -194,6 +200,7 @@ class ProjectAngleMeasurement:
             second=Point.from_dict(data.get("second")),
             name=str(data.get("name") or ""),
             line_color=normalize_line_color(data.get("line_color"), ANGLE_LINE_COLOR),
+            label_color=normalize_line_color(data.get("label_color"), ANGLE_LABEL_COLOR),
             note=str(data.get("note", "")),
             assessment=ProjectMeasurementAssessment.from_dict(data.get("assessment")),
         )
@@ -210,6 +217,7 @@ class ProjectSegmentMeasurement:
     note: str = ""
     assessment: ProjectMeasurementAssessment | None = None
     line_color: str = SEGMENT_LINE_COLOR
+    label_color: str = SEGMENT_LABEL_COLOR
 
     def __post_init__(self) -> None:
         self.id = str(self.id or "").strip() or _new_segment_measurement_id()
@@ -219,6 +227,7 @@ class ProjectSegmentMeasurement:
             self.end = Point.from_dict(self.end)
         self.name = str(self.name or "").strip()
         self.line_color = normalize_line_color(self.line_color, SEGMENT_LINE_COLOR)
+        self.label_color = normalize_line_color(self.label_color, SEGMENT_LABEL_COLOR)
         self.start_label = str(self.start_label or "").strip()
         self.end_label = str(self.end_label or "").strip()
         self.note = str(self.note or "")
@@ -227,6 +236,7 @@ class ProjectSegmentMeasurement:
 
     def to_dict(self) -> dict[str, Any]:
         self.line_color = normalize_line_color(self.line_color, SEGMENT_LINE_COLOR)
+        self.label_color = normalize_line_color(self.label_color, SEGMENT_LABEL_COLOR)
         payload: dict[str, Any] = {"id": self.id}
         if self.name:
             payload["name"] = self.name
@@ -235,6 +245,7 @@ class ProjectSegmentMeasurement:
                 "start": self.start.to_dict(),
                 "end": self.end.to_dict(),
                 "line_color": self.line_color,
+                "label_color": self.label_color,
                 "start_label": self.start_label,
                 "end_label": self.end_label,
                 "note": self.note,
@@ -254,6 +265,7 @@ class ProjectSegmentMeasurement:
             end=Point.from_dict(data.get("end")),
             name=str(data.get("name") or ""),
             line_color=normalize_line_color(data.get("line_color"), SEGMENT_LINE_COLOR),
+            label_color=normalize_line_color(data.get("label_color"), SEGMENT_LABEL_COLOR),
             start_label=str(data.get("start_label") or ""),
             end_label=str(data.get("end_label") or ""),
             note=str(data.get("note", "")),

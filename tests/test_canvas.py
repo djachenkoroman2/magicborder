@@ -15,8 +15,10 @@ from PyQt5.QtWidgets import QApplication, QGraphicsView  # noqa: E402
 from magicborder.canvas import ANGLE_ARC_COLOR, ImageCanvas  # noqa: E402
 from magicborder.io_utils import loaded_image_from_rgb_array  # noqa: E402
 from magicborder.models import (  # noqa: E402
+    ANGLE_LABEL_COLOR,
     ANGLE_LINE_COLOR,
     CONTOUR_LINE_COLOR,
+    SEGMENT_LABEL_COLOR,
     SEGMENT_LINE_COLOR,
     Point,
 )
@@ -120,6 +122,7 @@ class ImageCanvasLineColorTest(unittest.TestCase):
                     Point(20, 10),
                     "",
                     "#dc2626",
+                    "#166534",
                 ),
                 (
                     "angle-b",
@@ -128,11 +131,17 @@ class ImageCanvasLineColorTest(unittest.TestCase):
                     Point(40, 10),
                     "",
                     ANGLE_LINE_COLOR,
+                    ANGLE_LABEL_COLOR,
                 ),
             ]
         )
 
         self.assertEqual(canvas.angle_measurement_line_color("angle-a"), "#dc2626")
+        self.assertEqual(canvas.angle_measurement_label_color("angle-a"), "#166534")
+        self.assertEqual(
+            canvas._angle_graphics[0].label.defaultTextColor().name(),
+            "#166534",
+        )
         self.assertEqual(
             canvas._angle_graphics[0].first_line.pen().color().name(),
             "#dc2626",
@@ -147,14 +156,20 @@ class ImageCanvasLineColorTest(unittest.TestCase):
         )
 
         self.assertTrue(canvas.set_angle_measurement_line_color("angle-b", "#2563EB"))
+        self.assertTrue(canvas.set_angle_measurement_label_color("angle-b", "#0F766E"))
         canvas.highlight_angle_measurement("angle-b")
         canvas.angle_handle_moved(1, 2, QPointF(40, 20))
         canvas.clear_measurement_highlight()
 
         self.assertEqual(canvas.angle_measurement_line_color("angle-b"), "#2563eb")
+        self.assertEqual(canvas.angle_measurement_label_color("angle-b"), "#0f766e")
         self.assertEqual(
             canvas._angle_graphics[1].second_line.pen().color().name(),
             "#2563eb",
+        )
+        self.assertEqual(
+            canvas._angle_graphics[1].label.defaultTextColor().name(),
+            "#0f766e",
         )
         self.assertEqual(
             canvas._angle_graphics[1].arc.pen().color().name(),
@@ -173,6 +188,7 @@ class ImageCanvasLineColorTest(unittest.TestCase):
                     "",
                     "",
                     "#dc2626",
+                    "#9a3412",
                 ),
                 (
                     "segment-b",
@@ -182,26 +198,46 @@ class ImageCanvasLineColorTest(unittest.TestCase):
                     "",
                     "",
                     SEGMENT_LINE_COLOR,
+                    SEGMENT_LABEL_COLOR,
                 ),
             ]
         )
 
         self.assertEqual(canvas.segment_measurement_line_color("segment-a"), "#dc2626")
+        self.assertEqual(canvas.segment_measurement_label_color("segment-a"), "#9a3412")
         self.assertEqual(canvas._segment_graphics[0].line.pen().color().name(), "#dc2626")
+        self.assertEqual(
+            canvas._segment_graphics[0].length_label.defaultTextColor().name(),
+            "#9a3412",
+        )
         self.assertEqual(
             canvas._segment_graphics[1].line.pen().color().name(),
             SEGMENT_LINE_COLOR,
         )
 
         self.assertTrue(canvas.set_segment_measurement_line_color("segment-b", "#2563EB"))
+        self.assertTrue(canvas.set_segment_measurement_label_color("segment-b", "#0F766E"))
         canvas.highlight_segment_measurement("segment-b")
         canvas.segment_handle_moved(1, 1, QPointF(40, 20))
         canvas.clear_measurement_highlight()
 
         self.assertEqual(canvas.segment_measurement_line_color("segment-b"), "#2563eb")
+        self.assertEqual(canvas.segment_measurement_label_color("segment-b"), "#0f766e")
         self.assertEqual(
             canvas._segment_graphics[1].line.pen().color().name(),
             "#2563eb",
+        )
+        self.assertEqual(
+            canvas._segment_graphics[1].length_label.defaultTextColor().name(),
+            "#0f766e",
+        )
+        self.assertEqual(
+            canvas._segment_graphics[1].start_label.defaultTextColor().name(),
+            "#0f766e",
+        )
+        self.assertEqual(
+            canvas._segment_graphics[1].end_label.defaultTextColor().name(),
+            "#0f766e",
         )
 
 

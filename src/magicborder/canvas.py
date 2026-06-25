@@ -23,8 +23,10 @@ from PyQt5.QtWidgets import (
 
 from .io_utils import LoadedImage, loaded_image_from_rgb_array
 from .models import (
+    ANGLE_LABEL_COLOR,
     ANGLE_LINE_COLOR,
     CONTOUR_LINE_COLOR,
+    SEGMENT_LABEL_COLOR,
     SEGMENT_LINE_COLOR,
     Point,
     normalize_line_color,
@@ -51,6 +53,7 @@ class AngleMeasurement:
     name: str = ""
     visible: bool = True
     line_color: str = ANGLE_LINE_COLOR
+    label_color: str = ANGLE_LABEL_COLOR
 
 
 @dataclass
@@ -72,6 +75,7 @@ class SegmentMeasurement:
     end_label: str = ""
     visible: bool = True
     line_color: str = SEGMENT_LINE_COLOR
+    label_color: str = SEGMENT_LABEL_COLOR
 
 
 @dataclass
@@ -470,6 +474,24 @@ class ImageCanvas(QGraphicsView):
             return True
         return False
 
+    def angle_measurement_label_color(self, angle_id: str) -> str | None:
+        for measurement in self._angle_measurements:
+            if measurement.id == angle_id:
+                return measurement.label_color
+        return None
+
+    def set_angle_measurement_label_color(self, angle_id: str, color_name: str) -> bool:
+        normalized_color = normalize_line_color(color_name, ANGLE_LABEL_COLOR)
+        for index, measurement in enumerate(self._angle_measurements):
+            if measurement.id != angle_id:
+                continue
+            if measurement.label_color == normalized_color:
+                return False
+            measurement.label_color = normalized_color
+            self._apply_angle_label_color(index)
+            return True
+        return False
+
     def is_segment_measurement_visible(self, segment_id: str) -> bool:
         for measurement in self._segment_measurements:
             if measurement.id == segment_id:
@@ -504,6 +526,24 @@ class ImageCanvas(QGraphicsView):
                 return False
             measurement.line_color = normalized_color
             self._apply_segment_highlight(index)
+            return True
+        return False
+
+    def segment_measurement_label_color(self, segment_id: str) -> str | None:
+        for measurement in self._segment_measurements:
+            if measurement.id == segment_id:
+                return measurement.label_color
+        return None
+
+    def set_segment_measurement_label_color(self, segment_id: str, color_name: str) -> bool:
+        normalized_color = normalize_line_color(color_name, SEGMENT_LABEL_COLOR)
+        for index, measurement in enumerate(self._segment_measurements):
+            if measurement.id != segment_id:
+                continue
+            if measurement.label_color == normalized_color:
+                return False
+            measurement.label_color = normalized_color
+            self._apply_segment_label_color(index)
             return True
         return False
 
@@ -893,6 +933,7 @@ class ImageCanvas(QGraphicsView):
         self._angle_measurements = []
         for measurement in measurements:
             line_color = ANGLE_LINE_COLOR
+            label_color = ANGLE_LABEL_COLOR
             if len(measurement) == 4:
                 angle_id, first_point, vertex_point, second_point = measurement
                 name = ""
@@ -908,6 +949,26 @@ class ImageCanvas(QGraphicsView):
                     first_point, vertex_point, second_point, name, line_color = measurement[1:]
                 else:
                     name, first_point, vertex_point, second_point, line_color = measurement[1:]
+            elif len(measurement) == 7:
+                angle_id = measurement[0]
+                if hasattr(measurement[1], "x"):
+                    (
+                        first_point,
+                        vertex_point,
+                        second_point,
+                        name,
+                        line_color,
+                        label_color,
+                    ) = measurement[1:]
+                else:
+                    (
+                        name,
+                        first_point,
+                        vertex_point,
+                        second_point,
+                        line_color,
+                        label_color,
+                    ) = measurement[1:]
             else:
                 continue
             try:
@@ -926,6 +987,7 @@ class ImageCanvas(QGraphicsView):
                     second=second,
                     name=str(name or "").strip(),
                     line_color=normalize_line_color(line_color, ANGLE_LINE_COLOR),
+                    label_color=normalize_line_color(label_color, ANGLE_LABEL_COLOR),
                 )
             )
 
@@ -1004,6 +1066,7 @@ class ImageCanvas(QGraphicsView):
         self._segment_measurements = []
         for measurement in measurements:
             line_color = SEGMENT_LINE_COLOR
+            label_color = SEGMENT_LABEL_COLOR
             if len(measurement) == 5:
                 segment_id, start_point, end_point, start_label, end_label = measurement
                 name = ""
@@ -1033,6 +1096,28 @@ class ImageCanvas(QGraphicsView):
                         end_label,
                         line_color,
                     ) = measurement[1:]
+            elif len(measurement) == 8:
+                segment_id = measurement[0]
+                if hasattr(measurement[1], "x"):
+                    (
+                        start_point,
+                        end_point,
+                        start_label,
+                        end_label,
+                        name,
+                        line_color,
+                        label_color,
+                    ) = measurement[1:]
+                else:
+                    (
+                        name,
+                        start_point,
+                        end_point,
+                        start_label,
+                        end_label,
+                        line_color,
+                        label_color,
+                    ) = measurement[1:]
             else:
                 continue
             try:
@@ -1051,6 +1136,7 @@ class ImageCanvas(QGraphicsView):
                     start_label=str(start_label or "").strip(),
                     end_label=str(end_label or "").strip(),
                     line_color=normalize_line_color(line_color, SEGMENT_LINE_COLOR),
+                    label_color=normalize_line_color(label_color, SEGMENT_LABEL_COLOR),
                 )
             )
 
@@ -1711,7 +1797,7 @@ class ImageCanvas(QGraphicsView):
         self._scene.addItem(arc)
 
         label = QGraphicsTextItem()
-        label.setDefaultTextColor(QColor("#166534"))
+        label.setDefaultTextColor(QColor(measurement.label_color))
         label_font = label.font()
         label_font.setBold(True)
         label_font.setPointSize(9)
@@ -1753,6 +1839,7 @@ class ImageCanvas(QGraphicsView):
         graphics.arc.setPath(arc_path)
         display_name = _angle_display_name(measurement.name, angle_index)
         graphics.label.setPlainText(_format_angle_label(display_name, angle_degrees))
+        self._apply_angle_label_color(angle_index)
         self._position_angle_label(graphics.label, measurement.vertex)
 
         self._suppress_angle_handle_events = True
@@ -1782,6 +1869,14 @@ class ImageCanvas(QGraphicsView):
         graphics.label.setVisible(visible)
         self._set_measurement_handles_visible(graphics.handles, visible)
 
+    def _apply_angle_label_color(self, angle_index: int) -> None:
+        if angle_index >= len(self._angle_measurements) or angle_index >= len(self._angle_graphics):
+            return
+
+        measurement = self._angle_measurements[angle_index]
+        graphics = self._angle_graphics[angle_index]
+        graphics.label.setDefaultTextColor(QColor(measurement.label_color))
+
     def _rebuild_segment_graphics(self) -> None:
         highlighted_angle_id = self._highlighted_angle_id
         highlighted_segment_id = self._highlighted_segment_id
@@ -1808,9 +1903,9 @@ class ImageCanvas(QGraphicsView):
         line.setZValue(SEGMENT_LINE_Z)
         self._scene.addItem(line)
 
-        length_label = self._create_segment_text_item("#9a3412", 34)
-        start_label = self._create_segment_text_item("#c2410c", 34)
-        end_label = self._create_segment_text_item("#c2410c", 34)
+        length_label = self._create_segment_text_item(measurement.label_color, 34)
+        start_label = self._create_segment_text_item(measurement.label_color, 34)
+        end_label = self._create_segment_text_item(measurement.label_color, 34)
 
         handles = [
             SegmentHandleItem(self, segment_index, 0, measurement.start),
@@ -1859,6 +1954,7 @@ class ImageCanvas(QGraphicsView):
                 length_text,
             )
         )
+        self._apply_segment_label_color(segment_index)
         midpoint = QPointF(
             (measurement.start.x() + measurement.end.x()) / 2.0,
             (measurement.start.y() + measurement.end.y()) / 2.0,
@@ -1906,6 +2002,20 @@ class ImageCanvas(QGraphicsView):
         graphics.start_label.setVisible(visible and bool(measurement.start_label))
         graphics.end_label.setVisible(visible and bool(measurement.end_label))
         self._set_measurement_handles_visible(graphics.handles, visible)
+
+    def _apply_segment_label_color(self, segment_index: int) -> None:
+        if (
+            segment_index >= len(self._segment_measurements)
+            or segment_index >= len(self._segment_graphics)
+        ):
+            return
+
+        measurement = self._segment_measurements[segment_index]
+        graphics = self._segment_graphics[segment_index]
+        color = QColor(measurement.label_color)
+        graphics.length_label.setDefaultTextColor(color)
+        graphics.start_label.setDefaultTextColor(color)
+        graphics.end_label.setDefaultTextColor(color)
 
     def _set_measurement_handles_visible(
         self,

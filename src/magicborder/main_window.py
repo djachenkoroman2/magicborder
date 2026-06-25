@@ -80,8 +80,10 @@ from .io_utils import (
     write_xlsx_table,
 )
 from .models import (
+    ANGLE_LABEL_COLOR,
     ANGLE_LINE_COLOR,
     CONTOUR_LINE_COLOR,
+    SEGMENT_LABEL_COLOR,
     SEGMENT_LINE_COLOR,
     Annotation,
     ImageCalibration,
@@ -782,12 +784,14 @@ class MainWindow(QMainWindow):
         self._angle_name_fields: dict[str, QLineEdit] = {}
         self._angle_visibility_fields: dict[str, QCheckBox] = {}
         self._angle_line_color_fields: dict[str, QToolButton] = {}
+        self._angle_label_color_fields: dict[str, QToolButton] = {}
         self._angle_note_fields: dict[str, QLineEdit] = {}
         self._angle_assessment_fields: dict[str, QComboBox] = {}
         self._angle_assessment_result_fields: dict[str, QLabel] = {}
         self._segment_name_fields: dict[str, QLineEdit] = {}
         self._segment_visibility_fields: dict[str, QCheckBox] = {}
         self._segment_line_color_fields: dict[str, QToolButton] = {}
+        self._segment_label_color_fields: dict[str, QToolButton] = {}
         self._segment_start_label_fields: dict[str, QLineEdit] = {}
         self._segment_end_label_fields: dict[str, QLineEdit] = {}
         self._segment_note_fields: dict[str, QLineEdit] = {}
@@ -962,6 +966,7 @@ class MainWindow(QMainWindow):
         self._angle_name_fields.clear()
         self._angle_visibility_fields.clear()
         self._angle_line_color_fields.clear()
+        self._angle_label_color_fields.clear()
         self._angle_note_fields.clear()
         self._angle_assessment_fields.clear()
         self._angle_assessment_result_fields.clear()
@@ -1039,6 +1044,23 @@ class MainWindow(QMainWindow):
                 "Цвет линии",
                 line_color_button,
                 key=f"angle:{angle.id}:line_color",
+            )
+            label_color_button = self._line_color_button(
+                self.properties_browser,
+                angle.label_color,
+                "Выбрать цвет подписей угла",
+            )
+            label_color_button.clicked.connect(
+                lambda _checked=False, angle_id=angle.id: self._open_angle_label_color_dialog(
+                    angle_id
+                )
+            )
+            self._angle_label_color_fields[angle.id] = label_color_button
+            self.properties_browser.add_property_to_item(
+                angle_group,
+                "Цвет подписей",
+                label_color_button,
+                key=f"angle:{angle.id}:label_color",
             )
             self.properties_browser.add_property_to_item(
                 angle_group,
@@ -1132,6 +1154,7 @@ class MainWindow(QMainWindow):
         self._segment_name_fields.clear()
         self._segment_visibility_fields.clear()
         self._segment_line_color_fields.clear()
+        self._segment_label_color_fields.clear()
         self._segment_start_label_fields.clear()
         self._segment_end_label_fields.clear()
         self._segment_note_fields.clear()
@@ -1211,6 +1234,23 @@ class MainWindow(QMainWindow):
                 "Цвет линии",
                 line_color_button,
                 key=f"segment:{segment.id}:line_color",
+            )
+            label_color_button = self._line_color_button(
+                self.properties_browser,
+                segment.label_color,
+                "Выбрать цвет подписей отрезка",
+            )
+            label_color_button.clicked.connect(
+                lambda _checked=False, segment_id=segment.id: self._open_segment_label_color_dialog(
+                    segment_id
+                )
+            )
+            self._segment_label_color_fields[segment.id] = label_color_button
+            self.properties_browser.add_property_to_item(
+                segment_group,
+                "Цвет подписей",
+                label_color_button,
+                key=f"segment:{segment.id}:label_color",
             )
             self.properties_browser.add_property_to_item(
                 segment_group,
@@ -3311,6 +3351,9 @@ class MainWindow(QMainWindow):
         existing_line_colors = {
             angle.id: angle.line_color for angle in record.measurements.angles
         }
+        existing_label_colors = {
+            angle.id: angle.label_color for angle in record.measurements.angles
+        }
         new_angles = [
             ProjectAngleMeasurement(
                 id=angle_id,
@@ -3321,6 +3364,10 @@ class MainWindow(QMainWindow):
                 line_color=(
                     self.canvas.angle_measurement_line_color(angle_id)
                     or existing_line_colors.get(angle_id, ANGLE_LINE_COLOR)
+                ),
+                label_color=(
+                    self.canvas.angle_measurement_label_color(angle_id)
+                    or existing_label_colors.get(angle_id, ANGLE_LABEL_COLOR)
                 ),
                 note=existing_notes.get(angle_id, ""),
                 assessment=existing_assessments.get(angle_id),
@@ -3355,6 +3402,9 @@ class MainWindow(QMainWindow):
         existing_line_colors = {
             segment.id: segment.line_color for segment in record.measurements.segments
         }
+        existing_label_colors = {
+            segment.id: segment.label_color for segment in record.measurements.segments
+        }
         new_segments = [
             ProjectSegmentMeasurement(
                 id=segment_id,
@@ -3364,6 +3414,10 @@ class MainWindow(QMainWindow):
                 line_color=(
                     self.canvas.segment_measurement_line_color(segment_id)
                     or existing_line_colors.get(segment_id, SEGMENT_LINE_COLOR)
+                ),
+                label_color=(
+                    self.canvas.segment_measurement_label_color(segment_id)
+                    or existing_label_colors.get(segment_id, SEGMENT_LABEL_COLOR)
                 ),
                 start_label=existing_start_labels.get(segment_id, canvas_start_label),
                 end_label=existing_end_labels.get(segment_id, canvas_end_label),
@@ -3465,6 +3519,25 @@ class MainWindow(QMainWindow):
         self._set_line_color_button_value(field, line_color)
         self._schedule_project_save()
 
+    def _open_angle_label_color_dialog(self, angle_id: str) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        angle = _angle_by_id(record, angle_id)
+        field = self._angle_label_color_fields.get(angle_id)
+        if angle is None or field is None:
+            return
+
+        label_color = self._choose_line_color(angle.label_color, "Цвет подписей угла")
+        if label_color is None or label_color == angle.label_color:
+            return
+
+        angle.label_color = label_color
+        if record.id == self._current_project_image_id:
+            self.canvas.set_angle_measurement_label_color(angle_id, label_color)
+        self._set_line_color_button_value(field, label_color)
+        self._schedule_project_save()
+
     def _handle_segment_name_edit_finished(self, segment_id: str, field: QLineEdit) -> None:
         record = self._selected_project_image()
         if record is None:
@@ -3558,6 +3631,25 @@ class MainWindow(QMainWindow):
         if record.id == self._current_project_image_id:
             self.canvas.set_segment_measurement_line_color(segment_id, line_color)
         self._set_line_color_button_value(field, line_color)
+        self._schedule_project_save()
+
+    def _open_segment_label_color_dialog(self, segment_id: str) -> None:
+        record = self._selected_project_image()
+        if record is None:
+            return
+        segment = _segment_by_id(record, segment_id)
+        field = self._segment_label_color_fields.get(segment_id)
+        if segment is None or field is None:
+            return
+
+        label_color = self._choose_line_color(segment.label_color, "Цвет подписей отрезка")
+        if label_color is None or label_color == segment.label_color:
+            return
+
+        segment.label_color = label_color
+        if record.id == self._current_project_image_id:
+            self.canvas.set_segment_measurement_label_color(segment_id, label_color)
+        self._set_line_color_button_value(field, label_color)
         self._schedule_project_save()
 
     def _handle_segment_label_edit_finished(
@@ -5171,7 +5263,7 @@ def _measurement_assessment_key(
 
 def _angle_canvas_records(
     record: ProjectImageRecord,
-) -> list[tuple[str, Point, Point, Point, str, str]]:
+) -> list[tuple[str, Point, Point, Point, str, str, str]]:
     return [
         (
             angle.id,
@@ -5180,6 +5272,7 @@ def _angle_canvas_records(
             angle.second,
             angle.name,
             angle.line_color,
+            angle.label_color,
         )
         for angle in record.measurements.angles
     ]
@@ -5187,7 +5280,7 @@ def _angle_canvas_records(
 
 def _segment_canvas_records(
     record: ProjectImageRecord,
-) -> list[tuple[str, Point, Point, str, str, str, str]]:
+) -> list[tuple[str, Point, Point, str, str, str, str, str]]:
     return [
         (
             segment.id,
@@ -5197,6 +5290,7 @@ def _segment_canvas_records(
             segment.end_label,
             segment.name,
             segment.line_color,
+            segment.label_color,
         )
         for segment in record.measurements.segments
     ]
@@ -5215,6 +5309,7 @@ def _angle_measurements_equal(
         and left_angle.second == right_angle.second
         and left_angle.name == right_angle.name
         and left_angle.line_color == right_angle.line_color
+        and left_angle.label_color == right_angle.label_color
         and left_angle.note == right_angle.note
         and _measurement_assessments_equal(left_angle.assessment, right_angle.assessment)
         for left_angle, right_angle in zip(left, right)
@@ -5233,6 +5328,7 @@ def _segment_measurements_equal(
         and left_segment.end == right_segment.end
         and left_segment.name == right_segment.name
         and left_segment.line_color == right_segment.line_color
+        and left_segment.label_color == right_segment.label_color
         and left_segment.start_label == right_segment.start_label
         and left_segment.end_label == right_segment.end_label
         and left_segment.note == right_segment.note
