@@ -8,8 +8,17 @@ from pathlib import Path
 from uuid import uuid4
 
 import numpy as np
-import cv2
-from PyQt5.QtCore import QDateTime, QSize, QSignalBlocker, Qt, QTimer
+from PyQt5.QtCore import (
+    QObject,
+    QDateTime,
+    QRunnable,
+    QSize,
+    QSignalBlocker,
+    Qt,
+    QThreadPool,
+    QTimer,
+    pyqtSignal,
+)
 from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
@@ -42,14 +51,20 @@ from PyQt5.QtWidgets import (
 )
 
 from .canvas import ImageCanvas
+from .contour_analysis import (
+    ContourAnalysis,
+    ContourSignature,
+    build_contour_analysis,
+    contour_rgb_pixels_from_points,
+    contour_signature,
+    hsv_values_from_rgb_pixels,
+    lab_values_from_rgb_pixels,
+    mean_lms_values_from_total,
+    yuv_values_from_rgb_pixels,
+)
 from .detector import detect_leaf_contour
 from .histograms import (
     HistogramPanel,
-    build_hsv_histogram,
-    build_lab_histogram,
-    build_lms_histogram,
-    build_rgb_histogram,
-    build_yuv_histogram,
     rgb_to_lms,
 )
 from .icons import ACTION_VISUALS, TOOLBAR_ICON_SIZE, apply_action_visual, load_icon
@@ -96,6 +111,9 @@ APP_TITLE = "MagicBorder"
 WORKSPACE_DEFAULT_SIZES = [260, 860, 280]
 PROJECT_PANEL_DEFAULT_SIZES = [380, 220, 320]
 HISTOGRAM_DEFAULT_SIZES = [170, 170, 170, 170, 170]
+CONTOUR_ANALYSIS_SYNC_PIXEL_LIMIT = 300_000
+CONTOUR_ANALYSIS_PENDING_TEXT = "расчёт..."
+ContourAnalysisCacheKey = tuple[str | None, str | None, ContourSignature]
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +122,57 @@ class ExportTreeItem:
     key: str = ""
     export_label: str = ""
     children: tuple["ExportTreeItem", ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ContourAnalysisWorkResult:
+    request_id: int
+    record_id: str | None
+    image_path: str | None
+    signature: ContourSignature
+    analysis: ContourAnalysis | None
+
+
+class _ContourAnalysisWorkerSignals(QObject):
+    finished = pyqtSignal(object)
+    failed = pyqtSignal(int, str)
+
+
+class _ContourAnalysisWorker(QRunnable):
+    def __init__(
+        self,
+        request_id: int,
+        record_id: str | None,
+        image_path: str | None,
+        signature: ContourSignature,
+        rgb_array: np.ndarray,
+        points: list[Point],
+    ) -> None:
+        super().__init__()
+        self.signals = _ContourAnalysisWorkerSignals()
+        self._request_id = request_id
+        self._record_id = record_id
+        self._image_path = image_path
+        self._signature = signature
+        self._rgb_array = rgb_array
+        self._points = points
+
+    def run(self) -> None:
+        try:
+            analysis = build_contour_analysis(self._rgb_array, self._points)
+        except Exception as exc:  # pragma: no cover - defensive boundary for worker failures
+            self.signals.failed.emit(self._request_id, str(exc))
+            return
+
+        self.signals.finished.emit(
+            ContourAnalysisWorkResult(
+                request_id=self._request_id,
+                record_id=self._record_id,
+                image_path=self._image_path,
+                signature=self._signature,
+                analysis=analysis,
+            )
+        )
 
 
 PROJECT_EXPORT_COLUMNS = [
@@ -326,6 +395,15 @@ class MainWindow(QMainWindow):
         self._histogram_refresh_timer = QTimer(self)
         self._histogram_refresh_timer.setSingleShot(True)
         self._histogram_refresh_timer.timeout.connect(self._refresh_histograms)
+        self._project_summary_refresh_timer = QTimer(self)
+        self._project_summary_refresh_timer.setSingleShot(True)
+        self._project_summary_refresh_timer.timeout.connect(self._update_project_summary_properties)
+        self._contour_analysis_thread_pool = QThreadPool.globalInstance()
+        self._contour_analysis_request_id = 0
+        self._contour_analysis_cache: ContourAnalysisWorkResult | None = None
+        self._pending_contour_analysis_key: ContourAnalysisCacheKey | None = None
+        self._pending_contour_analysis_request_id: int | None = None
+        self._contour_analysis_workers: set[_ContourAnalysisWorker] = set()
 
         self.project_document: ProjectDocument | None = None
         self.project_path: Path | None = None
@@ -1948,17 +2026,14 @@ class MainWindow(QMainWindow):
         return None
 
     def _schedule_histogram_refresh(self, *_args) -> None:
-        if not self._histogram_refresh_timer.isActive():
-            self._histogram_refresh_timer.start(90)
+        self._histogram_refresh_timer.start(120)
 
     def _refresh_histograms(self) -> None:
-        try:
-            rgb_pixels = self.canvas.contour_rgb_pixels()
-        except ValueError as exc:
-            self._clear_histograms(str(exc))
-            return
-
-        if rgb_pixels.size == 0:
+        result = self._ensure_current_contour_analysis(defer_large_async=False)
+        if result is None:
+            if self._is_current_contour_analysis_pending():
+                self._clear_histograms(CONTOUR_ANALYSIS_PENDING_TEXT)
+                return
             message = "Откройте изображение и создайте контур, чтобы увидеть гистограмму."
             if self.canvas.has_image() and not self.canvas.has_contour():
                 message = "Создайте основной контур, чтобы увидеть гистограмму."
@@ -1967,15 +2042,21 @@ class MainWindow(QMainWindow):
             self._clear_histograms(message)
             return
 
+        self._apply_contour_analysis_histograms(result)
+
+    def _apply_contour_analysis_histograms(self, result: ContourAnalysisWorkResult) -> None:
+        if result.analysis is None:
+            self._clear_histograms("Внутри контура нет пикселей для анализа.")
+            return
+
         histogram_specs = (
-            (self.rgb_histogram_panel, build_rgb_histogram, "RGB"),
-            (self.lab_histogram_panel, build_lab_histogram, "Lab"),
-            (self.hsv_histogram_panel, build_hsv_histogram, "HSV"),
-            (self.yuv_histogram_panel, build_yuv_histogram, "YUV"),
-            (self.lms_histogram_panel, build_lms_histogram, "LMS"),
+            (self.rgb_histogram_panel, result.analysis.histograms.rgb, "RGB"),
+            (self.lab_histogram_panel, result.analysis.histograms.lab, "Lab"),
+            (self.hsv_histogram_panel, result.analysis.histograms.hsv, "HSV"),
+            (self.yuv_histogram_panel, result.analysis.histograms.yuv, "YUV"),
+            (self.lms_histogram_panel, result.analysis.histograms.lms, "LMS"),
         )
-        for panel, build_histogram, name in histogram_specs:
-            histogram = build_histogram(rgb_pixels)
+        for panel, histogram, name in histogram_specs:
             if histogram is None:
                 panel.clear_histogram(f"Внутри контура нет пикселей для {name}-гистограммы.")
             else:
@@ -1990,6 +2071,150 @@ class MainWindow(QMainWindow):
             self.lms_histogram_panel,
         ):
             panel.clear_histogram(message)
+
+    def _ensure_current_contour_analysis(
+        self,
+        record: ProjectImageRecord | None = None,
+        *,
+        defer_large_async: bool = True,
+    ) -> ContourAnalysisWorkResult | None:
+        inputs = self._current_contour_analysis_inputs(record)
+        if inputs is None:
+            return None
+        key, record_id, image_path, points = inputs
+
+        if self._contour_analysis_cache_matches(key):
+            return self._contour_analysis_cache
+        if self._pending_contour_analysis_key == key:
+            return None
+
+        image_size = self.canvas.image_size()
+        if image_size is None:
+            return None
+        width, height = image_size
+        is_large_image = width * height > CONTOUR_ANALYSIS_SYNC_PIXEL_LIMIT
+        if is_large_image and defer_large_async and self._histogram_refresh_timer.isActive():
+            return None
+
+        try:
+            rgb_array = self.canvas.current_rgb_array()
+        except ValueError as exc:
+            self._clear_histograms(str(exc))
+            return None
+
+        self._contour_analysis_request_id += 1
+        request_id = self._contour_analysis_request_id
+        if not is_large_image:
+            result = ContourAnalysisWorkResult(
+                request_id=request_id,
+                record_id=record_id,
+                image_path=image_path,
+                signature=key[2],
+                analysis=build_contour_analysis(rgb_array, points),
+            )
+            self._contour_analysis_cache = result
+            self._pending_contour_analysis_key = None
+            self._pending_contour_analysis_request_id = None
+            return result
+
+        self._pending_contour_analysis_key = key
+        self._pending_contour_analysis_request_id = request_id
+        worker = _ContourAnalysisWorker(
+            request_id=request_id,
+            record_id=record_id,
+            image_path=image_path,
+            signature=key[2],
+            rgb_array=rgb_array,
+            points=points,
+        )
+        worker.signals.finished.connect(self._handle_contour_analysis_finished)
+        worker.signals.failed.connect(self._handle_contour_analysis_failed)
+        worker.signals.finished.connect(
+            lambda _result, current_worker=worker: self._contour_analysis_workers.discard(
+                current_worker
+            )
+        )
+        worker.signals.failed.connect(
+            lambda _request_id, _message, current_worker=worker: self._contour_analysis_workers.discard(
+                current_worker
+            )
+        )
+        self._contour_analysis_workers.add(worker)
+        self._contour_analysis_thread_pool.start(worker)
+        return None
+
+    def _current_contour_analysis_inputs(
+        self,
+        record: ProjectImageRecord | None = None,
+    ) -> tuple[ContourAnalysisCacheKey, str | None, str | None, list[Point]] | None:
+        if not self.canvas.has_image() or not self.canvas.has_contour():
+            return None
+
+        record_id = record.id if record is not None else self._current_project_image_id
+        image_path = self.canvas.current_image_path()
+        image_path_text = str(image_path) if image_path is not None else None
+        points = self.canvas.contour_points()
+        signature = contour_signature(points)
+        return (record_id, image_path_text, signature), record_id, image_path_text, points
+
+    def _contour_analysis_cache_matches(self, key: ContourAnalysisCacheKey) -> bool:
+        cached = self._contour_analysis_cache
+        return (
+            cached is not None
+            and cached.record_id == key[0]
+            and cached.image_path == key[1]
+            and cached.signature == key[2]
+        )
+
+    def _is_current_contour_analysis_pending(
+        self,
+        record: ProjectImageRecord | None = None,
+    ) -> bool:
+        inputs = self._current_contour_analysis_inputs(record)
+        if inputs is None:
+            return False
+        if self._pending_contour_analysis_key == inputs[0]:
+            return True
+        image_size = self.canvas.image_size()
+        if image_size is None:
+            return False
+        width, height = image_size
+        return (
+            width * height > CONTOUR_ANALYSIS_SYNC_PIXEL_LIMIT
+            and self._histogram_refresh_timer.isActive()
+        )
+
+    def _is_contour_analysis_result_current(self, result: ContourAnalysisWorkResult) -> bool:
+        inputs = self._current_contour_analysis_inputs()
+        if inputs is None:
+            return False
+        key = inputs[0]
+        return (
+            result.record_id == key[0]
+            and result.image_path == key[1]
+            and result.signature == key[2]
+        )
+
+    def _handle_contour_analysis_finished(self, result: ContourAnalysisWorkResult) -> None:
+        if result.request_id != self._contour_analysis_request_id:
+            return
+        if not self._is_contour_analysis_result_current(result):
+            return
+
+        self._pending_contour_analysis_key = None
+        self._pending_contour_analysis_request_id = None
+        self._contour_analysis_cache = result
+        self._update_project_properties()
+        self._apply_contour_analysis_histograms(result)
+
+    def _handle_contour_analysis_failed(self, request_id: int, message: str) -> None:
+        if request_id != self._pending_contour_analysis_request_id:
+            return
+
+        self._pending_contour_analysis_key = None
+        self._pending_contour_analysis_request_id = None
+        self._clear_histograms(message or "Не удалось рассчитать гистограммы.")
+        self._update_project_properties()
 
     def _restore_splitter_defaults(self) -> None:
         self.workspace_splitter.setSizes(WORKSPACE_DEFAULT_SIZES)
@@ -3773,7 +3998,10 @@ class MainWindow(QMainWindow):
         if self._loading_project_image:
             return
         self._save_current_project_annotation()
-        self._update_project_summary_properties()
+        if self._should_defer_project_summary_refresh():
+            self._schedule_project_summary_refresh()
+        else:
+            self._update_project_summary_properties()
         self._update_project_properties()
 
     def _handle_contour_visibility_changed(self, checked: bool) -> None:
@@ -3999,6 +4227,28 @@ class MainWindow(QMainWindow):
         self.project_mean_lms_m.setText(lms_m_text)
         self.project_mean_lms_s.setText(lms_s_text)
 
+    def _schedule_project_summary_refresh(self) -> None:
+        self._project_summary_refresh_timer.start(220)
+
+    def _should_defer_project_summary_refresh(self) -> bool:
+        if self.project_document is None:
+            return False
+
+        total_pixels = 0
+        unknown_annotated_images = 0
+        for record in self.project_document.images:
+            if record.annotation is None or record.annotation_error:
+                continue
+            if record.image_width and record.image_height:
+                total_pixels += int(record.image_width) * int(record.image_height)
+            else:
+                unknown_annotated_images += 1
+
+        return (
+            total_pixels > CONTOUR_ANALYSIS_SYNC_PIXEL_LIMIT
+            or unknown_annotated_images > 2
+        )
+
     def _load_project_identity_fields(self) -> None:
         project_name_text = "-"
         project_path_text = "-"
@@ -4127,6 +4377,13 @@ class MainWindow(QMainWindow):
             calibration_scale_text = _calibration_scale_text(record.calibration)
 
         contour_stats = self._current_contour_stats(record)
+        contour_analysis_pending = (
+            contour_stats is None
+            and record.id == self._current_project_image_id
+            and self.canvas.has_image()
+            and self.canvas.has_contour()
+            and self._is_current_contour_analysis_pending(record)
+        )
         if contour_stats is None:
             red_text = green_text = blue_text = "-"
             lab_l_text = lab_a_text = lab_b_text = "-"
@@ -4135,6 +4392,14 @@ class MainWindow(QMainWindow):
             lms_l_text = lms_m_text = lms_s_text = "-"
             contour_pixels_text = "-"
             contour_area_mm2_text = "-"
+            if contour_analysis_pending:
+                red_text = green_text = blue_text = CONTOUR_ANALYSIS_PENDING_TEXT
+                lab_l_text = lab_a_text = lab_b_text = CONTOUR_ANALYSIS_PENDING_TEXT
+                hsv_h_text = hsv_s_text = hsv_v_text = CONTOUR_ANALYSIS_PENDING_TEXT
+                yuv_y_text = yuv_u_text = yuv_v_text = CONTOUR_ANALYSIS_PENDING_TEXT
+                lms_l_text = lms_m_text = lms_s_text = CONTOUR_ANALYSIS_PENDING_TEXT
+                contour_pixels_text = CONTOUR_ANALYSIS_PENDING_TEXT
+                contour_area_mm2_text = CONTOUR_ANALYSIS_PENDING_TEXT
             mean_rgb = None
         else:
             mean_rgb, mean_lab, mean_hsv, mean_yuv, mean_lms, contour_pixel_count = contour_stats
@@ -4695,21 +4960,18 @@ class MainWindow(QMainWindow):
     ] | None:
         if record.id != self._current_project_image_id:
             return None
-        if not self.canvas.has_image() or not self.canvas.has_contour():
+        result = self._ensure_current_contour_analysis(record)
+        if result is None or result.analysis is None:
             return None
-        try:
-            pixels = self.canvas.contour_rgb_pixels()
-        except ValueError:
-            return None
-        if pixels.size == 0:
-            return None
-        mean_values = np.rint(pixels.mean(axis=0)).astype(int)
-        mean_rgb = int(mean_values[0]), int(mean_values[1]), int(mean_values[2])
-        mean_lab = _mean_lab_values(pixels)
-        mean_hsv = _mean_hsv_values(pixels)
-        mean_yuv = _mean_yuv_values(pixels)
-        mean_lms = _mean_lms_values(pixels)
-        return mean_rgb, mean_lab, mean_hsv, mean_yuv, mean_lms, int(pixels.shape[0])
+        stats = result.analysis.stats
+        return (
+            stats.mean_rgb,
+            stats.mean_lab,
+            stats.mean_hsv,
+            stats.mean_yuv,
+            stats.mean_lms,
+            stats.pixel_count,
+        )
 
     def _set_average_color_swatch(self, rgb: tuple[int, int, int] | None) -> None:
         if rgb is None:
@@ -5103,17 +5365,7 @@ def _compact_float(value: float, decimals: int) -> str:
 
 
 def _annotation_rgb_pixels(rgb_array: np.ndarray, annotation: Annotation) -> np.ndarray:
-    mask = np.zeros(rgb_array.shape[:2], dtype=np.uint8)
-    polygon = np.array(
-        [
-            [int(round(point.x)), int(round(point.y))]
-            for point in annotation.points
-        ],
-        dtype=np.int32,
-    )
-    cv2.fillPoly(mask, [polygon], 255)
-    pixels = rgb_array[mask > 0]
-    return np.ascontiguousarray(pixels.reshape((-1, 3)))
+    return contour_rgb_pixels_from_points(rgb_array, annotation.points)
 
 
 def _mean_lab_values(rgb_pixels: np.ndarray) -> tuple[int, int, int]:
@@ -5144,27 +5396,15 @@ def _mean_lms_values(rgb_pixels: np.ndarray) -> tuple[int, int, int]:
 
 
 def _lab_values_from_rgb_pixels(rgb_pixels: np.ndarray) -> np.ndarray:
-    lab_pixels = cv2.cvtColor(rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2LAB).reshape((-1, 3))
-    lab_pixels = lab_pixels.astype(np.float32)
-    return np.column_stack(
-        (
-            lab_pixels[:, 0] * (100.0 / 255.0),
-            lab_pixels[:, 1] - 128.0,
-            lab_pixels[:, 2] - 128.0,
-        )
-    )
+    return lab_values_from_rgb_pixels(rgb_pixels)
 
 
 def _hsv_values_from_rgb_pixels(rgb_pixels: np.ndarray) -> np.ndarray:
-    hsv_pixels = cv2.cvtColor(rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2HSV).reshape((-1, 3))
-    hsv_values = hsv_pixels.astype(np.float32)
-    hsv_values[:, 0] *= 2.0
-    return hsv_values
+    return hsv_values_from_rgb_pixels(rgb_pixels)
 
 
 def _yuv_values_from_rgb_pixels(rgb_pixels: np.ndarray) -> np.ndarray:
-    yuv_pixels = cv2.cvtColor(rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2YUV).reshape((-1, 3))
-    return yuv_pixels.astype(np.float32)
+    return yuv_values_from_rgb_pixels(rgb_pixels)
 
 
 def _mean_lms_values_from_total(
@@ -5172,11 +5412,7 @@ def _mean_lms_values_from_total(
     lms_max: np.ndarray,
     pixel_count: int,
 ) -> tuple[int, int, int]:
-    max_values = np.maximum(lms_max, 1e-9)
-    normalized_mean = (lms_total / max(1, pixel_count)) / max_values * 255.0
-    mean_values = np.rint(normalized_mean).astype(int)
-    mean_values = np.clip(mean_values, 0, 255)
-    return int(mean_values[0]), int(mean_values[1]), int(mean_values[2])
+    return mean_lms_values_from_total(lms_total, lms_max, pixel_count)
 
 
 def _circle_contour_points(width: int, height: int, node_count: int) -> list[Point]:
