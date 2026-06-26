@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (  # noqa: E402
     QSizePolicy,
     QHeaderView,
     QLineEdit,
+    QMessageBox,
     QToolBar,
     QToolButton,
     QTreeWidget,
@@ -3400,6 +3401,162 @@ class ProjectPropertiesTest(unittest.TestCase):
                 self.assertEqual(cell_styles[cell_ref], "1")
             for cell_ref in ("A4", "B4", "A5", "B5", "A6", "B6", "A7", "B7"):
                 self.assertEqual(cell_styles[cell_ref], "")
+
+    def test_image_properties_excel_export_adds_average_color_fill_cell(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window = _minimal_export_window(root)
+            window.property_red.setText("10")
+            window.property_green.setText("20")
+            window.property_blue.setText("30")
+            window._current_project_image_id = "row-1"
+            window._set_average_color_swatch((10, 20, 30))
+
+            export_path = root / "rgb_fill_properties.xlsx"
+            window._write_image_properties_excel(
+                export_path,
+                ["red", "green", "blue", "average_color"],
+            )
+
+            self.assertEqual(_read_xlsx_rows(export_path)[0], ["Свойство", "Значение", "Цвет"])
+            rows = _read_xlsx_dict_rows(export_path)
+            self.assertEqual(
+                rows[-1],
+                {"Свойство": "Средний цвет", "Значение": "RGB(10, 20, 30)", "Цвет": ""},
+            )
+            cell_styles = _read_xlsx_cell_styles(export_path)
+            self.assertNotEqual(cell_styles["C7"], "")
+            styles_xml = _read_xlsx_styles_xml(export_path)
+            self.assertIn('patternType="solid"', styles_xml)
+            self.assertIn('rgb="FF0A141E"', styles_xml)
+            for cell_ref in ("A2", "B2", "A3", "B3"):
+                self.assertEqual(cell_styles[cell_ref], "1")
+
+    def test_average_color_swatch_saves_png_sample(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+            _add_test_contour(window)
+
+            output_path = root / "average_sample"
+            with patch(
+                "magicborder.main_window.QFileDialog.getSaveFileName",
+                return_value=(str(output_path), ""),
+            ):
+                window.save_average_color_sample()
+
+            saved_path = root / "average_sample.png"
+            with Image.open(saved_path) as image:
+                self.assertEqual(image.size, (100, 100))
+                self.assertEqual(image.getpixel((0, 0)), (120, 80, 40))
+                self.assertEqual(image.getpixel((99, 99)), (120, 80, 40))
+
+    def test_average_color_swatch_requires_calculated_color(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+
+            with patch.object(window, "_show_warning") as show_warning, patch(
+                "magicborder.main_window.QFileDialog.getSaveFileName",
+            ) as get_save_file_name:
+                window.save_average_color_sample()
+
+            show_warning.assert_called_once_with(
+                "Средний цвет недоступен",
+                "Средний цвет ещё не рассчитан. Сначала создайте контур и дождитесь расчёта.",
+            )
+            get_save_file_name.assert_not_called()
+
+    def test_flatten_background_confirms_and_saves_current_image_file(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+            _add_test_contour(window)
+            image_path = root / "images" / "leaf.png"
+
+            with patch(
+                "magicborder.main_window.QMessageBox.question",
+                return_value=QMessageBox.Yes,
+            ):
+                window.flatten_background()
+
+            with Image.open(image_path) as image:
+                self.assertEqual(image.convert("RGB").getpixel((0, 0)), (255, 255, 255))
+                self.assertEqual(image.convert("RGB").getpixel((10, 10)), (120, 80, 40))
+            canvas_rgb = window.canvas.current_rgb_array()
+            self.assertEqual(tuple(int(value) for value in canvas_rgb[0, 0]), (255, 255, 255))
+            self.assertEqual(tuple(int(value) for value in canvas_rgb[10, 10]), (120, 80, 40))
+
+    def test_flatten_background_survives_switching_images(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            image_dir = root / "images"
+            image_dir.mkdir()
+            Image.new("RGB", (40, 30), (120, 80, 40)).save(image_dir / "leaf-a.png")
+            Image.new("RGB", (40, 30), (20, 60, 100)).save(image_dir / "leaf-b.png")
+
+            project = ProjectDocument(
+                name="switch_flatten",
+                images=[
+                    ProjectImageRecord(
+                        id="leaf-a",
+                        relative_path="images/leaf-a.png",
+                        display_name="leaf-a.png",
+                        image_width=40,
+                        image_height=30,
+                    ),
+                    ProjectImageRecord(
+                        id="leaf-b",
+                        relative_path="images/leaf-b.png",
+                        display_name="leaf-b.png",
+                        image_width=40,
+                        image_height=30,
+                    ),
+                ],
+            )
+            project_path = root / "switch_flatten.json"
+            save_project(project_path, project)
+
+            window = MainWindow()
+            window._set_project(project_path, load_project(project_path))
+            _add_test_contour(window)
+
+            with patch(
+                "magicborder.main_window.QMessageBox.question",
+                return_value=QMessageBox.Yes,
+            ):
+                window.flatten_background()
+
+            window.project_list.setCurrentRow(1)
+            window.project_list.setCurrentRow(0)
+
+            canvas_rgb = window.canvas.current_rgb_array()
+            self.assertEqual(tuple(int(value) for value in canvas_rgb[0, 0]), (255, 255, 255))
+            self.assertEqual(tuple(int(value) for value in canvas_rgb[10, 10]), (120, 80, 40))
+
+    def test_flatten_background_cancel_leaves_canvas_and_file_unchanged(self) -> None:
+        _app()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            window, _project_path = _measurement_export_window(root)
+            _add_test_contour(window)
+            image_path = root / "images" / "leaf.png"
+
+            with patch(
+                "magicborder.main_window.QMessageBox.question",
+                return_value=QMessageBox.No,
+            ):
+                window.flatten_background()
+
+            with Image.open(image_path) as image:
+                self.assertEqual(image.convert("RGB").getpixel((0, 0)), (120, 80, 40))
+            canvas_rgb = window.canvas.current_rgb_array()
+            self.assertEqual(tuple(int(value) for value in canvas_rgb[0, 0]), (120, 80, 40))
 
     def test_image_properties_export_dialog_toggles_nested_measurement_groups(self) -> None:
         _app()

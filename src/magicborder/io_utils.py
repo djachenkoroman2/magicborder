@@ -98,8 +98,11 @@ def write_xlsx_table(
     *,
     sheet_name: str,
     bold_rows: set[int] | None = None,
+    cell_fills: dict[tuple[int, str], str] | None = None,
 ) -> None:
     created_at = datetime.now().astimezone().isoformat(timespec="seconds")
+    normalized_cell_fills = _normalize_xlsx_cell_fills(cell_fills or {})
+    fill_colors = list(dict.fromkeys(normalized_cell_fills.values()))
     archive_parts = {
         "[Content_Types].xml": _xlsx_content_types_xml(),
         "_rels/.rels": _xlsx_root_relationships_xml(),
@@ -107,8 +110,14 @@ def write_xlsx_table(
         "docProps/core.xml": _xlsx_core_properties_xml(created_at),
         "xl/workbook.xml": _xlsx_workbook_xml(sheet_name),
         "xl/_rels/workbook.xml.rels": _xlsx_workbook_relationships_xml(),
-        "xl/styles.xml": _xlsx_styles_xml(),
-        "xl/worksheets/sheet1.xml": _xlsx_sheet_xml(fieldnames, rows, bold_rows=bold_rows or set()),
+        "xl/styles.xml": _xlsx_styles_xml(fill_colors),
+        "xl/worksheets/sheet1.xml": _xlsx_sheet_xml(
+            fieldnames,
+            rows,
+            bold_rows=bold_rows or set(),
+            cell_fills=normalized_cell_fills,
+            fill_colors=fill_colors,
+        ),
     }
     with zipfile.ZipFile(Path(output_path), "w", compression=zipfile.ZIP_DEFLATED) as workbook:
         for name, content in archive_parts.items():
@@ -249,19 +258,47 @@ def _xlsx_workbook_relationships_xml() -> str:
 </Relationships>"""
 
 
-def _xlsx_styles_xml() -> str:
-    return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+def _xlsx_styles_xml(fill_colors: list[str] | None = None) -> str:
+    fill_colors = fill_colors or []
+    color_fills_xml = "\n".join(
+        (
+            "    <fill><patternFill patternType=\"solid\">"
+            f"<fgColor rgb=\"{color}\"/><bgColor indexed=\"64\"/>"
+            "</patternFill></fill>"
+        )
+        for color in fill_colors
+    )
+    fills_count = 2 + len(fill_colors)
+    fill_xfs_xml = "\n".join(
+        f'    <xf numFmtId="0" fontId="0" fillId="{2 + index}" borderId="0" xfId="0" applyFill="1"/>'
+        for index, _color in enumerate(fill_colors)
+    )
+    bold_fill_xfs_xml = "\n".join(
+        (
+            f'    <xf numFmtId="0" fontId="1" fillId="{2 + index}" borderId="0" '
+            'xfId="0" applyFont="1" applyFill="1"/>'
+        )
+        for index, _color in enumerate(fill_colors)
+    )
+    cell_xfs_count = 2 + (2 * len(fill_colors))
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <fonts count="2">
     <font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
     <font><b/><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/></font>
   </fonts>
-  <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+  <fills count="{fills_count}">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+{color_fills_xml}
+  </fills>
   <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="2">
+  <cellXfs count="{cell_xfs_count}">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+{fill_xfs_xml}
+{bold_fill_xfs_xml}
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
   <dxfs count="0"/>
@@ -274,18 +311,38 @@ def _xlsx_sheet_xml(
     rows: list[dict[str, str]],
     *,
     bold_rows: set[int],
+    cell_fills: dict[tuple[int, str], str],
+    fill_colors: list[str],
 ) -> str:
-    table_rows: list[tuple[list[str], int]] = [(fieldnames, 0)]
-    table_rows.extend(
-        (
-            [row.get(field, "") for field in fieldnames],
-            1 if row_index in bold_rows else 0,
-        )
-        for row_index, row in enumerate(rows)
-    )
+    fill_style_ids = {
+        color: 2 + index
+        for index, color in enumerate(fill_colors)
+    }
+    bold_fill_style_ids = {
+        color: 2 + len(fill_colors) + index
+        for index, color in enumerate(fill_colors)
+    }
+    table_rows: list[tuple[list[str], list[int]]] = [
+        (fieldnames, [0 for _field in fieldnames])
+    ]
+    for row_index, row in enumerate(rows):
+        is_bold = row_index in bold_rows
+        values = [row.get(field, "") for field in fieldnames]
+        style_ids: list[int] = []
+        for field in fieldnames:
+            fill_color = cell_fills.get((row_index, field))
+            if fill_color:
+                style_ids.append(
+                    bold_fill_style_ids[fill_color]
+                    if is_bold
+                    else fill_style_ids[fill_color]
+                )
+            else:
+                style_ids.append(1 if is_bold else 0)
+        table_rows.append((values, style_ids))
     rows_xml = "\n".join(
-        _xlsx_row_xml(row_values, row_index, style_id=style_id)
-        for row_index, (row_values, style_id) in enumerate(table_rows, start=1)
+        _xlsx_row_xml(row_values, row_index, style_ids=style_ids)
+        for row_index, (row_values, style_ids) in enumerate(table_rows, start=1)
     )
     last_column = _xlsx_column_name(len(fieldnames))
     last_row = max(1, len(table_rows))
@@ -313,9 +370,14 @@ def _xlsx_sheet_xml(
 </worksheet>"""
 
 
-def _xlsx_row_xml(values: list[str], row_index: int, *, style_id: int = 0) -> str:
+def _xlsx_row_xml(values: list[str], row_index: int, *, style_ids: list[int]) -> str:
     cells_xml = "".join(
-        _xlsx_cell_xml(value, _xlsx_column_name(column_index), row_index, style_id=style_id)
+        _xlsx_cell_xml(
+            value,
+            _xlsx_column_name(column_index),
+            row_index,
+            style_id=style_ids[column_index - 1] if column_index - 1 < len(style_ids) else 0,
+        )
         for column_index, value in enumerate(values, start=1)
     )
     return f'    <row r="{row_index}">{cells_xml}</row>'
@@ -334,6 +396,30 @@ def _xlsx_column_name(column_index: int) -> str:
         column_index, remainder = divmod(column_index - 1, 26)
         name = chr(65 + remainder) + name
     return name
+
+
+def _normalize_xlsx_cell_fills(
+    cell_fills: dict[tuple[int, str], str],
+) -> dict[tuple[int, str], str]:
+    normalized: dict[tuple[int, str], str] = {}
+    for cell_key, color in cell_fills.items():
+        normalized_color = _normalize_xlsx_color(color)
+        if normalized_color:
+            normalized[cell_key] = normalized_color
+    return normalized
+
+
+def _normalize_xlsx_color(color: str) -> str | None:
+    value = str(color).strip()
+    if value.startswith("#"):
+        value = value[1:]
+    if len(value) == 6:
+        value = f"FF{value}"
+    if len(value) != 8:
+        return None
+    if any(char not in "0123456789abcdefABCDEF" for char in value):
+        return None
+    return value.upper()
 
 
 def _clean_xml_text(value: str) -> str:

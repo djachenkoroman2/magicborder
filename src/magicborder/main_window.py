@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import numpy as np
+from PIL import Image
 from PyQt5.QtCore import (
     QObject,
     QDateTime,
@@ -175,6 +176,17 @@ class _ContourAnalysisWorker(QRunnable):
                 analysis=analysis,
             )
         )
+
+
+class AverageColorSwatch(QFrame):
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
 
 PROJECT_EXPORT_COLUMNS = [
@@ -406,6 +418,7 @@ class MainWindow(QMainWindow):
         self._pending_contour_analysis_key: ContourAnalysisCacheKey | None = None
         self._pending_contour_analysis_request_id: int | None = None
         self._contour_analysis_workers: set[_ContourAnalysisWorker] = set()
+        self._current_average_color_rgb: tuple[int, int, int] | None = None
 
         self.project_document: ProjectDocument | None = None
         self.project_path: Path | None = None
@@ -732,9 +745,10 @@ class MainWindow(QMainWindow):
         self.property_lms_m = self._property_value_label()
         self.property_lms_s = self._property_value_label()
         self.property_status = self._property_value_label()
-        self.average_color_swatch = QFrame(properties_widget)
+        self.average_color_swatch = AverageColorSwatch(properties_widget)
         self.average_color_swatch.setObjectName("averageColorSwatch")
         self.average_color_swatch.setFixedSize(58, 24)
+        self.average_color_swatch.clicked.connect(self.save_average_color_sample)
 
         self.image_id = self._metadata_line_edit()
         self.image_id.editingFinished.connect(self._handle_image_id_edit_finished)
@@ -2256,6 +2270,12 @@ class MainWindow(QMainWindow):
         self._clear_histograms(message or "Не удалось рассчитать гистограммы.")
         self._update_project_properties()
 
+    def _invalidate_current_contour_analysis(self) -> None:
+        self._contour_analysis_request_id += 1
+        self._contour_analysis_cache = None
+        self._pending_contour_analysis_key = None
+        self._pending_contour_analysis_request_id = None
+
     def _restore_splitter_defaults(self) -> None:
         self.workspace_splitter.setSizes(WORKSPACE_DEFAULT_SIZES)
         self.project_splitter.setSizes(PROJECT_PANEL_DEFAULT_SIZES)
@@ -2932,19 +2952,98 @@ class MainWindow(QMainWindow):
             return Path(file_name)
         return self.project_path.parent / file_name
 
+    def save_average_color_sample(self) -> None:
+        record = self._selected_project_image()
+        if record is None or not self.canvas.has_image():
+            self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
+            return
+
+        average_rgb = self._current_average_color_rgb
+        if average_rgb is None:
+            self._show_warning(
+                "Средний цвет недоступен",
+                "Средний цвет ещё не рассчитан. Сначала создайте контур и дождитесь расчёта.",
+            )
+            return
+
+        file_name, _ = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить средний цвет",
+            str(self._default_average_color_sample_path(record)),
+            "PNG (*.png);;All files (*)",
+        )
+        if not file_name:
+            return
+
+        output_path = _ensure_png_suffix(Path(file_name))
+        try:
+            Image.new("RGB", (100, 100), average_rgb).save(output_path, format="PNG")
+        except OSError as exc:
+            self._show_error("Ошибка сохранения", f"Не удалось сохранить PNG-файл: {exc}")
+            return
+
+        self.statusBar().showMessage(f"Средний цвет сохранён: {output_path.name}")
+
+    def _default_average_color_sample_path(self, record: ProjectImageRecord) -> Path:
+        stem = Path(record.display_name).stem or "image"
+        file_name = f"{stem}_average_color.png"
+        if self.project_path is None:
+            return Path(file_name)
+        return self.project_path.parent / file_name
+
     def _write_image_properties_excel(self, output_path: Path, selected_properties: list[str]) -> None:
         record = self._selected_project_image()
         if record is None:
             raise ValueError("Нет выбранного изображения для экспорта.")
 
         rows, bold_rows = self._image_property_export_rows(record, selected_properties)
+        fieldnames, cell_fills = self._image_property_export_table_styles(
+            record,
+            selected_properties,
+            rows,
+        )
         write_xlsx_table(
             output_path,
-            ["Свойство", "Значение"],
+            fieldnames,
             rows,
             sheet_name="Свойства",
             bold_rows=bold_rows,
+            cell_fills=cell_fills,
         )
+
+    def _image_property_export_table_styles(
+        self,
+        record: ProjectImageRecord,
+        selected_properties: list[str],
+        rows: list[dict[str, str]],
+    ) -> tuple[list[str], dict[tuple[int, str], str]]:
+        fieldnames = ["Свойство", "Значение"]
+        if "average_color" not in selected_properties:
+            return fieldnames, {}
+
+        average_rgb = self._average_color_rgb_for_export(record)
+        if average_rgb is None:
+            return fieldnames, {}
+
+        average_text = _rgb_text(average_rgb)
+        average_label = self._image_property_export_labels(record).get("average_color", "Средний цвет")
+        fill_color = _rgb_hex(average_rgb)
+        cell_fills: dict[tuple[int, str], str] = {}
+        for row_index, row in enumerate(rows):
+            if row.get("Свойство") == average_label and row.get("Значение") == average_text:
+                row["Цвет"] = ""
+                cell_fills[(row_index, "Цвет")] = fill_color
+                fieldnames.append("Цвет")
+                break
+        return fieldnames, cell_fills
+
+    def _average_color_rgb_for_export(
+        self,
+        record: ProjectImageRecord,
+    ) -> tuple[int, int, int] | None:
+        if record.id != self._current_project_image_id:
+            return None
+        return self._current_average_color_rgb
 
     def _image_property_export_rows(
         self,
@@ -3257,23 +3356,81 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Контур удалён: {record.display_name}")
 
     def flatten_background(self) -> None:
-        if self._selected_project_image() is None or not self.canvas.has_image():
+        record = self._selected_project_image()
+        if record is None or not self.canvas.has_image():
             self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
             return
         if not self.canvas.has_contour():
             self._show_warning("Нет контура", "Сначала постройте или загрузите контур.")
             return
 
+        image_path = self._project_image_path(record)
+        if not image_path.exists():
+            self._show_error(
+                "Не удалось сохранить изображение",
+                f"Файл изображения не найден: {image_path}",
+            )
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Выровнять фон?",
+            (
+                "Исходное изображение будет изменено и сохранено на диск.\n\n"
+                f"{image_path}\n\n"
+                "Продолжить?"
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        try:
+            previous_rgb = self.canvas.current_rgb_array()
+        except ValueError as exc:
+            self._show_error("Не удалось выровнять фон", str(exc))
+            return
+
         QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
+            self._invalidate_current_contour_analysis()
             self.canvas.flatten_background_to_white()
-        except ValueError as exc:
+            self._save_rgb_array_to_image_file(self.canvas.current_rgb_array(), image_path)
+            saved_image = load_raster_image(image_path)
+            self._invalidate_current_contour_analysis()
+            self.canvas.replace_current_rgb_array(saved_image.rgb_array)
+        except (OSError, ValueError) as exc:
+            self._invalidate_current_contour_analysis()
+            try:
+                self.canvas.replace_current_rgb_array(previous_rgb)
+            except ValueError:
+                pass
             self._show_error("Не удалось выровнять фон", str(exc))
             return
         finally:
             QApplication.restoreOverrideCursor()
 
-        self.statusBar().showMessage("Фон за пределами контура выровнен до белого.")
+        if self._should_defer_project_summary_refresh():
+            self._schedule_project_summary_refresh()
+        else:
+            self._update_project_summary_properties()
+        self._update_project_properties()
+        self.statusBar().showMessage("Фон за пределами контура выровнен до белого, изображение сохранено.")
+
+    def _save_rgb_array_to_image_file(self, rgb_array: np.ndarray, image_path: Path) -> None:
+        temp_path = image_path.with_name(
+            f".{image_path.stem}.magicborder-{uuid4().hex}{image_path.suffix}"
+        )
+        try:
+            Image.fromarray(np.asarray(rgb_array, dtype=np.uint8), mode="RGB").save(temp_path)
+            temp_path.replace(image_path)
+        except (OSError, ValueError):
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
+            raise
 
     def start_scale_calibration(self) -> None:
         if self._selected_project_image() is None or not self.canvas.has_image():
@@ -4011,6 +4168,7 @@ class MainWindow(QMainWindow):
 
     def _load_project_image(self, record: ProjectImageRecord) -> None:
         image_path = self._project_image_path(record)
+        self._invalidate_current_contour_analysis()
         self._loading_project_image = True
         size_changed = False
         loaded_ok = False
@@ -5066,10 +5224,13 @@ class MainWindow(QMainWindow):
         )
 
     def _set_average_color_swatch(self, rgb: tuple[int, int, int] | None) -> None:
+        self._current_average_color_rgb = rgb
         if rgb is None:
             self.average_color_swatch.setStyleSheet(
                 "QFrame#averageColorSwatch { border: 1px solid #95a3b8; border-radius: 4px; background: transparent; }"
             )
+            self.average_color_swatch.setCursor(Qt.ArrowCursor)
+            self.average_color_swatch.setToolTip("Средний цвет ещё не рассчитан.")
             return
         red, green, blue = rgb
         self.average_color_swatch.setStyleSheet(
@@ -5077,6 +5238,8 @@ class MainWindow(QMainWindow):
             f"border: 1px solid #95a3b8; border-radius: 4px; background: rgb({red}, {green}, {blue}); "
             "}"
         )
+        self.average_color_swatch.setCursor(Qt.PointingHandCursor)
+        self.average_color_swatch.setToolTip("Сохранить средний цвет как PNG.")
 
     def show_about_dialog(self) -> None:
         QMessageBox.about(
@@ -5186,6 +5349,24 @@ def _ensure_xlsx_suffix(path: Path) -> Path:
     if path.suffix:
         return path.with_suffix(".xlsx")
     return path.with_suffix(".xlsx")
+
+
+def _ensure_png_suffix(path: Path) -> Path:
+    if path.suffix.lower() == ".png":
+        return path
+    if path.suffix:
+        return path.with_suffix(".png")
+    return path.with_suffix(".png")
+
+
+def _rgb_text(rgb: tuple[int, int, int]) -> str:
+    red, green, blue = rgb
+    return f"RGB({red}, {green}, {blue})"
+
+
+def _rgb_hex(rgb: tuple[int, int, int]) -> str:
+    red, green, blue = rgb
+    return f"#{red:02X}{green:02X}{blue:02X}"
 
 
 def _calibration_points_from_signal(raw_points: object) -> tuple[Point, Point] | None:
