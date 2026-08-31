@@ -6,9 +6,9 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
-from xml.etree import ElementTree
 from unittest.mock import patch
 from uuid import UUID
+from xml.etree import ElementTree
 
 from PIL import Image
 
@@ -20,10 +20,10 @@ from PyQt5.QtWidgets import (  # noqa: E402
     QAction,
     QApplication,
     QDialog,
-    QSizePolicy,
     QHeaderView,
     QLineEdit,
     QMessageBox,
+    QSizePolicy,
     QToolBar,
     QToolButton,
     QTreeWidget,
@@ -33,8 +33,8 @@ from PyQt5.QtWidgets import (  # noqa: E402
 
 from magicborder.io_utils import load_project, save_project  # noqa: E402
 from magicborder.main_window import (  # noqa: E402
-    MainWindow,
     PROJECT_EXPORT_FIELDNAMES,
+    MainWindow,
     _circle_contour_points,
     _qdatetime_from_text,
 )
@@ -49,8 +49,8 @@ from magicborder.models import (  # noqa: E402
     Point,
     ProjectAngleMeasurement,
     ProjectDocument,
-    ProjectImageRecord,
     ProjectImageMeasurements,
+    ProjectImageRecord,
     ProjectMeasurementAssessment,
     ProjectSegmentMeasurement,
 )

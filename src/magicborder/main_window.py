@@ -10,11 +10,11 @@ from uuid import uuid4
 import numpy as np
 from PIL import Image
 from PyQt5.QtCore import (
-    QObject,
     QDateTime,
+    QObject,
     QRunnable,
-    QSize,
     QSignalBlocker,
+    QSize,
     Qt,
     QThreadPool,
     QTimer,
@@ -25,8 +25,8 @@ from PyQt5.QtWidgets import (
     QAction,
     QApplication,
     QCheckBox,
-    QComboBox,
     QColorDialog,
+    QComboBox,
     QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
@@ -43,8 +43,8 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QTextEdit,
-    QToolButton,
     QToolBar,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -70,6 +70,7 @@ from .histograms import (
 )
 from .icons import ACTION_VISUALS, TOOLBAR_ICON_SIZE, apply_action_visual, load_icon
 from .io_utils import (
+    SUPPORTED_RASTER_SUFFIXES,
     image_open_filter,
     load_annotation,
     load_project,
@@ -77,7 +78,6 @@ from .io_utils import (
     read_image_captured_at,
     save_annotation,
     save_project,
-    SUPPORTED_RASTER_SUFFIXES,
     write_xlsx_table,
 )
 from .models import (
@@ -92,8 +92,8 @@ from .models import (
     ProjectAngleMeasurement,
     ProjectDocument,
     ProjectImageRecord,
-    ProjectSegmentMeasurement,
     ProjectMeasurementAssessment,
+    ProjectSegmentMeasurement,
     default_project_image_metadata,
     normalize_line_color,
 )
@@ -124,7 +124,7 @@ class ExportTreeItem:
     label: str
     key: str = ""
     export_label: str = ""
-    children: tuple["ExportTreeItem", ...] = ()
+    children: tuple[ExportTreeItem, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
-
 PROJECT_FORMAT_VERSION = 2
 CONTOUR_LINE_COLOR = "#0b84c6"
 ANGLE_LINE_COLOR = "#22c55e"
@@ -52,7 +51,7 @@ class Point:
         return {"x": round(float(self.x), 3), "y": round(float(self.y), 3)}
 
     @classmethod
-    def from_dict(cls, data: Any) -> "Point":
+    def from_dict(cls, data: Any) -> Point:
         if not isinstance(data, dict):
             raise ValueError("Каждая точка контура должна быть объектом с полями 'x' и 'y'.")
         return cls(
@@ -96,7 +95,7 @@ class ImageCalibration:
         }
 
     @classmethod
-    def from_dict(cls, data: Any) -> "ImageCalibration":
+    def from_dict(cls, data: Any) -> ImageCalibration:
         if not isinstance(data, dict):
             raise ValueError("Калибровка должна быть объектом.")
         return cls(
@@ -130,7 +129,7 @@ class ProjectMeasurementAssessment:
         }
 
     @classmethod
-    def from_dict(cls, data: Any) -> "ProjectMeasurementAssessment | None":
+    def from_dict(cls, data: Any) -> ProjectMeasurementAssessment | None:
         if not isinstance(data, dict):
             return None
         code = str(data.get("code") or "").strip()
@@ -190,7 +189,7 @@ class ProjectAngleMeasurement:
         return payload
 
     @classmethod
-    def from_dict(cls, data: Any) -> "ProjectAngleMeasurement":
+    def from_dict(cls, data: Any) -> ProjectAngleMeasurement:
         if not isinstance(data, dict):
             raise ValueError("Измерение угла должно быть объектом.")
         return cls(
@@ -256,7 +255,7 @@ class ProjectSegmentMeasurement:
         return payload
 
     @classmethod
-    def from_dict(cls, data: Any) -> "ProjectSegmentMeasurement":
+    def from_dict(cls, data: Any) -> ProjectSegmentMeasurement:
         if not isinstance(data, dict):
             raise ValueError("Измерение отрезка должно быть объектом.")
         return cls(
@@ -289,7 +288,7 @@ class ProjectImageMeasurements:
         return bool(self.angles or self.segments or self.extra_groups)
 
     @classmethod
-    def from_dict(cls, data: Any) -> "ProjectImageMeasurements":
+    def from_dict(cls, data: Any) -> ProjectImageMeasurements:
         if not isinstance(data, dict):
             data = {}
 
@@ -358,7 +357,7 @@ class Annotation:
         }
 
     @classmethod
-    def from_dict(cls, data: Any) -> "Annotation":
+    def from_dict(cls, data: Any) -> Annotation:
         if not isinstance(data, dict):
             raise ValueError("JSON-аннотация должна содержать объект верхнего уровня.")
 
@@ -435,7 +434,7 @@ class ProjectInfo:
         return {"general_info": self.general_info}
 
     @classmethod
-    def from_dict(cls, data: Any) -> "ProjectInfo":
+    def from_dict(cls, data: Any) -> ProjectInfo:
         if not isinstance(data, dict):
             data = {}
         return cls(general_info=str(data.get("general_info", "")))
@@ -490,7 +489,7 @@ class ProjectImageFileInfo:
         }
 
     @classmethod
-    def from_dict(cls, data: Any) -> "ProjectImageFileInfo":
+    def from_dict(cls, data: Any) -> ProjectImageFileInfo:
         if not isinstance(data, dict):
             raise ValueError("Группа 'file' в записи изображения должна быть объектом.")
 
@@ -524,7 +523,7 @@ class ProjectImageContourInfo:
         return payload
 
     @classmethod
-    def from_dict(cls, data: Any) -> "ProjectImageContourInfo":
+    def from_dict(cls, data: Any) -> ProjectImageContourInfo:
         if not isinstance(data, dict):
             raise ValueError("Группа 'contour' в записи изображения должна быть объектом.")
 
@@ -564,7 +563,7 @@ class ProjectImageLocationInfo:
         return {key: str(getattr(self, key)) for key in PROJECT_IMAGE_LOCATION_KEYS}
 
     @classmethod
-    def from_dict(cls, data: Any) -> "ProjectImageLocationInfo":
+    def from_dict(cls, data: Any) -> ProjectImageLocationInfo:
         if not isinstance(data, dict):
             data = {}
         return cls(**{key: str(data.get(key, "")) for key in PROJECT_IMAGE_LOCATION_KEYS})
@@ -586,7 +585,7 @@ class ProjectImageDetailsInfo:
         }
 
     @classmethod
-    def from_dict(cls, data: Any) -> "ProjectImageDetailsInfo":
+    def from_dict(cls, data: Any) -> ProjectImageDetailsInfo:
         if not isinstance(data, dict):
             data = {}
         return cls(
@@ -804,7 +803,7 @@ class ProjectImageRecord:
         return payload
 
     @classmethod
-    def from_dict(cls, data: Any) -> "ProjectImageRecord":
+    def from_dict(cls, data: Any) -> ProjectImageRecord:
         if not isinstance(data, dict):
             raise ValueError("Запись изображения в проекте должна быть объектом.")
 
@@ -861,7 +860,7 @@ class ProjectDocument:
         }
 
     @classmethod
-    def from_dict(cls, data: Any) -> "ProjectDocument":
+    def from_dict(cls, data: Any) -> ProjectDocument:
         if not isinstance(data, dict):
             raise ValueError("JSON проекта должен содержать объект верхнего уровня.")
 

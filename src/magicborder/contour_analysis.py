@@ -16,7 +16,6 @@ from .histograms import (
 )
 from .models import Point
 
-
 ContourSignature = tuple[tuple[float, float], ...]
 
 

@@ -7,13 +7,11 @@ import shlex
 import shutil
 import stat
 import subprocess
-import sys
 import tarfile
 import tomllib
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = REPO_ROOT / "build_tools" / "manifests" / "magicborder.toml"

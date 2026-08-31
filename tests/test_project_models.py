@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from magicborder.io_utils import load_annotation, load_project, save_annotation, save_project
+from magicborder.io_utils import (
+    load_annotation,
+    load_project,
+    save_annotation,
+    save_project,
+)
 from magicborder.models import (
     ANGLE_LABEL_COLOR,
     ANGLE_LINE_COLOR,
@@ -18,8 +23,8 @@ from magicborder.models import (
     Point,
     ProjectAngleMeasurement,
     ProjectDocument,
-    ProjectImageRecord,
     ProjectImageMeasurements,
+    ProjectImageRecord,
     ProjectInfo,
     ProjectMeasurementAssessment,
     ProjectSegmentMeasurement,

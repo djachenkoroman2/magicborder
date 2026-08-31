@@ -24,7 +24,6 @@ from magicborder.main_window import (  # noqa: E402
 )
 from magicborder.models import Point, ProjectDocument, ProjectImageRecord  # noqa: E402
 
-
 _APP: QApplication | None = None
 
 

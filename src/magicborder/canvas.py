@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 from uuid import uuid4
 
 import cv2
 import numpy as np
 from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt5.QtGui import QBrush, QColor, QKeyEvent, QPainter, QPainterPath, QPen, QPixmap, QWheelEvent
+from PyQt5.QtGui import (
+    QBrush,
+    QColor,
+    QKeyEvent,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QWheelEvent,
+)
 from PyQt5.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
@@ -31,7 +40,6 @@ from .models import (
     Point,
     normalize_line_color,
 )
-
 
 ANGLE_ARC_COLOR = "#7c3aed"
 CONTOUR_LINE_WIDTH = 2.0
@@ -62,7 +70,7 @@ class AngleGraphics:
     second_line: QGraphicsLineItem
     arc: QGraphicsPathItem
     label: QGraphicsTextItem
-    handles: list["AngleHandleItem"]
+    handles: list[AngleHandleItem]
 
 
 @dataclass
@@ -84,11 +92,11 @@ class SegmentGraphics:
     length_label: QGraphicsTextItem
     start_label: QGraphicsTextItem
     end_label: QGraphicsTextItem
-    handles: list["SegmentHandleItem"]
+    handles: list[SegmentHandleItem]
 
 
 class NodeHandleItem(QGraphicsEllipseItem):
-    def __init__(self, canvas: "ImageCanvas", index: int, position: QPointF) -> None:
+    def __init__(self, canvas: ImageCanvas, index: int, position: QPointF) -> None:
         radius = 5.5
         super().__init__(-radius, -radius, radius * 2.0, radius * 2.0)
         self.canvas = canvas
@@ -131,7 +139,7 @@ class NodeHandleItem(QGraphicsEllipseItem):
 
 
 class CalibrationHandleItem(QGraphicsEllipseItem):
-    def __init__(self, canvas: "ImageCanvas", index: int, position: QPointF) -> None:
+    def __init__(self, canvas: ImageCanvas, index: int, position: QPointF) -> None:
         radius = 6.0
         super().__init__(-radius, -radius, radius * 2.0, radius * 2.0)
         self.canvas = canvas
@@ -157,7 +165,7 @@ class CalibrationHandleItem(QGraphicsEllipseItem):
 class AngleHandleItem(QGraphicsEllipseItem):
     def __init__(
         self,
-        canvas: "ImageCanvas",
+        canvas: ImageCanvas,
         angle_index: int,
         point_index: int,
         position: QPointF,
@@ -205,7 +213,7 @@ class AngleHandleItem(QGraphicsEllipseItem):
 class SegmentHandleItem(QGraphicsEllipseItem):
     def __init__(
         self,
-        canvas: "ImageCanvas",
+        canvas: ImageCanvas,
         segment_index: int,
         point_index: int,
         position: QPointF,
@@ -2019,7 +2027,7 @@ class ImageCanvas(QGraphicsView):
 
     def _set_measurement_handles_visible(
         self,
-        handles: list["AngleHandleItem"] | list["SegmentHandleItem"],
+        handles: list[AngleHandleItem] | list[SegmentHandleItem],
         visible: bool,
     ) -> None:
         for handle in handles:

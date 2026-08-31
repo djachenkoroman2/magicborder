@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 OIV_SYSTEM_NAME = "OIV"
 OIV_SCALES_FILE_NAME = "oiv_ampelometric_scales.json"
 
@@ -27,7 +26,7 @@ class OivScaleInterval:
     comment: str = ""
 
     @classmethod
-    def from_dict(cls, data: Any, *, trait_code: str) -> "OivScaleInterval":
+    def from_dict(cls, data: Any, *, trait_code: str) -> OivScaleInterval:
         if not isinstance(data, dict):
             raise OivScaleError(f"Интервал шкалы {trait_code} должен быть объектом.")
 
@@ -84,7 +83,7 @@ class OivTrait:
     boundary_method: str = ""
 
     @classmethod
-    def from_dict(cls, data: Any) -> "OivTrait":
+    def from_dict(cls, data: Any) -> OivTrait:
         if not isinstance(data, dict):
             raise OivScaleError("OIV-признак должен быть объектом.")
 

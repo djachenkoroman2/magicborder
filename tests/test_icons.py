@@ -5,7 +5,6 @@ import xml.etree.ElementTree as ET
 
 from magicborder.icons import ACTION_VISUALS, ICON_DIR
 
-
 MEASUREMENT_ACTION_ICONS = {
     "calibrate_scale": "calibrate-scale",
     "reset_calibration": "reset-calibration",

@@ -12,7 +12,6 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-
 PROPERTY_KEY_DEFAULT_WIDTH = 150
 PROPERTY_KEY_MIN_WIDTH = 72
 PROPERTY_VALUE_MIN_WIDTH = 90
@@ -77,7 +76,7 @@ class PropertyValueLabel(QLabel):
 class PropertyGridOverlay(QWidget):
     """Paints lightweight grid lines above item widgets in a PropertyBrowser."""
 
-    def __init__(self, browser: "PropertyBrowser") -> None:
+    def __init__(self, browser: PropertyBrowser) -> None:
         super().__init__(browser.viewport())
         self._browser = browser
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
