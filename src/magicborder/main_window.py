@@ -10,11 +10,11 @@ from uuid import uuid4
 import numpy as np
 from PIL import Image
 from PyQt5.QtCore import (
-    QObject,
     QDateTime,
+    QObject,
     QRunnable,
-    QSize,
     QSignalBlocker,
+    QSize,
     Qt,
     QThreadPool,
     QTimer,
@@ -25,8 +25,8 @@ from PyQt5.QtWidgets import (
     QAction,
     QApplication,
     QCheckBox,
-    QComboBox,
     QColorDialog,
+    QComboBox,
     QDateTimeEdit,
     QDialog,
     QDialogButtonBox,
@@ -43,8 +43,8 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
     QSplitter,
     QTextEdit,
-    QToolButton,
     QToolBar,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -70,6 +70,7 @@ from .histograms import (
 )
 from .icons import ACTION_VISUALS, TOOLBAR_ICON_SIZE, apply_action_visual, load_icon
 from .io_utils import (
+    SUPPORTED_RASTER_SUFFIXES,
     image_open_filter,
     load_annotation,
     load_project,
@@ -77,7 +78,6 @@ from .io_utils import (
     read_image_captured_at,
     save_annotation,
     save_project,
-    SUPPORTED_RASTER_SUFFIXES,
     write_xlsx_table,
 )
 from .models import (
@@ -92,8 +92,8 @@ from .models import (
     ProjectAngleMeasurement,
     ProjectDocument,
     ProjectImageRecord,
-    ProjectSegmentMeasurement,
     ProjectMeasurementAssessment,
+    ProjectSegmentMeasurement,
     default_project_image_metadata,
     normalize_line_color,
 )
@@ -124,7 +124,7 @@ class ExportTreeItem:
     label: str
     key: str = ""
     export_label: str = ""
-    children: tuple["ExportTreeItem", ...] = ()
+    children: tuple[ExportTreeItem, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,7 +163,9 @@ class _ContourAnalysisWorker(QRunnable):
     def run(self) -> None:
         try:
             analysis = build_contour_analysis(self._rgb_array, self._points)
-        except Exception as exc:  # pragma: no cover - defensive boundary for worker failures
+        except (
+            Exception
+        ) as exc:  # pragma: no cover - defensive boundary for worker failures
             self.signals.failed.emit(self._request_id, str(exc))
             return
 
@@ -201,7 +203,9 @@ PROJECT_EXPORT_COLUMNS = [
     ("b", "Средний B"),
     ("contour_pixel_count", "Количество пикселов контура"),
 ]
-PROJECT_EXPORT_FIELDNAMES = [field_name for field_name, _label in PROJECT_EXPORT_COLUMNS]
+PROJECT_EXPORT_FIELDNAMES = [
+    field_name for field_name, _label in PROJECT_EXPORT_COLUMNS
+]
 PROJECT_EXPORT_COLUMN_LABELS = dict(PROJECT_EXPORT_COLUMNS)
 COLOR_SPACES_GROUP_TITLE = "Цветовые пространства"
 IMAGE_FILE_PROPERTY_GROUPS = [
@@ -303,22 +307,28 @@ IMAGE_PROPERTY_GROUPS = [
     *IMAGE_TRAILING_PROPERTY_GROUPS,
 ]
 IMAGE_PROPERTY_EXPORT_ITEMS = [
-    item
-    for _group_title, group_items in IMAGE_PROPERTY_GROUPS
-    for item in group_items
+    item for _group_title, group_items in IMAGE_PROPERTY_GROUPS for item in group_items
 ]
-IMAGE_PROPERTY_EXPORT_KEYS = [field_name for field_name, _label in IMAGE_PROPERTY_EXPORT_ITEMS]
+IMAGE_PROPERTY_EXPORT_KEYS = [
+    field_name for field_name, _label in IMAGE_PROPERTY_EXPORT_ITEMS
+]
 IMAGE_PROPERTY_EXPORT_LABELS = dict(IMAGE_PROPERTY_EXPORT_ITEMS)
 
 
-def _export_leaf(key: str, label: str, *, export_label: str | None = None) -> ExportTreeItem:
+def _export_leaf(
+    key: str, label: str, *, export_label: str | None = None
+) -> ExportTreeItem:
     return ExportTreeItem(label=label, key=key, export_label=export_label or label)
 
 
-def _export_group(group_title: str, group_items: list[tuple[str, str]]) -> ExportTreeItem:
+def _export_group(
+    group_title: str, group_items: list[tuple[str, str]]
+) -> ExportTreeItem:
     return ExportTreeItem(
         label=group_title,
-        children=tuple(_export_leaf(field_name, label) for field_name, label in group_items),
+        children=tuple(
+            _export_leaf(field_name, label) for field_name, label in group_items
+        ),
     )
 
 
@@ -342,7 +352,9 @@ def _static_image_property_export_groups() -> list[ExportTreeItem]:
     ]
 
 
-def _export_tree_leaf_keys(items: list[ExportTreeItem] | tuple[ExportTreeItem, ...]) -> list[str]:
+def _export_tree_leaf_keys(
+    items: list[ExportTreeItem] | tuple[ExportTreeItem, ...],
+) -> list[str]:
     keys: list[str] = []
     for item in items:
         if item.key:
@@ -352,7 +364,9 @@ def _export_tree_leaf_keys(items: list[ExportTreeItem] | tuple[ExportTreeItem, .
     return keys
 
 
-def _export_tree_labels(items: list[ExportTreeItem] | tuple[ExportTreeItem, ...]) -> dict[str, str]:
+def _export_tree_labels(
+    items: list[ExportTreeItem] | tuple[ExportTreeItem, ...],
+) -> dict[str, str]:
     labels: dict[str, str] = {}
     for item in items:
         if item.key:
@@ -411,7 +425,9 @@ class MainWindow(QMainWindow):
         self._histogram_refresh_timer.timeout.connect(self._refresh_histograms)
         self._project_summary_refresh_timer = QTimer(self)
         self._project_summary_refresh_timer.setSingleShot(True)
-        self._project_summary_refresh_timer.timeout.connect(self._update_project_summary_properties)
+        self._project_summary_refresh_timer.timeout.connect(
+            self._update_project_summary_properties
+        )
         self._contour_analysis_thread_pool = QThreadPool.globalInstance()
         self._contour_analysis_request_id = 0
         self._contour_analysis_cache: ContourAnalysisWorkResult | None = None
@@ -455,9 +471,15 @@ class MainWindow(QMainWindow):
         self.canvas.image_state_changed.connect(self._update_project_properties)
         self.canvas.contour_state_changed.connect(self._update_action_states)
         self.canvas.contour_geometry_changed.connect(self._schedule_histogram_refresh)
-        self.canvas.contour_geometry_changed.connect(self._handle_contour_geometry_changed)
-        self.canvas.calibration_segment_selected.connect(self._handle_calibration_segment_selected)
-        self.canvas.calibration_geometry_changed.connect(self._handle_calibration_geometry_changed)
+        self.canvas.contour_geometry_changed.connect(
+            self._handle_contour_geometry_changed
+        )
+        self.canvas.calibration_segment_selected.connect(
+            self._handle_calibration_segment_selected
+        )
+        self.canvas.calibration_geometry_changed.connect(
+            self._handle_calibration_geometry_changed
+        )
         self.canvas.angle_state_changed.connect(self._handle_angle_state_changed)
         self.canvas.segment_state_changed.connect(self._handle_segment_state_changed)
         self._update_action_states()
@@ -491,7 +513,9 @@ class MainWindow(QMainWindow):
         self.project_list = QListWidget(project_panel)
         self.project_list.setObjectName("projectImageList")
         self.project_list.setAlternatingRowColors(True)
-        self.project_list.currentItemChanged.connect(self._handle_project_selection_changed)
+        self.project_list.currentItemChanged.connect(
+            self._handle_project_selection_changed
+        )
 
         images_title = QLabel("Изображения проекта")
         images_title.setObjectName("projectPanelTitle")
@@ -577,14 +601,18 @@ class MainWindow(QMainWindow):
 
         self.project_name = self._metadata_line_edit()
         self.project_name.setToolTip("Имя проекта без расширения .json.")
-        self.project_name.editingFinished.connect(self._handle_project_name_edit_finished)
+        self.project_name.editingFinished.connect(
+            self._handle_project_name_edit_finished
+        )
         self.project_path_field = self._metadata_line_edit()
         self.project_path_field.setReadOnly(True)
         self.project_path_field.setClearButtonEnabled(False)
         self.project_general_info = QTextEdit(properties_widget)
         self.project_general_info.setAcceptRichText(False)
         self.project_general_info.setMinimumHeight(58)
-        self.project_general_info.textChanged.connect(self._handle_project_general_info_changed)
+        self.project_general_info.textChanged.connect(
+            self._handle_project_general_info_changed
+        )
         self.project_image_count = self._property_value_label()
         self.project_mean_red = self._property_value_label()
         self.project_mean_green = self._property_value_label()
@@ -687,12 +715,18 @@ class MainWindow(QMainWindow):
         self.export_image_properties_excel_button = QToolButton(properties_widget)
         self.export_image_properties_excel_button.setText("Excel")
         self.export_image_properties_excel_button.setIcon(load_icon("export-csv"))
-        self.export_image_properties_excel_button.setToolTip("Экспорт свойств изображения в Excel")
+        self.export_image_properties_excel_button.setToolTip(
+            "Экспорт свойств изображения в Excel"
+        )
         self.export_image_properties_excel_button.setStatusTip(
             "Сохранить свойства выбранного изображения в файл .xlsx."
         )
-        self.export_image_properties_excel_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.export_image_properties_excel_button.clicked.connect(self.export_image_properties_excel)
+        self.export_image_properties_excel_button.setToolButtonStyle(
+            Qt.ToolButtonTextBesideIcon
+        )
+        self.export_image_properties_excel_button.clicked.connect(
+            self.export_image_properties_excel
+        )
 
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 0)
@@ -707,15 +741,23 @@ class MainWindow(QMainWindow):
         self.properties_empty_label.setAlignment(Qt.AlignCenter)
 
         self.property_file_name = self._metadata_line_edit()
-        self.property_file_name.editingFinished.connect(self._handle_file_name_edit_finished)
-        self.property_file_name_widget, self.rename_file_as_id_button = self._file_name_widget(properties_widget)
+        self.property_file_name.editingFinished.connect(
+            self._handle_file_name_edit_finished
+        )
+        self.property_file_name_widget, self.rename_file_as_id_button = (
+            self._file_name_widget(properties_widget)
+        )
         self.property_path = self._property_value_label()
         self.property_size = self._property_value_label()
         self.property_annotation = self._property_value_label()
         self.property_contour_visible = QCheckBox(properties_widget)
         self.property_contour_visible.setEnabled(False)
-        self.property_contour_visible.setToolTip("Показать или скрыть главный контур на канвасе.")
-        self.property_contour_visible.toggled.connect(self._handle_contour_visibility_changed)
+        self.property_contour_visible.setToolTip(
+            "Показать или скрыть главный контур на канвасе."
+        )
+        self.property_contour_visible.toggled.connect(
+            self._handle_contour_visibility_changed
+        )
         self.property_contour_line_color = self._line_color_button(
             properties_widget,
             CONTOUR_LINE_COLOR,
@@ -758,15 +800,19 @@ class MainWindow(QMainWindow):
         )
         self.metadata_added_at = self._metadata_line_edit()
         self.metadata_captured_at = self._metadata_line_edit()
-        self.metadata_added_at_widget, self.metadata_added_at_button = self._metadata_datetime_widget(
-            self.metadata_added_at,
-            "added_at",
-            properties_widget,
+        self.metadata_added_at_widget, self.metadata_added_at_button = (
+            self._metadata_datetime_widget(
+                self.metadata_added_at,
+                "added_at",
+                properties_widget,
+            )
         )
-        self.metadata_captured_at_widget, self.metadata_captured_at_button = self._metadata_datetime_widget(
-            self.metadata_captured_at,
-            "captured_at",
-            properties_widget,
+        self.metadata_captured_at_widget, self.metadata_captured_at_button = (
+            self._metadata_datetime_widget(
+                self.metadata_captured_at,
+                "captured_at",
+                properties_widget,
+            )
         )
         self.metadata_illumination = self._metadata_line_edit()
         self.metadata_humidity = self._metadata_line_edit()
@@ -793,7 +839,9 @@ class MainWindow(QMainWindow):
         }
         for metadata_key, field in self._metadata_fields.items():
             field.editingFinished.connect(
-                lambda key=metadata_key, editor=field: self._handle_metadata_line_edit_finished(key, editor)
+                lambda key=metadata_key, editor=field: (
+                    self._handle_metadata_line_edit_finished(key, editor)
+                )
             )
         self._angle_name_fields: dict[str, QLineEdit] = {}
         self._angle_visibility_fields: dict[str, QCheckBox] = {}
@@ -813,8 +861,12 @@ class MainWindow(QMainWindow):
         self._segment_assessment_result_fields: dict[str, QLabel] = {}
 
         self.properties_browser = PropertyBrowser(properties_widget)
-        self.properties_browser.itemClicked.connect(self._handle_image_property_item_clicked)
-        self.properties_browser.empty_area_clicked.connect(self._clear_image_property_canvas_highlight)
+        self.properties_browser.itemClicked.connect(
+            self._handle_image_property_item_clicked
+        )
+        self.properties_browser.empty_area_clicked.connect(
+            self._clear_image_property_canvas_highlight
+        )
         self._add_property_browser_group(
             self.properties_browser,
             "Общая информация о файле",
@@ -847,9 +899,21 @@ class MainWindow(QMainWindow):
                     self.property_contour_line_color,
                     "contour:line_color",
                 ),
-                ("Количество узлов контура", self.property_points, "contour:point_count"),
-                ("Количество пикселов контура", self.property_contour_pixels, "contour:pixel_count"),
-                ("Площадь контура, мм²", self.property_contour_area_mm2, "contour:area_mm2"),
+                (
+                    "Количество узлов контура",
+                    self.property_points,
+                    "contour:point_count",
+                ),
+                (
+                    "Количество пикселов контура",
+                    self.property_contour_pixels,
+                    "contour:pixel_count",
+                ),
+                (
+                    "Площадь контура, мм²",
+                    self.property_contour_area_mm2,
+                    "contour:area_mm2",
+                ),
             ],
             key="contour",
         )
@@ -973,10 +1037,14 @@ class MainWindow(QMainWindow):
             if parent is None:
                 browser.add_property(title, label, widget, key=row_key, aliases=aliases)
             else:
-                browser.add_property_to_item(group_item, label, widget, key=row_key, aliases=aliases)
+                browser.add_property_to_item(
+                    group_item, label, widget, key=row_key, aliases=aliases
+                )
         return group_item
 
-    def _rebuild_angle_measurement_properties(self, record: ProjectImageRecord | None) -> None:
+    def _rebuild_angle_measurement_properties(
+        self, record: ProjectImageRecord | None
+    ) -> None:
         self._angle_name_fields.clear()
         self._angle_visibility_fields.clear()
         self._angle_line_color_fields.clear()
@@ -1006,9 +1074,11 @@ class MainWindow(QMainWindow):
             name_field.setPlaceholderText(f"Угол {index}")
             name_field.setText(angle.name)
             name_field.editingFinished.connect(
-                lambda angle_id=angle.id, editor=name_field: self._handle_angle_name_edit_finished(
-                    angle_id,
-                    editor,
+                lambda angle_id=angle.id, editor=name_field: (
+                    self._handle_angle_name_edit_finished(
+                        angle_id,
+                        editor,
+                    )
                 )
             )
             self._angle_name_fields[angle.id] = name_field
@@ -1030,9 +1100,11 @@ class MainWindow(QMainWindow):
                     else True
                 )
             visible_checkbox.toggled.connect(
-                lambda checked, angle_id=angle.id: self._handle_angle_visibility_changed(
-                    angle_id,
-                    checked,
+                lambda checked, angle_id=angle.id: (
+                    self._handle_angle_visibility_changed(
+                        angle_id,
+                        checked,
+                    )
                 )
             )
             self._angle_visibility_fields[angle.id] = visible_checkbox
@@ -1048,8 +1120,8 @@ class MainWindow(QMainWindow):
                 "Выбрать цвет линии угла",
             )
             line_color_button.clicked.connect(
-                lambda _checked=False, angle_id=angle.id: self._open_angle_line_color_dialog(
-                    angle_id
+                lambda _checked=False, angle_id=angle.id: (
+                    self._open_angle_line_color_dialog(angle_id)
                 )
             )
             self._angle_line_color_fields[angle.id] = line_color_button
@@ -1065,8 +1137,8 @@ class MainWindow(QMainWindow):
                 "Выбрать цвет подписей угла",
             )
             label_color_button.clicked.connect(
-                lambda _checked=False, angle_id=angle.id: self._open_angle_label_color_dialog(
-                    angle_id
+                lambda _checked=False, angle_id=angle.id: (
+                    self._open_angle_label_color_dialog(angle_id)
                 )
             )
             self._angle_label_color_fields[angle.id] = label_color_button
@@ -1093,9 +1165,11 @@ class MainWindow(QMainWindow):
                 _measurement_oiv_code(angle.assessment),
             )
             assessment_combo.currentIndexChanged.connect(
-                lambda _index, angle_id=angle.id, editor=assessment_combo: self._handle_angle_assessment_changed(
-                    angle_id,
-                    editor,
+                lambda _index, angle_id=angle.id, editor=assessment_combo: (
+                    self._handle_angle_assessment_changed(
+                        angle_id,
+                        editor,
+                    )
                 )
             )
             self._angle_assessment_fields[angle.id] = assessment_combo
@@ -1137,9 +1211,11 @@ class MainWindow(QMainWindow):
             note_field = QLineEdit(self.properties_browser)
             note_field.setText(angle.note)
             note_field.editingFinished.connect(
-                lambda angle_id=angle.id, editor=note_field: self._handle_angle_note_edit_finished(
-                    angle_id,
-                    editor,
+                lambda angle_id=angle.id, editor=note_field: (
+                    self._handle_angle_note_edit_finished(
+                        angle_id,
+                        editor,
+                    )
                 )
             )
             self._angle_note_fields[angle.id] = note_field
@@ -1155,7 +1231,9 @@ class MainWindow(QMainWindow):
             delete_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             delete_button.setIcon(load_icon("delete-angle"))
             delete_button.clicked.connect(
-                lambda _checked=False, angle_id=angle.id: self._delete_angle_by_id(angle_id)
+                lambda _checked=False, angle_id=angle.id: self._delete_angle_by_id(
+                    angle_id
+                )
             )
             self.properties_browser.add_property_to_item(
                 angle_group,
@@ -1164,7 +1242,9 @@ class MainWindow(QMainWindow):
                 key=f"angle:{angle.id}:actions",
             )
 
-    def _rebuild_segment_measurement_properties(self, record: ProjectImageRecord | None) -> None:
+    def _rebuild_segment_measurement_properties(
+        self, record: ProjectImageRecord | None
+    ) -> None:
         self._segment_name_fields.clear()
         self._segment_visibility_fields.clear()
         self._segment_line_color_fields.clear()
@@ -1196,9 +1276,11 @@ class MainWindow(QMainWindow):
             name_field.setPlaceholderText(f"Отрезок {index}")
             name_field.setText(segment.name)
             name_field.editingFinished.connect(
-                lambda segment_id=segment.id, editor=name_field: self._handle_segment_name_edit_finished(
-                    segment_id,
-                    editor,
+                lambda segment_id=segment.id, editor=name_field: (
+                    self._handle_segment_name_edit_finished(
+                        segment_id,
+                        editor,
+                    )
                 )
             )
             self._segment_name_fields[segment.id] = name_field
@@ -1220,9 +1302,11 @@ class MainWindow(QMainWindow):
                     else True
                 )
             visible_checkbox.toggled.connect(
-                lambda checked, segment_id=segment.id: self._handle_segment_visibility_changed(
-                    segment_id,
-                    checked,
+                lambda checked, segment_id=segment.id: (
+                    self._handle_segment_visibility_changed(
+                        segment_id,
+                        checked,
+                    )
                 )
             )
             self._segment_visibility_fields[segment.id] = visible_checkbox
@@ -1238,8 +1322,8 @@ class MainWindow(QMainWindow):
                 "Выбрать цвет линии отрезка",
             )
             line_color_button.clicked.connect(
-                lambda _checked=False, segment_id=segment.id: self._open_segment_line_color_dialog(
-                    segment_id
+                lambda _checked=False, segment_id=segment.id: (
+                    self._open_segment_line_color_dialog(segment_id)
                 )
             )
             self._segment_line_color_fields[segment.id] = line_color_button
@@ -1255,8 +1339,8 @@ class MainWindow(QMainWindow):
                 "Выбрать цвет подписей отрезка",
             )
             label_color_button.clicked.connect(
-                lambda _checked=False, segment_id=segment.id: self._open_segment_label_color_dialog(
-                    segment_id
+                lambda _checked=False, segment_id=segment.id: (
+                    self._open_segment_label_color_dialog(segment_id)
                 )
             )
             self._segment_label_color_fields[segment.id] = label_color_button
@@ -1275,7 +1359,9 @@ class MainWindow(QMainWindow):
             self.properties_browser.add_property_to_item(
                 segment_group,
                 "Длина",
-                self._property_value_label(_segment_measurement_length_text(segment, record.calibration)),
+                self._property_value_label(
+                    _segment_measurement_length_text(segment, record.calibration)
+                ),
                 key=f"segment:{segment.id}:length",
             )
             assessment_combo = self._oiv_assessment_combo(
@@ -1283,9 +1369,11 @@ class MainWindow(QMainWindow):
                 _measurement_oiv_code(segment.assessment),
             )
             assessment_combo.currentIndexChanged.connect(
-                lambda _index, segment_id=segment.id, editor=assessment_combo: self._handle_segment_assessment_changed(
-                    segment_id,
-                    editor,
+                lambda _index, segment_id=segment.id, editor=assessment_combo: (
+                    self._handle_segment_assessment_changed(
+                        segment_id,
+                        editor,
+                    )
                 )
             )
             self._segment_assessment_fields[segment.id] = assessment_combo
@@ -1322,10 +1410,12 @@ class MainWindow(QMainWindow):
             start_label_field.setClearButtonEnabled(True)
             start_label_field.setText(segment.start_label)
             start_label_field.editingFinished.connect(
-                lambda segment_id=segment.id, editor=start_label_field: self._handle_segment_label_edit_finished(
-                    segment_id,
-                    editor,
-                    "start",
+                lambda segment_id=segment.id, editor=start_label_field: (
+                    self._handle_segment_label_edit_finished(
+                        segment_id,
+                        editor,
+                        "start",
+                    )
                 )
             )
             self._segment_start_label_fields[segment.id] = start_label_field
@@ -1340,10 +1430,12 @@ class MainWindow(QMainWindow):
             end_label_field.setClearButtonEnabled(True)
             end_label_field.setText(segment.end_label)
             end_label_field.editingFinished.connect(
-                lambda segment_id=segment.id, editor=end_label_field: self._handle_segment_label_edit_finished(
-                    segment_id,
-                    editor,
-                    "end",
+                lambda segment_id=segment.id, editor=end_label_field: (
+                    self._handle_segment_label_edit_finished(
+                        segment_id,
+                        editor,
+                        "end",
+                    )
                 )
             )
             self._segment_end_label_fields[segment.id] = end_label_field
@@ -1357,9 +1449,11 @@ class MainWindow(QMainWindow):
             note_field = QLineEdit(self.properties_browser)
             note_field.setText(segment.note)
             note_field.editingFinished.connect(
-                lambda segment_id=segment.id, editor=note_field: self._handle_segment_note_edit_finished(
-                    segment_id,
-                    editor,
+                lambda segment_id=segment.id, editor=note_field: (
+                    self._handle_segment_note_edit_finished(
+                        segment_id,
+                        editor,
+                    )
                 )
             )
             self._segment_note_fields[segment.id] = note_field
@@ -1375,7 +1469,9 @@ class MainWindow(QMainWindow):
             delete_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             delete_button.setIcon(load_icon("delete-segment"))
             delete_button.clicked.connect(
-                lambda _checked=False, segment_id=segment.id: self._delete_segment_by_id(segment_id)
+                lambda _checked=False, segment_id=segment.id: (
+                    self._delete_segment_by_id(segment_id)
+                )
             )
             self.properties_browser.add_property_to_item(
                 segment_group,
@@ -1436,8 +1532,13 @@ class MainWindow(QMainWindow):
                 combo.addItem(_oiv_trait_option_text(trait), trait.code)
                 available_codes.add(trait.code)
 
-            if normalized_selected_code and normalized_selected_code not in available_codes:
-                selected_trait = self._oiv_catalog.trait_by_code(normalized_selected_code)
+            if (
+                normalized_selected_code
+                and normalized_selected_code not in available_codes
+            ):
+                selected_trait = self._oiv_catalog.trait_by_code(
+                    normalized_selected_code
+                )
                 if selected_trait is None:
                     label = f"{normalized_selected_code} - неизвестный признак"
                 else:
@@ -1493,7 +1594,9 @@ class MainWindow(QMainWindow):
         if selection_error is not None:
             return selection_error
 
-        pixel_length = math.hypot(segment.end.x - segment.start.x, segment.end.y - segment.start.y)
+        pixel_length = math.hypot(
+            segment.end.x - segment.start.x, segment.end.y - segment.start.y
+        )
         trait = self._oiv_trait_by_code(code)
         if pixel_length <= 1e-6:
             return make_status_result(
@@ -1606,7 +1709,9 @@ class MainWindow(QMainWindow):
         button = QToolButton(container)
         button.setText("ID")
         button.setToolTip("Переименовать файл как ID")
-        button.setStatusTip("Переименовать файл изображения по текущему ID с сохранением расширения.")
+        button.setStatusTip(
+            "Переименовать файл изображения по текущему ID с сохранением расширения."
+        )
         button.setAutoRaise(True)
         button.clicked.connect(self._rename_file_to_image_id)
 
@@ -1614,7 +1719,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(button)
         return container, button
 
-    def _image_id_widget(self, field: QLineEdit, parent: QWidget) -> tuple[QWidget, QToolButton]:
+    def _image_id_widget(
+        self, field: QLineEdit, parent: QWidget
+    ) -> tuple[QWidget, QToolButton]:
         container = QWidget(parent)
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1647,7 +1754,9 @@ class MainWindow(QMainWindow):
         button.setToolTip("Выбрать дату и время")
         button.setStatusTip("Открыть диалог выбора даты и времени.")
         button.setAutoRaise(True)
-        button.clicked.connect(lambda: self._open_metadata_datetime_dialog(metadata_key, field))
+        button.clicked.connect(
+            lambda: self._open_metadata_datetime_dialog(metadata_key, field)
+        )
 
         layout.addWidget(field, 1)
         layout.addWidget(button)
@@ -1721,8 +1830,12 @@ class MainWindow(QMainWindow):
         self.export_project_excel_action.triggered.connect(self.export_project_excel)
         self.export_project_csv_action = self.export_project_excel_action
 
-        self.export_image_properties_excel_action = QAction("Экспорт свойств изображения в Excel...", self)
-        self.export_image_properties_excel_action.triggered.connect(self.export_image_properties_excel)
+        self.export_image_properties_excel_action = QAction(
+            "Экспорт свойств изображения в Excel...", self
+        )
+        self.export_image_properties_excel_action.triggered.connect(
+            self.export_image_properties_excel
+        )
 
         self.exit_action = QAction("Выход", self)
         self.exit_action.setShortcut("Ctrl+Q")
@@ -1749,10 +1862,14 @@ class MainWindow(QMainWindow):
         self.default_view_action.triggered.connect(self.restore_default_view)
 
         self.show_all_canvas_elements_action = QAction("Показать все элементы", self)
-        self.show_all_canvas_elements_action.triggered.connect(self.show_all_canvas_elements)
+        self.show_all_canvas_elements_action.triggered.connect(
+            self.show_all_canvas_elements
+        )
 
         self.hide_all_canvas_elements_action = QAction("Скрыть все элементы", self)
-        self.hide_all_canvas_elements_action.triggered.connect(self.hide_all_canvas_elements)
+        self.hide_all_canvas_elements_action.triggered.connect(
+            self.hide_all_canvas_elements
+        )
 
         self.new_contour_action = QAction("Новый контур", self)
         self.new_contour_action.setShortcut("Ctrl+Shift+N")
@@ -1938,19 +2055,13 @@ class MainWindow(QMainWindow):
         has_project = self.project_document is not None
         selected_project_image = self._selected_project_image()
         has_project_image = has_project and selected_project_image is not None
-        has_project_contour = (
-            selected_project_image is not None
-            and (
-                selected_project_image.annotation is not None
-                or selected_project_image.raw_annotation is not None
-            )
+        has_project_contour = selected_project_image is not None and (
+            selected_project_image.annotation is not None
+            or selected_project_image.raw_annotation is not None
         )
-        has_calibration = (
-            selected_project_image is not None
-            and (
-                selected_project_image.calibration is not None
-                or selected_project_image.raw_calibration is not None
-            )
+        has_calibration = selected_project_image is not None and (
+            selected_project_image.calibration is not None
+            or selected_project_image.raw_calibration is not None
         )
 
         self.save_project_action.setEnabled(has_project)
@@ -1970,8 +2081,12 @@ class MainWindow(QMainWindow):
         self.hide_all_canvas_elements_action.setEnabled(has_project_image and has_image)
         self.new_contour_action.setEnabled(has_project_image and has_image)
         self.detect_contour_action.setEnabled(has_project_image and has_image)
-        self.delete_contour_action.setEnabled(has_project_image and (has_contour or has_project_contour))
-        self.flatten_background_action.setEnabled(has_project_image and has_image and has_contour)
+        self.delete_contour_action.setEnabled(
+            has_project_image and (has_contour or has_project_contour)
+        )
+        self.flatten_background_action.setEnabled(
+            has_project_image and has_image and has_contour
+        )
         self.calibrate_scale_action.setEnabled(has_project_image and has_image)
         self.reset_calibration_action.setEnabled(has_project_image and has_calibration)
         self.measure_angle_action.setEnabled(has_project_image and has_image)
@@ -1980,7 +2095,9 @@ class MainWindow(QMainWindow):
         )
         self.measure_segment_action.setEnabled(has_project_image and has_image)
         self.delete_segment_action.setEnabled(
-            has_project_image and has_image and self.canvas.has_selected_segment_endpoint()
+            has_project_image
+            and has_image
+            and self.canvas.has_selected_segment_endpoint()
         )
         self.save_annotation_action.setEnabled(has_project_image and has_contour)
         self.open_annotation_action.setEnabled(has_project_image)
@@ -2026,7 +2143,9 @@ class MainWindow(QMainWindow):
             with QSignalBlocker(field):
                 field.setChecked(self.canvas.is_segment_measurement_visible(segment_id))
 
-    def _handle_image_property_item_clicked(self, item: QTreeWidgetItem, _column: int) -> None:
+    def _handle_image_property_item_clicked(
+        self, item: QTreeWidgetItem, _column: int
+    ) -> None:
         reference = self._canvas_reference_from_property_item(item)
         if reference is None:
             self._clear_image_property_canvas_highlight()
@@ -2088,7 +2207,9 @@ class MainWindow(QMainWindow):
             if self._is_current_contour_analysis_pending():
                 self._clear_histograms(CONTOUR_ANALYSIS_PENDING_TEXT)
                 return
-            message = "Откройте изображение и создайте контур, чтобы увидеть гистограмму."
+            message = (
+                "Откройте изображение и создайте контур, чтобы увидеть гистограмму."
+            )
             if self.canvas.has_image() and not self.canvas.has_contour():
                 message = "Создайте основной контур, чтобы увидеть гистограмму."
             elif self.canvas.has_image() and self.canvas.has_contour():
@@ -2098,7 +2219,9 @@ class MainWindow(QMainWindow):
 
         self._apply_contour_analysis_histograms(result)
 
-    def _apply_contour_analysis_histograms(self, result: ContourAnalysisWorkResult) -> None:
+    def _apply_contour_analysis_histograms(
+        self, result: ContourAnalysisWorkResult
+    ) -> None:
         if result.analysis is None:
             self._clear_histograms("Внутри контура нет пикселей для анализа.")
             return
@@ -2112,7 +2235,9 @@ class MainWindow(QMainWindow):
         )
         for panel, histogram, name in histogram_specs:
             if histogram is None:
-                panel.clear_histogram(f"Внутри контура нет пикселей для {name}-гистограммы.")
+                panel.clear_histogram(
+                    f"Внутри контура нет пикселей для {name}-гистограммы."
+                )
             else:
                 panel.set_histogram(histogram)
 
@@ -2147,7 +2272,11 @@ class MainWindow(QMainWindow):
             return None
         width, height = image_size
         is_large_image = width * height > CONTOUR_ANALYSIS_SYNC_PIXEL_LIMIT
-        if is_large_image and defer_large_async and self._histogram_refresh_timer.isActive():
+        if (
+            is_large_image
+            and defer_large_async
+            and self._histogram_refresh_timer.isActive()
+        ):
             return None
 
         try:
@@ -2184,13 +2313,13 @@ class MainWindow(QMainWindow):
         worker.signals.finished.connect(self._handle_contour_analysis_finished)
         worker.signals.failed.connect(self._handle_contour_analysis_failed)
         worker.signals.finished.connect(
-            lambda _result, current_worker=worker: self._contour_analysis_workers.discard(
-                current_worker
+            lambda _result, current_worker=worker: (
+                self._contour_analysis_workers.discard(current_worker)
             )
         )
         worker.signals.failed.connect(
-            lambda _request_id, _message, current_worker=worker: self._contour_analysis_workers.discard(
-                current_worker
+            lambda _request_id, _message, current_worker=worker: (
+                self._contour_analysis_workers.discard(current_worker)
             )
         )
         self._contour_analysis_workers.add(worker)
@@ -2209,7 +2338,12 @@ class MainWindow(QMainWindow):
         image_path_text = str(image_path) if image_path is not None else None
         points = self.canvas.contour_points()
         signature = contour_signature(points)
-        return (record_id, image_path_text, signature), record_id, image_path_text, points
+        return (
+            (record_id, image_path_text, signature),
+            record_id,
+            image_path_text,
+            points,
+        )
 
     def _contour_analysis_cache_matches(self, key: ContourAnalysisCacheKey) -> bool:
         cached = self._contour_analysis_cache
@@ -2238,7 +2372,9 @@ class MainWindow(QMainWindow):
             and self._histogram_refresh_timer.isActive()
         )
 
-    def _is_contour_analysis_result_current(self, result: ContourAnalysisWorkResult) -> bool:
+    def _is_contour_analysis_result_current(
+        self, result: ContourAnalysisWorkResult
+    ) -> bool:
         inputs = self._current_contour_analysis_inputs()
         if inputs is None:
             return False
@@ -2249,7 +2385,9 @@ class MainWindow(QMainWindow):
             and result.signature == key[2]
         )
 
-    def _handle_contour_analysis_finished(self, result: ContourAnalysisWorkResult) -> None:
+    def _handle_contour_analysis_finished(
+        self, result: ContourAnalysisWorkResult
+    ) -> None:
         if result.request_id != self._contour_analysis_request_id:
             return
         if not self._is_contour_analysis_result_current(result):
@@ -2319,7 +2457,9 @@ class MainWindow(QMainWindow):
             project_dir.mkdir(parents=True, exist_ok=True)
             (project_dir / "images").mkdir(exist_ok=True)
         except OSError as exc:
-            self._show_error("Ошибка создания проекта", f"Не удалось создать папку проекта: {exc}")
+            self._show_error(
+                "Ошибка создания проекта", f"Не удалось создать папку проекта: {exc}"
+            )
             return
 
         project_path = project_dir / f"{safe_name}.json"
@@ -2327,7 +2467,9 @@ class MainWindow(QMainWindow):
         try:
             save_project(project_path, document)
         except OSError as exc:
-            self._show_error("Ошибка создания проекта", f"Не удалось сохранить файл проекта: {exc}")
+            self._show_error(
+                "Ошибка создания проекта", f"Не удалось сохранить файл проекта: {exc}"
+            )
             return
 
         self._set_project(project_path, document)
@@ -2400,7 +2542,9 @@ class MainWindow(QMainWindow):
         try:
             image_dir.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            self._show_error("Ошибка добавления", f"Не удалось создать папку изображений: {exc}")
+            self._show_error(
+                "Ошибка добавления", f"Не удалось создать папку изображений: {exc}"
+            )
             return
 
         for file_name in file_names:
@@ -2508,12 +2652,16 @@ class MainWindow(QMainWindow):
             self._select_project_image(added_ids[0])
             self._update_project_summary_properties()
             self._save_project_silently(show_error=True)
-            self.statusBar().showMessage(f"Синхронизировано изображений: {len(added_ids)}")
+            self.statusBar().showMessage(
+                f"Синхронизировано изображений: {len(added_ids)}"
+            )
         else:
             self.statusBar().showMessage("Новых изображений не найдено.")
 
         if errors:
-            self._show_warning("Не все изображения синхронизированы", "\n".join(errors[:8]))
+            self._show_warning(
+                "Не все изображения синхронизированы", "\n".join(errors[:8])
+            )
 
     def remove_selected_project_image(self) -> None:
         if self.project_document is None or self.project_path is None:
@@ -2521,7 +2669,9 @@ class MainWindow(QMainWindow):
 
         record = self._selected_project_image()
         if record is None:
-            self._show_warning("Изображение не выбрано", "Выберите изображение в списке проекта.")
+            self._show_warning(
+                "Изображение не выбрано", "Выберите изображение в списке проекта."
+            )
             return
 
         row_to_remove = self.project_list.currentRow()
@@ -2531,8 +2681,12 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("Удалить изображение")
         dialog.setIcon(QMessageBox.Question)
         dialog.setText(f"Удалить '{record.display_name}' из проекта?")
-        delete_file_button = dialog.addButton("Удалить файл", QMessageBox.DestructiveRole)
-        remove_only_button = dialog.addButton("Только убрать из проекта", QMessageBox.AcceptRole)
+        delete_file_button = dialog.addButton(
+            "Удалить файл", QMessageBox.DestructiveRole
+        )
+        remove_only_button = dialog.addButton(
+            "Только убрать из проекта", QMessageBox.AcceptRole
+        )
         cancel_button = dialog.addButton("Отмена", QMessageBox.RejectRole)
         dialog.setDefaultButton(remove_only_button)
         dialog.exec_()
@@ -2546,7 +2700,9 @@ class MainWindow(QMainWindow):
             try:
                 image_path.unlink()
             except OSError as exc:
-                self._show_error("Ошибка удаления", f"Не удалось удалить файл изображения: {exc}")
+                self._show_error(
+                    "Ошибка удаления", f"Не удалось удалить файл изображения: {exc}"
+                )
                 return
 
         self.project_document.images = [
@@ -2575,7 +2731,9 @@ class MainWindow(QMainWindow):
         if selected_fieldnames is None:
             return
         if not selected_fieldnames:
-            self._show_warning("Нет выбранных столбцов", "Выберите хотя бы один столбец для экспорта.")
+            self._show_warning(
+                "Нет выбранных столбцов", "Выберите хотя бы один столбец для экспорта."
+            )
             return
 
         file_name, _ = QFileDialog.getSaveFileName(
@@ -2591,10 +2749,15 @@ class MainWindow(QMainWindow):
         try:
             self._write_project_excel(output_path, selected_fieldnames)
         except OSError as exc:
-            self._show_error("Ошибка экспорта списка в Excel", f"Не удалось сохранить Excel-файл: {exc}")
+            self._show_error(
+                "Ошибка экспорта списка в Excel",
+                f"Не удалось сохранить Excel-файл: {exc}",
+            )
             return
 
-        self.statusBar().showMessage(f"Экспорт списка в Excel выполнен: {output_path.name}")
+        self.statusBar().showMessage(
+            f"Экспорт списка в Excel выполнен: {output_path.name}"
+        )
 
     def export_project_csv(self) -> None:
         self.export_project_excel()
@@ -2641,7 +2804,9 @@ class MainWindow(QMainWindow):
             for field_name, label in items or []:
                 add_checkable_item(field_name, label)
 
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog
+        )
         button_box.rejected.connect(dialog.reject)
 
         def selected_items() -> list[str]:
@@ -2691,14 +2856,18 @@ class MainWindow(QMainWindow):
         item_tree.setAlternatingRowColors(True)
 
         def item_check_state_from_children(item: QTreeWidgetItem) -> Qt.CheckState:
-            child_states = [item.child(index).checkState(0) for index in range(item.childCount())]
+            child_states = [
+                item.child(index).checkState(0) for index in range(item.childCount())
+            ]
             if all(state == Qt.Checked for state in child_states):
                 return Qt.Checked
             if all(state == Qt.Unchecked for state in child_states):
                 return Qt.Unchecked
             return Qt.PartiallyChecked
 
-        def add_tree_item(node: ExportTreeItem, parent: QTreeWidgetItem | None = None) -> QTreeWidgetItem:
+        def add_tree_item(
+            node: ExportTreeItem, parent: QTreeWidgetItem | None = None
+        ) -> QTreeWidgetItem:
             item = QTreeWidgetItem([node.label])
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
             item.setData(0, Qt.UserRole, node.key)
@@ -2712,7 +2881,9 @@ class MainWindow(QMainWindow):
             if node.children:
                 item.setCheckState(0, item_check_state_from_children(item))
             else:
-                checked = default_checked_keys is None or node.key in default_checked_keys
+                checked = (
+                    default_checked_keys is None or node.key in default_checked_keys
+                )
                 item.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
             item.setExpanded(True)
             return item
@@ -2722,7 +2893,9 @@ class MainWindow(QMainWindow):
 
         updating_check_states = False
 
-        def set_children_check_state(item: QTreeWidgetItem, state: Qt.CheckState) -> None:
+        def set_children_check_state(
+            item: QTreeWidgetItem, state: Qt.CheckState
+        ) -> None:
             for index in range(item.childCount()):
                 child = item.child(index)
                 child.setCheckState(0, state)
@@ -2749,7 +2922,9 @@ class MainWindow(QMainWindow):
 
         item_tree.itemChanged.connect(handle_item_changed)
 
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog
+        )
         button_box.rejected.connect(dialog.reject)
 
         def selected_items() -> list[str]:
@@ -2789,12 +2964,19 @@ class MainWindow(QMainWindow):
             return None
         return selected_items()
 
-    def _write_project_excel(self, output_path: Path, selected_fieldnames: list[str]) -> None:
+    def _write_project_excel(
+        self, output_path: Path, selected_fieldnames: list[str]
+    ) -> None:
         if self.project_document is None:
             raise ValueError("Нет проекта для экспорта.")
 
-        rows = [self._project_export_row(record) for record in self.project_document.images]
-        selected_headers = [PROJECT_EXPORT_COLUMN_LABELS[field_name] for field_name in selected_fieldnames]
+        rows = [
+            self._project_export_row(record) for record in self.project_document.images
+        ]
+        selected_headers = [
+            PROJECT_EXPORT_COLUMN_LABELS[field_name]
+            for field_name in selected_fieldnames
+        ]
         localized_rows = [
             {
                 PROJECT_EXPORT_COLUMN_LABELS[field_name]: row.get(field_name, "")
@@ -2802,7 +2984,9 @@ class MainWindow(QMainWindow):
             }
             for row in rows
         ]
-        write_xlsx_table(output_path, selected_headers, localized_rows, sheet_name="Сводка")
+        write_xlsx_table(
+            output_path, selected_headers, localized_rows, sheet_name="Сводка"
+        )
 
     def export_image_properties_excel(self) -> None:
         if self.project_document is None:
@@ -2811,7 +2995,9 @@ class MainWindow(QMainWindow):
 
         record = self._selected_project_image()
         if record is None:
-            self._show_warning("Нет выбранного изображения", "Выберите изображение в списке проекта.")
+            self._show_warning(
+                "Нет выбранного изображения", "Выберите изображение в списке проекта."
+            )
             return
 
         self._save_current_project_annotation()
@@ -2820,7 +3006,9 @@ class MainWindow(QMainWindow):
         if selected_properties is None:
             return
         if not selected_properties:
-            self._show_warning("Нет выбранных свойств", "Выберите хотя бы одно свойство для экспорта.")
+            self._show_warning(
+                "Нет выбранных свойств", "Выберите хотя бы одно свойство для экспорта."
+            )
             return
 
         file_name, _ = QFileDialog.getSaveFileName(
@@ -2842,7 +3030,9 @@ class MainWindow(QMainWindow):
             )
             return
 
-        self.statusBar().showMessage(f"Экспорт свойств изображения в Excel выполнен: {output_path.name}")
+        self.statusBar().showMessage(
+            f"Экспорт свойств изображения в Excel выполнен: {output_path.name}"
+        )
 
     def _select_image_property_export_items(self) -> list[str] | None:
         record = self._selected_project_image()
@@ -2854,7 +3044,9 @@ class MainWindow(QMainWindow):
             default_checked_keys=_default_image_property_export_keys(),
         )
 
-    def _image_property_export_groups(self, record: ProjectImageRecord | None) -> list[ExportTreeItem]:
+    def _image_property_export_groups(
+        self, record: ProjectImageRecord | None
+    ) -> list[ExportTreeItem]:
         groups: list[ExportTreeItem] = []
         for group in _static_image_property_export_groups():
             groups.append(group)
@@ -2864,13 +3056,19 @@ class MainWindow(QMainWindow):
                     groups.append(measurement_group)
         return groups
 
-    def _image_property_export_labels(self, record: ProjectImageRecord | None) -> dict[str, str]:
+    def _image_property_export_labels(
+        self, record: ProjectImageRecord | None
+    ) -> dict[str, str]:
         return _export_tree_labels(self._image_property_export_groups(record))
 
-    def _image_property_export_leaf_keys(self, record: ProjectImageRecord | None) -> list[str]:
+    def _image_property_export_leaf_keys(
+        self, record: ProjectImageRecord | None
+    ) -> list[str]:
         return _export_tree_leaf_keys(self._image_property_export_groups(record))
 
-    def _measurement_property_export_group(self, record: ProjectImageRecord) -> ExportTreeItem | None:
+    def _measurement_property_export_group(
+        self, record: ProjectImageRecord
+    ) -> ExportTreeItem | None:
         measurement_children: list[ExportTreeItem] = []
         angle_groups: list[ExportTreeItem] = []
         for index, angle in enumerate(record.measurements.angles, start=1):
@@ -2898,13 +3096,14 @@ class MainWindow(QMainWindow):
                 ExportTreeItem(
                     label=angle_title,
                     children=tuple(
-                        _export_leaf(key, label)
-                        for key, label in angle_leaves
+                        _export_leaf(key, label) for key, label in angle_leaves
                     ),
                 )
             )
         if angle_groups:
-            measurement_children.append(ExportTreeItem(label="Углы", children=tuple(angle_groups)))
+            measurement_children.append(
+                ExportTreeItem(label="Углы", children=tuple(angle_groups))
+            )
 
         segment_groups: list[ExportTreeItem] = []
         for index, segment in enumerate(record.measurements.segments, start=1):
@@ -2933,13 +3132,14 @@ class MainWindow(QMainWindow):
                 ExportTreeItem(
                     label=segment_title,
                     children=tuple(
-                        _export_leaf(key, label)
-                        for key, label in segment_leaves
+                        _export_leaf(key, label) for key, label in segment_leaves
                     ),
                 )
             )
         if segment_groups:
-            measurement_children.append(ExportTreeItem(label="Отрезки", children=tuple(segment_groups)))
+            measurement_children.append(
+                ExportTreeItem(label="Отрезки", children=tuple(segment_groups))
+            )
 
         if not measurement_children:
             return None
@@ -2955,7 +3155,9 @@ class MainWindow(QMainWindow):
     def save_average_color_sample(self) -> None:
         record = self._selected_project_image()
         if record is None or not self.canvas.has_image():
-            self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
+            self._show_warning(
+                "Нет изображения", "Сначала выберите изображение проекта."
+            )
             return
 
         average_rgb = self._current_average_color_rgb
@@ -2979,7 +3181,9 @@ class MainWindow(QMainWindow):
         try:
             Image.new("RGB", (100, 100), average_rgb).save(output_path, format="PNG")
         except OSError as exc:
-            self._show_error("Ошибка сохранения", f"Не удалось сохранить PNG-файл: {exc}")
+            self._show_error(
+                "Ошибка сохранения", f"Не удалось сохранить PNG-файл: {exc}"
+            )
             return
 
         self.statusBar().showMessage(f"Средний цвет сохранён: {output_path.name}")
@@ -2991,7 +3195,9 @@ class MainWindow(QMainWindow):
             return Path(file_name)
         return self.project_path.parent / file_name
 
-    def _write_image_properties_excel(self, output_path: Path, selected_properties: list[str]) -> None:
+    def _write_image_properties_excel(
+        self, output_path: Path, selected_properties: list[str]
+    ) -> None:
         record = self._selected_project_image()
         if record is None:
             raise ValueError("Нет выбранного изображения для экспорта.")
@@ -3026,11 +3232,16 @@ class MainWindow(QMainWindow):
             return fieldnames, {}
 
         average_text = _rgb_text(average_rgb)
-        average_label = self._image_property_export_labels(record).get("average_color", "Средний цвет")
+        average_label = self._image_property_export_labels(record).get(
+            "average_color", "Средний цвет"
+        )
         fill_color = _rgb_hex(average_rgb)
         cell_fills: dict[tuple[int, str], str] = {}
         for row_index, row in enumerate(rows):
-            if row.get("Свойство") == average_label and row.get("Значение") == average_text:
+            if (
+                row.get("Свойство") == average_label
+                and row.get("Значение") == average_text
+            ):
                 row["Цвет"] = ""
                 cell_fills[(row_index, "Цвет")] = fill_color
                 fieldnames.append("Цвет")
@@ -3093,7 +3304,9 @@ class MainWindow(QMainWindow):
             )
         return rows, bold_rows
 
-    def _image_property_export_values(self, record: ProjectImageRecord) -> dict[str, str]:
+    def _image_property_export_values(
+        self, record: ProjectImageRecord
+    ) -> dict[str, str]:
         self._normalize_record_metadata(record)
         red = self.property_red.text()
         green = self.property_green.text()
@@ -3143,7 +3356,9 @@ class MainWindow(QMainWindow):
         values.update(self._measurement_property_export_values(record))
         return values
 
-    def _measurement_property_export_values(self, record: ProjectImageRecord) -> dict[str, str]:
+    def _measurement_property_export_values(
+        self, record: ProjectImageRecord
+    ) -> dict[str, str]:
         values: dict[str, str] = {}
 
         for angle in record.measurements.angles:
@@ -3159,7 +3374,11 @@ class MainWindow(QMainWindow):
                     f"{prefix}:note": angle.note,
                 }
             )
-            values.update(self._oiv_export_values(prefix, angle.assessment, self._angle_oiv_result(angle)))
+            values.update(
+                self._oiv_export_values(
+                    prefix, angle.assessment, self._angle_oiv_result(angle)
+                )
+            )
 
         for segment in record.measurements.segments:
             prefix = f"segment:{segment.id}"
@@ -3167,7 +3386,9 @@ class MainWindow(QMainWindow):
                 {
                     f"{prefix}:name": segment.name,
                     f"{prefix}:id": segment.id,
-                    f"{prefix}:length": _segment_measurement_length_text(segment, record.calibration),
+                    f"{prefix}:length": _segment_measurement_length_text(
+                        segment, record.calibration
+                    ),
                     f"{prefix}:start": _point_text(segment.start),
                     f"{prefix}:end": _point_text(segment.end),
                     f"{prefix}:start_label": segment.start_label,
@@ -3176,7 +3397,11 @@ class MainWindow(QMainWindow):
                 }
             )
             values.update(
-                self._oiv_export_values(prefix, segment.assessment, self._segment_oiv_result(segment, record))
+                self._oiv_export_values(
+                    prefix,
+                    segment.assessment,
+                    self._segment_oiv_result(segment, record),
+                )
             )
         return values
 
@@ -3235,7 +3460,9 @@ class MainWindow(QMainWindow):
 
         try:
             loaded_image = load_raster_image(image_path)
-            rgb_pixels = _annotation_rgb_pixels(loaded_image.rgb_array, record.annotation)
+            rgb_pixels = _annotation_rgb_pixels(
+                loaded_image.rgb_array, record.annotation
+            )
         except (OSError, ValueError) as exc:
             row["status"] = f"ошибка: {exc}"
             return row
@@ -3253,7 +3480,9 @@ class MainWindow(QMainWindow):
 
     def create_new_contour(self) -> None:
         if self._selected_project_image() is None or not self.canvas.has_image():
-            self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
+            self._show_warning(
+                "Нет изображения", "Сначала выберите изображение проекта."
+            )
             return
         self.canvas.cancel_angle_measurement(show_message=False)
         self.canvas.cancel_segment_measurement(show_message=False)
@@ -3271,9 +3500,8 @@ class MainWindow(QMainWindow):
             return
 
         record = self._selected_project_image()
-        has_saved_project_contour = (
-            record is not None
-            and (record.annotation is not None or record.raw_annotation is not None)
+        has_saved_project_contour = record is not None and (
+            record.annotation is not None or record.raw_annotation is not None
         )
         if self.canvas.has_contour() or has_saved_project_contour:
             answer = QMessageBox.question(
@@ -3288,7 +3516,9 @@ class MainWindow(QMainWindow):
 
         image_size = self.canvas.image_size()
         if image_size is None:
-            self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
+            self._show_warning(
+                "Нет изображения", "Сначала выберите изображение проекта."
+            )
             return
 
         width, height = image_size
@@ -3307,7 +3537,9 @@ class MainWindow(QMainWindow):
 
     def detect_contour(self) -> None:
         if self._selected_project_image() is None or not self.canvas.has_image():
-            self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
+            self._show_warning(
+                "Нет изображения", "Сначала выберите изображение проекта."
+            )
             return
         self.canvas.cancel_angle_measurement(show_message=False)
         self.canvas.cancel_segment_measurement(show_message=False)
@@ -3326,16 +3558,17 @@ class MainWindow(QMainWindow):
 
     def delete_current_contour(self) -> None:
         record = self._selected_project_image()
-        has_project_contour = (
-            record is not None
-            and (record.annotation is not None or record.raw_annotation is not None)
+        has_project_contour = record is not None and (
+            record.annotation is not None or record.raw_annotation is not None
         )
         if not self.canvas.has_contour() and not has_project_contour:
             self._show_warning("Нет контура", "Для текущего изображения нет контура.")
             return
 
         if record is None:
-            self._show_warning("Изображение не выбрано", "Выберите изображение в списке проекта.")
+            self._show_warning(
+                "Изображение не выбрано", "Выберите изображение в списке проекта."
+            )
             return
 
         record.annotation = None
@@ -3358,7 +3591,9 @@ class MainWindow(QMainWindow):
     def flatten_background(self) -> None:
         record = self._selected_project_image()
         if record is None or not self.canvas.has_image():
-            self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
+            self._show_warning(
+                "Нет изображения", "Сначала выберите изображение проекта."
+            )
             return
         if not self.canvas.has_contour():
             self._show_warning("Нет контура", "Сначала постройте или загрузите контур.")
@@ -3396,7 +3631,9 @@ class MainWindow(QMainWindow):
         try:
             self._invalidate_current_contour_analysis()
             self.canvas.flatten_background_to_white()
-            self._save_rgb_array_to_image_file(self.canvas.current_rgb_array(), image_path)
+            self._save_rgb_array_to_image_file(
+                self.canvas.current_rgb_array(), image_path
+            )
             saved_image = load_raster_image(image_path)
             self._invalidate_current_contour_analysis()
             self.canvas.replace_current_rgb_array(saved_image.rgb_array)
@@ -3416,14 +3653,20 @@ class MainWindow(QMainWindow):
         else:
             self._update_project_summary_properties()
         self._update_project_properties()
-        self.statusBar().showMessage("Фон за пределами контура выровнен до белого, изображение сохранено.")
+        self.statusBar().showMessage(
+            "Фон за пределами контура выровнен до белого, изображение сохранено."
+        )
 
-    def _save_rgb_array_to_image_file(self, rgb_array: np.ndarray, image_path: Path) -> None:
+    def _save_rgb_array_to_image_file(
+        self, rgb_array: np.ndarray, image_path: Path
+    ) -> None:
         temp_path = image_path.with_name(
             f".{image_path.stem}.magicborder-{uuid4().hex}{image_path.suffix}"
         )
         try:
-            Image.fromarray(np.asarray(rgb_array, dtype=np.uint8), mode="RGB").save(temp_path)
+            Image.fromarray(np.asarray(rgb_array, dtype=np.uint8), mode="RGB").save(
+                temp_path
+            )
             temp_path.replace(image_path)
         except (OSError, ValueError):
             try:
@@ -3434,14 +3677,18 @@ class MainWindow(QMainWindow):
 
     def start_scale_calibration(self) -> None:
         if self._selected_project_image() is None or not self.canvas.has_image():
-            self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
+            self._show_warning(
+                "Нет изображения", "Сначала выберите изображение проекта."
+            )
             return
         self.canvas.begin_calibration()
 
     def reset_current_calibration(self) -> None:
         record = self._selected_project_image()
         if record is None:
-            self._show_warning("Изображение не выбрано", "Выберите изображение в списке проекта.")
+            self._show_warning(
+                "Изображение не выбрано", "Выберите изображение в списке проекта."
+            )
             return
 
         if (
@@ -3463,7 +3710,9 @@ class MainWindow(QMainWindow):
 
     def start_angle_measurement(self) -> None:
         if self._selected_project_image() is None or not self.canvas.has_image():
-            self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
+            self._show_warning(
+                "Нет изображения", "Сначала выберите изображение проекта."
+            )
             return
         self.canvas.begin_angle_measurement()
         self._update_action_states()
@@ -3475,7 +3724,9 @@ class MainWindow(QMainWindow):
 
     def start_segment_measurement(self) -> None:
         if self._selected_project_image() is None or not self.canvas.has_image():
-            self._show_warning("Нет изображения", "Сначала выберите изображение проекта.")
+            self._show_warning(
+                "Нет изображения", "Сначала выберите изображение проекта."
+            )
             return
         self.canvas.begin_segment_measurement()
         self._update_action_states()
@@ -3551,8 +3802,12 @@ class MainWindow(QMainWindow):
         existing_end_labels = {
             segment.id: segment.end_label for segment in record.measurements.segments
         }
-        existing_names = {segment.id: segment.name for segment in record.measurements.segments}
-        existing_notes = {segment.id: segment.note for segment in record.measurements.segments}
+        existing_names = {
+            segment.id: segment.name for segment in record.measurements.segments
+        }
+        existing_notes = {
+            segment.id: segment.note for segment in record.measurements.segments
+        }
         existing_assessments = {
             segment.id: segment.assessment for segment in record.measurements.segments
         }
@@ -3695,7 +3950,9 @@ class MainWindow(QMainWindow):
         self._set_line_color_button_value(field, label_color)
         self._schedule_project_save()
 
-    def _handle_segment_name_edit_finished(self, segment_id: str, field: QLineEdit) -> None:
+    def _handle_segment_name_edit_finished(
+        self, segment_id: str, field: QLineEdit
+    ) -> None:
         record = self._selected_project_image()
         if record is None:
             return
@@ -3715,7 +3972,9 @@ class MainWindow(QMainWindow):
         self._update_project_properties()
         self._schedule_project_save()
 
-    def _handle_segment_note_edit_finished(self, segment_id: str, field: QLineEdit) -> None:
+    def _handle_segment_note_edit_finished(
+        self, segment_id: str, field: QLineEdit
+    ) -> None:
         record = self._selected_project_image()
         if record is None:
             return
@@ -3728,7 +3987,9 @@ class MainWindow(QMainWindow):
         segment.note = note
         self._schedule_project_save()
 
-    def _handle_segment_assessment_changed(self, segment_id: str, field: QComboBox) -> None:
+    def _handle_segment_assessment_changed(
+        self, segment_id: str, field: QComboBox
+    ) -> None:
         record = self._selected_project_image()
         if record is None:
             return
@@ -3744,7 +4005,9 @@ class MainWindow(QMainWindow):
         self._update_segment_assessment_result_field(segment, record)
         self._schedule_project_save()
 
-    def _update_angle_assessment_result_field(self, angle: ProjectAngleMeasurement) -> None:
+    def _update_angle_assessment_result_field(
+        self, angle: ProjectAngleMeasurement
+    ) -> None:
         field = self._angle_assessment_result_fields.get(angle.id)
         if field is None:
             return
@@ -3760,7 +4023,9 @@ class MainWindow(QMainWindow):
             return
         field.setText(_oiv_result_text(self._segment_oiv_result(segment, record)))
 
-    def _handle_segment_visibility_changed(self, segment_id: str, checked: bool) -> None:
+    def _handle_segment_visibility_changed(
+        self, segment_id: str, checked: bool
+    ) -> None:
         field = self._segment_visibility_fields.get(segment_id)
         if field is None:
             return
@@ -3799,7 +4064,9 @@ class MainWindow(QMainWindow):
         if segment is None or field is None:
             return
 
-        label_color = self._choose_line_color(segment.label_color, "Цвет подписей отрезка")
+        label_color = self._choose_line_color(
+            segment.label_color, "Цвет подписей отрезка"
+        )
         if label_color is None or label_color == segment.label_color:
             return
 
@@ -3837,7 +4104,9 @@ class MainWindow(QMainWindow):
             segment.end_label = label
 
         if record.id == self._current_project_image_id:
-            self.canvas.set_segment_labels(segment_id, segment.start_label, segment.end_label)
+            self.canvas.set_segment_labels(
+                segment_id, segment.start_label, segment.end_label
+            )
         self._schedule_project_save()
 
     def _delete_angle_by_id(self, angle_id: str) -> None:
@@ -3863,7 +4132,9 @@ class MainWindow(QMainWindow):
             return
         original_count = len(record.measurements.segments)
         record.measurements.segments = [
-            segment for segment in record.measurements.segments if segment.id != segment_id
+            segment
+            for segment in record.measurements.segments
+            if segment.id != segment_id
         ]
         if len(record.measurements.segments) == original_count:
             return
@@ -3927,7 +4198,11 @@ class MainWindow(QMainWindow):
             return
 
         record = self._current_project_image()
-        if record is None or record.calibration is None or not self.canvas.has_calibration():
+        if (
+            record is None
+            or record.calibration is None
+            or not self.canvas.has_calibration()
+        ):
             return
 
         points = self.canvas.calibration_points()
@@ -3935,7 +4210,9 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            calibration = ImageCalibration(points[0], points[1], record.calibration.length_mm)
+            calibration = ImageCalibration(
+                points[0], points[1], record.calibration.length_mm
+            )
         except ValueError as exc:
             self.statusBar().showMessage(str(exc))
             return
@@ -3978,7 +4255,9 @@ class MainWindow(QMainWindow):
         try:
             save_annotation(annotation_path, annotation)
         except OSError as exc:
-            self._show_error("Ошибка сохранения", f"Не удалось сохранить аннотацию: {exc}")
+            self._show_error(
+                "Ошибка сохранения", f"Не удалось сохранить аннотацию: {exc}"
+            )
             return
 
         self._current_annotation_path = annotation_path
@@ -3986,7 +4265,9 @@ class MainWindow(QMainWindow):
 
     def open_annotation_file(self) -> None:
         if self.project_document is None or self._selected_project_image() is None:
-            self._show_warning("Нет выбранного изображения", "Сначала выберите изображение проекта.")
+            self._show_warning(
+                "Нет выбранного изображения", "Сначала выберите изображение проекта."
+            )
             return
 
         file_name, _ = QFileDialog.getOpenFileName(
@@ -4008,7 +4289,10 @@ class MainWindow(QMainWindow):
         if not self._prepare_image_for_annotation(annotation, annotation_path):
             return
 
-        if self.canvas.image_size() != (annotation.image_width, annotation.image_height):
+        if self.canvas.image_size() != (
+            annotation.image_width,
+            annotation.image_height,
+        ):
             self._show_error(
                 "Несовпадение размеров",
                 "Размеры изображения не совпадают с данными аннотации.",
@@ -4069,14 +4353,18 @@ class MainWindow(QMainWindow):
             self.canvas.clear_image()
         finally:
             self._loading_project_image = False
-        self._clear_histograms("Откройте изображение и создайте контур, чтобы увидеть гистограмму.")
+        self._clear_histograms(
+            "Откройте изображение и создайте контур, чтобы увидеть гистограмму."
+        )
         self._update_project_properties()
         self._update_action_states()
 
     def _update_project_panel(self) -> None:
         has_project = self.project_document is not None
         self.project_list.setEnabled(has_project)
-        self.export_image_properties_excel_button.setEnabled(has_project and self._selected_project_image() is not None)
+        self.export_image_properties_excel_button.setEnabled(
+            has_project and self._selected_project_image() is not None
+        )
         self._update_project_summary_properties()
         self._update_project_properties()
         self._update_action_states()
@@ -4098,7 +4386,9 @@ class MainWindow(QMainWindow):
         finally:
             self._updating_project_list = False
 
-    def _populate_project_list_item(self, item: QListWidgetItem, record: ProjectImageRecord) -> None:
+    def _populate_project_list_item(
+        self, item: QListWidgetItem, record: ProjectImageRecord
+    ) -> None:
         details: list[str] = []
         if record.annotation is not None:
             details.append("аннотация есть")
@@ -4119,7 +4409,9 @@ class MainWindow(QMainWindow):
             item.setForeground(QColor("#1f2937"))
 
         item.setText(f"{record.display_name}\n{'; '.join(details)}")
-        item.setToolTip(f"{record.display_name}\n{record.relative_path}\n{'; '.join(details)}")
+        item.setToolTip(
+            f"{record.display_name}\n{record.relative_path}\n{'; '.join(details)}"
+        )
 
     def _update_current_project_list_item(self, record: ProjectImageRecord) -> None:
         current_item = self.project_list.currentItem()
@@ -4127,7 +4419,9 @@ class MainWindow(QMainWindow):
             return
         self._populate_project_list_item(current_item, record)
 
-    def _select_project_image(self, record_id: str, *, emit_signal: bool = True) -> None:
+    def _select_project_image(
+        self, record_id: str, *, emit_signal: bool = True
+    ) -> None:
         previous_state = self._updating_project_list
         if not emit_signal:
             self._updating_project_list = True
@@ -4145,7 +4439,9 @@ class MainWindow(QMainWindow):
         finally:
             self._updating_project_list = previous_state
 
-    def _handle_project_selection_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
+    def _handle_project_selection_changed(
+        self, current: QListWidgetItem | None, _previous: QListWidgetItem | None
+    ) -> None:
         if self._updating_project_list:
             return
 
@@ -4176,14 +4472,18 @@ class MainWindow(QMainWindow):
             if not image_path.exists():
                 self.canvas.clear_image()
                 self._clear_histograms("Файл изображения из проекта не найден.")
-                self.statusBar().showMessage(f"Файл изображения не найден: {record.display_name}")
+                self.statusBar().showMessage(
+                    f"Файл изображения не найден: {record.display_name}"
+                )
             else:
                 try:
                     loaded_image = load_raster_image(image_path)
                 except (OSError, ValueError) as exc:
                     self.canvas.clear_image()
                     self._clear_histograms(str(exc))
-                    self.statusBar().showMessage(f"Не удалось открыть изображение: {record.display_name}")
+                    self.statusBar().showMessage(
+                        f"Не удалось открыть изображение: {record.display_name}"
+                    )
                 else:
                     loaded_ok = True
                     self.canvas.set_loaded_image(loaded_image)
@@ -4196,7 +4496,10 @@ class MainWindow(QMainWindow):
                         size_changed = True
 
                     if record.annotation is not None:
-                        if (record.annotation.image_width, record.annotation.image_height) != (
+                        if (
+                            record.annotation.image_width,
+                            record.annotation.image_height,
+                        ) != (
                             loaded_image.width,
                             loaded_image.height,
                         ):
@@ -4211,9 +4514,13 @@ class MainWindow(QMainWindow):
                                 self.canvas.set_contour(record.annotation.points)
                             except ValueError as exc:
                                 record.annotation_error = str(exc)
-                                self.statusBar().showMessage("Аннотация повреждена и не загружена.")
+                                self.statusBar().showMessage(
+                                    "Аннотация повреждена и не загружена."
+                                )
                     elif record.annotation_error:
-                        self.statusBar().showMessage("У выбранного изображения повреждена аннотация.")
+                        self.statusBar().showMessage(
+                            "У выбранного изображения повреждена аннотация."
+                        )
 
                     if record.calibration is not None:
                         try:
@@ -4225,12 +4532,20 @@ class MainWindow(QMainWindow):
                         except ValueError as exc:
                             record.calibration = None
                             record.calibration_error = str(exc)
-                            self.statusBar().showMessage("Калибровка повреждена и не загружена.")
+                            self.statusBar().showMessage(
+                                "Калибровка повреждена и не загружена."
+                            )
                     elif record.calibration_error:
-                        self.statusBar().showMessage("У выбранного изображения повреждена калибровка.")
+                        self.statusBar().showMessage(
+                            "У выбранного изображения повреждена калибровка."
+                        )
 
-                    self.canvas.set_angle_measurement_records(_angle_canvas_records(record))
-                    self.canvas.set_segment_measurement_records(_segment_canvas_records(record))
+                    self.canvas.set_angle_measurement_records(
+                        _angle_canvas_records(record)
+                    )
+                    self.canvas.set_segment_measurement_records(
+                        _segment_canvas_records(record)
+                    )
         finally:
             self._loading_project_image = False
 
@@ -4263,11 +4578,7 @@ class MainWindow(QMainWindow):
 
     def _open_contour_line_color_dialog(self) -> None:
         record = self._selected_project_image()
-        if (
-            record is None
-            or record.annotation is None
-            or not self.canvas.has_contour()
-        ):
+        if record is None or record.annotation is None or not self.canvas.has_contour():
             return
 
         line_color = self._choose_line_color(
@@ -4354,7 +4665,9 @@ class MainWindow(QMainWindow):
             save_project(self.project_path, self.project_document)
         except OSError as exc:
             if show_error:
-                self._show_error("Ошибка сохранения проекта", f"Не удалось сохранить проект: {exc}")
+                self._show_error(
+                    "Ошибка сохранения проекта", f"Не удалось сохранить проект: {exc}"
+                )
             return False
         return True
 
@@ -4427,7 +4740,9 @@ class MainWindow(QMainWindow):
         self._updating_project_info_fields = True
         try:
             with QSignalBlocker(self.project_general_info):
-                self.project_general_info.setPlainText(self.project_document.project_info.general_info)
+                self.project_general_info.setPlainText(
+                    self.project_document.project_info.general_info
+                )
         finally:
             self._updating_project_info_fields = False
 
@@ -4503,12 +4818,17 @@ class MainWindow(QMainWindow):
         project_name_text = "-"
         project_path_text = "-"
         if self.project_document is not None and self.project_path is not None:
-            project_name_text = _project_name_from_path(self.project_path, self.project_document.name)
+            project_name_text = _project_name_from_path(
+                self.project_path, self.project_document.name
+            )
             project_path_text = str(self.project_path)
 
         self._updating_project_identity_fields = True
         try:
-            with QSignalBlocker(self.project_name), QSignalBlocker(self.project_path_field):
+            with (
+                QSignalBlocker(self.project_name),
+                QSignalBlocker(self.project_path_field),
+            ):
                 self.project_name.setText(project_name_text)
                 self.project_path_field.setText(project_path_text)
                 self.project_path_field.setToolTip(
@@ -4519,13 +4839,16 @@ class MainWindow(QMainWindow):
 
     def _project_contours_mean_color_stats(
         self,
-    ) -> tuple[
-        tuple[int, int, int],
-        tuple[int, int, int],
-        tuple[int, int, int],
-        tuple[int, int, int],
-        tuple[int, int, int],
-    ] | None:
+    ) -> (
+        tuple[
+            tuple[int, int, int],
+            tuple[int, int, int],
+            tuple[int, int, int],
+            tuple[int, int, int],
+            tuple[int, int, int],
+        ]
+        | None
+    ):
         if self.project_document is None:
             return None
 
@@ -4576,10 +4899,26 @@ class MainWindow(QMainWindow):
         mean_hsv_values = np.rint(hsv_total / pixel_count).astype(int)
         mean_yuv_values = np.rint(yuv_total / pixel_count).astype(int)
         mean_lms_values = _mean_lms_values_from_total(lms_total, lms_max, pixel_count)
-        mean_rgb = int(mean_rgb_values[0]), int(mean_rgb_values[1]), int(mean_rgb_values[2])
-        mean_lab = int(mean_lab_values[0]), int(mean_lab_values[1]), int(mean_lab_values[2])
-        mean_hsv = int(mean_hsv_values[0]), int(mean_hsv_values[1]), int(mean_hsv_values[2])
-        mean_yuv = int(mean_yuv_values[0]), int(mean_yuv_values[1]), int(mean_yuv_values[2])
+        mean_rgb = (
+            int(mean_rgb_values[0]),
+            int(mean_rgb_values[1]),
+            int(mean_rgb_values[2]),
+        )
+        mean_lab = (
+            int(mean_lab_values[0]),
+            int(mean_lab_values[1]),
+            int(mean_lab_values[2]),
+        )
+        mean_hsv = (
+            int(mean_hsv_values[0]),
+            int(mean_hsv_values[1]),
+            int(mean_hsv_values[2]),
+        )
+        mean_yuv = (
+            int(mean_yuv_values[0]),
+            int(mean_yuv_values[1]),
+            int(mean_yuv_values[2]),
+        )
         return mean_rgb, mean_lab, mean_hsv, mean_yuv, mean_lms_values
 
     def _update_project_properties(self, *_args) -> None:
@@ -4652,7 +4991,9 @@ class MainWindow(QMainWindow):
                 contour_area_mm2_text = CONTOUR_ANALYSIS_PENDING_TEXT
             mean_rgb = None
         else:
-            mean_rgb, mean_lab, mean_hsv, mean_yuv, mean_lms, contour_pixel_count = contour_stats
+            mean_rgb, mean_lab, mean_hsv, mean_yuv, mean_lms, contour_pixel_count = (
+                contour_stats
+            )
             red, green, blue = mean_rgb
             lab_l, lab_a, lab_b = mean_lab
             hsv_h, hsv_s, hsv_v = mean_hsv
@@ -4711,7 +5052,9 @@ class MainWindow(QMainWindow):
         self._rebuild_angle_measurement_properties(record)
         self._rebuild_segment_measurement_properties(record)
 
-    def _update_calibration_length_field(self, record: ProjectImageRecord | None) -> None:
+    def _update_calibration_length_field(
+        self, record: ProjectImageRecord | None
+    ) -> None:
         enabled = False
         if record is None:
             text = "-"
@@ -4818,7 +5161,11 @@ class MainWindow(QMainWindow):
             if needs_dir_rename:
                 old_dir.rename(new_dir)
         except OSError as exc:
-            if needs_file_rename and renamed_file_path.exists() and not old_path.exists():
+            if (
+                needs_file_rename
+                and renamed_file_path.exists()
+                and not old_path.exists()
+            ):
                 try:
                     renamed_file_path.rename(old_path)
                 except OSError:
@@ -4855,7 +5202,9 @@ class MainWindow(QMainWindow):
         self.project_document.project_info.general_info = value
         self._schedule_project_save()
 
-    def _handle_metadata_line_edit_finished(self, metadata_key: str, field: QLineEdit) -> None:
+    def _handle_metadata_line_edit_finished(
+        self, metadata_key: str, field: QLineEdit
+    ) -> None:
         if self._updating_metadata_fields:
             return
 
@@ -4876,7 +5225,9 @@ class MainWindow(QMainWindow):
             self._update_calibration_length_field(record)
             return
 
-        length_mm = _parse_calibration_length_mm(self.property_calibration_length.text())
+        length_mm = _parse_calibration_length_mm(
+            self.property_calibration_length.text()
+        )
         if length_mm is None:
             self._show_warning(
                 "Некорректная калибровка",
@@ -4908,8 +5259,13 @@ class MainWindow(QMainWindow):
         record.calibration = calibration
         record.calibration_error = None
         record.raw_calibration = None
-        if self._current_project_image_id == record.id and self.canvas.has_calibration():
-            self.canvas.set_calibration_label_text(_calibration_length_text(calibration.length_mm))
+        if (
+            self._current_project_image_id == record.id
+            and self.canvas.has_calibration()
+        ):
+            self.canvas.set_calibration_label_text(
+                _calibration_length_text(calibration.length_mm)
+            )
         self._update_project_properties()
         self._update_action_states()
         self._schedule_project_save()
@@ -4946,7 +5302,9 @@ class MainWindow(QMainWindow):
         self._schedule_project_save()
         return True
 
-    def _store_record_id_value(self, value: str, field: QLineEdit | None = None) -> bool:
+    def _store_record_id_value(
+        self, value: str, field: QLineEdit | None = None
+    ) -> bool:
         record = self._selected_project_image()
         if record is None:
             return False
@@ -4982,7 +5340,9 @@ class MainWindow(QMainWindow):
         self._schedule_project_save()
         return True
 
-    def _record_id_validation_error(self, current_record: ProjectImageRecord, value: str) -> str:
+    def _record_id_validation_error(
+        self, current_record: ProjectImageRecord, value: str
+    ) -> str:
         if not value:
             return "ID изображения не должен быть пустым."
         if self.project_document is None:
@@ -5021,9 +5381,13 @@ class MainWindow(QMainWindow):
         if not self._store_record_id_value(generated_id, self.image_id):
             return
 
-        self.statusBar().showMessage(f"Сгенерирован новый ID изображения: {generated_id}")
+        self.statusBar().showMessage(
+            f"Сгенерирован новый ID изображения: {generated_id}"
+        )
 
-    def _open_metadata_datetime_dialog(self, metadata_key: str, field: QLineEdit) -> None:
+    def _open_metadata_datetime_dialog(
+        self, metadata_key: str, field: QLineEdit
+    ) -> None:
         if self._updating_metadata_fields:
             return
         if self._selected_project_image() is None:
@@ -5036,7 +5400,9 @@ class MainWindow(QMainWindow):
         editor.setCalendarPopup(True)
         editor.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
 
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog
+        )
         clear_button = button_box.addButton("Очистить", QDialogButtonBox.ActionRole)
         button_box.accepted.connect(dialog.accept)
         button_box.rejected.connect(dialog.reject)
@@ -5113,7 +5479,9 @@ class MainWindow(QMainWindow):
 
         image_id = record.id.strip()
         if not image_id:
-            self._show_warning("Некорректный ID", "ID изображения не должен быть пустым.")
+            self._show_warning(
+                "Некорректный ID", "ID изображения не должен быть пустым."
+            )
             return
         if "/" in image_id or "\\" in image_id:
             self._show_warning(
@@ -5186,10 +5554,14 @@ class MainWindow(QMainWindow):
             if target_path.resolve() != image_path.resolve():
                 image_path.rename(target_path)
         except OSError as exc:
-            self._show_error("Ошибка переименования", f"Не удалось переименовать файл: {exc}")
+            self._show_error(
+                "Ошибка переименования", f"Не удалось переименовать файл: {exc}"
+            )
             return False
 
-        record.relative_path = portable_path_reference(target_path, self.project_path.parent)
+        record.relative_path = portable_path_reference(
+            target_path, self.project_path.parent
+        )
         record.display_name = candidate.name
         if record.annotation is not None:
             record.annotation.image_path = record.relative_path
@@ -5200,14 +5572,17 @@ class MainWindow(QMainWindow):
     def _current_contour_stats(
         self,
         record: ProjectImageRecord,
-    ) -> tuple[
-        tuple[int, int, int],
-        tuple[int, int, int],
-        tuple[int, int, int],
-        tuple[int, int, int],
-        tuple[int, int, int],
-        int,
-    ] | None:
+    ) -> (
+        tuple[
+            tuple[int, int, int],
+            tuple[int, int, int],
+            tuple[int, int, int],
+            tuple[int, int, int],
+            tuple[int, int, int],
+            int,
+        ]
+        | None
+    ):
         if record.id != self._current_project_image_id:
             return None
         result = self._ensure_current_contour_analysis(record)
@@ -5273,7 +5648,9 @@ class MainWindow(QMainWindow):
             closed=True,
         )
 
-    def _prepare_image_for_annotation(self, annotation: Annotation, annotation_path: Path) -> bool:
+    def _prepare_image_for_annotation(
+        self, annotation: Annotation, annotation_path: Path
+    ) -> bool:
         current_image_size = self.canvas.image_size()
         if current_image_size == (annotation.image_width, annotation.image_height):
             return True
@@ -5288,7 +5665,9 @@ class MainWindow(QMainWindow):
         if self.project_document is not None:
             record = self._current_project_image()
             if record is not None:
-                self.setWindowTitle(f"{APP_TITLE} - {self.project_document.name} - {record.display_name}")
+                self.setWindowTitle(
+                    f"{APP_TITLE} - {self.project_document.name} - {record.display_name}"
+                )
                 return
             self.setWindowTitle(f"{APP_TITLE} - {self.project_document.name}")
             return
@@ -5306,7 +5685,9 @@ class MainWindow(QMainWindow):
         image_path = self.canvas.current_image_path()
         if image_path is None:
             return fallback_name
-        return str(image_path.with_name(f"{image_path.stem}_{color_space}_histogram.png"))
+        return str(
+            image_path.with_name(f"{image_path.stem}_{color_space}_histogram.png")
+        )
 
     def closeEvent(self, event) -> None:
         self._store_current_angle_measurements()
@@ -5393,7 +5774,9 @@ def _calibration_length_text(length_mm: float) -> str:
     return f"{_compact_float(length_mm, 4)} мм"
 
 
-def _angle_by_id(record: ProjectImageRecord, angle_id: str) -> ProjectAngleMeasurement | None:
+def _angle_by_id(
+    record: ProjectImageRecord, angle_id: str
+) -> ProjectAngleMeasurement | None:
     for angle in record.measurements.angles:
         if angle.id == angle_id:
             return angle
@@ -5438,7 +5821,11 @@ def _measurement_assessment_key(
     if assessment is None:
         return "", ""
     system = assessment.system.strip().upper()
-    code = normalize_oiv_code(assessment.code) if system == OIV_SYSTEM_NAME else assessment.code.strip()
+    code = (
+        normalize_oiv_code(assessment.code)
+        if system == OIV_SYSTEM_NAME
+        else assessment.code.strip()
+    )
     return system, code
 
 
@@ -5492,8 +5879,10 @@ def _angle_measurements_equal(
         and left_angle.line_color == right_angle.line_color
         and left_angle.label_color == right_angle.label_color
         and left_angle.note == right_angle.note
-        and _measurement_assessments_equal(left_angle.assessment, right_angle.assessment)
-        for left_angle, right_angle in zip(left, right)
+        and _measurement_assessments_equal(
+            left_angle.assessment, right_angle.assessment
+        )
+        for left_angle, right_angle in zip(left, right, strict=True)
     )
 
 
@@ -5513,8 +5902,10 @@ def _segment_measurements_equal(
         and left_segment.start_label == right_segment.start_label
         and left_segment.end_label == right_segment.end_label
         and left_segment.note == right_segment.note
-        and _measurement_assessments_equal(left_segment.assessment, right_segment.assessment)
-        for left_segment, right_segment in zip(left, right)
+        and _measurement_assessments_equal(
+            left_segment.assessment, right_segment.assessment
+        )
+        for left_segment, right_segment in zip(left, right, strict=True)
     )
 
 
@@ -5522,7 +5913,9 @@ def _angle_display_name(angle: ProjectAngleMeasurement, angle_index: int) -> str
     return angle.name or f"Угол {angle_index}"
 
 
-def _segment_display_name(segment: ProjectSegmentMeasurement, segment_index: int) -> str:
+def _segment_display_name(
+    segment: ProjectSegmentMeasurement, segment_index: int
+) -> str:
     return segment.name or f"Отрезок {segment_index}"
 
 
@@ -5591,7 +5984,9 @@ def _segment_measurement_length_text(
     segment: ProjectSegmentMeasurement,
     calibration: ImageCalibration | None,
 ) -> str:
-    pixel_length = math.hypot(segment.end.x - segment.start.x, segment.end.y - segment.start.y)
+    pixel_length = math.hypot(
+        segment.end.x - segment.start.x, segment.end.y - segment.start.y
+    )
     pixel_text = f"{_compact_float(pixel_length, 1)} px"
     if calibration is None:
         return pixel_text
@@ -5625,7 +6020,9 @@ def _contour_area_mm2_text(
     if calibration is None:
         return "калибровка не произведена"
 
-    area_mm2 = contour_pixel_count * calibration.mm_per_pixel() * calibration.mm_per_pixel()
+    area_mm2 = (
+        contour_pixel_count * calibration.mm_per_pixel() * calibration.mm_per_pixel()
+    )
     if area_mm2 >= 100:
         decimals = 1
     elif area_mm2 >= 1:
@@ -5721,7 +6118,10 @@ def _metadata_validation_error(metadata_key: str, value: str) -> str:
         return ""
 
     if metadata_key in ("added_at", "captured_at"):
-        if QDateTime.fromString(value, Qt.ISODate).isValid() or _datetime_from_text(value) is not None:
+        if (
+            QDateTime.fromString(value, Qt.ISODate).isValid()
+            or _datetime_from_text(value) is not None
+        ):
             return ""
         return "Дата и время должны быть указаны в формате ISO 8601 или ГГГГ-ММ-ДД ЧЧ:ММ:СС."
 
@@ -5729,7 +6129,11 @@ def _metadata_validation_error(metadata_key: str, value: str) -> str:
         "humidity": (0.0, 100.0, "Влажность должна быть числом в диапазоне 0..100."),
         "wind_speed": (0.0, None, "Скорость ветра не должна быть отрицательной."),
         "latitude": (-90.0, 90.0, "Широта должна быть числом в диапазоне -90..90."),
-        "longitude": (-180.0, 180.0, "Долгота должна быть числом в диапазоне -180..180."),
+        "longitude": (
+            -180.0,
+            180.0,
+            "Долгота должна быть числом в диапазоне -180..180.",
+        ),
     }
     if metadata_key not in numeric_ranges:
         return ""

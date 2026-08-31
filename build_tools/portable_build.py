@@ -7,13 +7,11 @@ import shlex
 import shutil
 import stat
 import subprocess
-import sys
 import tarfile
 import tomllib
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = REPO_ROOT / "build_tools" / "manifests" / "magicborder.toml"
@@ -178,7 +176,9 @@ def _load_manifest(path: Path) -> dict[str, Any]:
             raise FileNotFoundError(f"Иконка AppImage не найдена: {_repo_path(icon)}")
         categories = appimage.get("desktop_categories", [])
         if categories and not isinstance(categories, list):
-            raise ValueError("Manifest [appimage].desktop_categories должен быть списком.")
+            raise ValueError(
+                "Manifest [appimage].desktop_categories должен быть списком."
+            )
     return payload
 
 
@@ -262,7 +262,9 @@ def _package_archive(
     platform_output = output_root / platform_id
     platform_output.mkdir(parents=True, exist_ok=True)
     archive_base = platform_output / package_name
-    archive_format = "zip" if platform_id.startswith(("windows-", "macos-")) else "gztar"
+    archive_format = (
+        "zip" if platform_id.startswith(("windows-", "macos-")) else "gztar"
+    )
     created = shutil.make_archive(
         str(archive_base),
         archive_format,
@@ -280,7 +282,9 @@ def _package_onefile(
     output_root: Path,
 ) -> Path:
     if not bundle_path.is_file():
-        raise RuntimeError(f"PyInstaller onefile должен вернуть файл, получено: {bundle_path}")
+        raise RuntimeError(
+            f"PyInstaller onefile должен вернуть файл, получено: {bundle_path}"
+        )
 
     output_path = _artifact_output_path(
         manifest=manifest,
@@ -303,10 +307,18 @@ def _package_appimage(
     appimagetool: Path | str | None,
 ) -> Path:
     if platform_id != "linux-x86_64":
-        raise RuntimeError(f"AppImage поддержан только для linux-x86_64, получено: {platform_id}")
+        raise RuntimeError(
+            f"AppImage поддержан только для linux-x86_64, получено: {platform_id}"
+        )
 
-    tool_path = appimagetool if isinstance(appimagetool, Path) else _resolve_appimagetool(appimagetool)
-    app_dir = _prepare_app_dir(bundle_path=bundle_path, manifest=manifest, build_root=build_root)
+    tool_path = (
+        appimagetool
+        if isinstance(appimagetool, Path)
+        else _resolve_appimagetool(appimagetool)
+    )
+    app_dir = _prepare_app_dir(
+        bundle_path=bundle_path, manifest=manifest, build_root=build_root
+    )
     output_path = _artifact_output_path(
         manifest=manifest,
         platform_id=platform_id,
@@ -319,14 +331,18 @@ def _package_appimage(
 
     env = os.environ.copy()
     env.setdefault("ARCH", "x86_64")
-    subprocess.run([str(tool_path), str(app_dir), str(output_path)], check=True, env=env)
+    subprocess.run(
+        [str(tool_path), str(app_dir), str(output_path)], check=True, env=env
+    )
     if not output_path.exists():
         raise RuntimeError(f"appimagetool не создал ожидаемый файл: {output_path}")
     _add_executable_bits(output_path)
     return output_path
 
 
-def _prepare_app_dir(*, bundle_path: Path, manifest: dict[str, Any], build_root: Path) -> Path:
+def _prepare_app_dir(
+    *, bundle_path: Path, manifest: dict[str, Any], build_root: Path
+) -> Path:
     app = manifest["app"]
     app_name = str(app["name"])
     app_dir = build_root / "appimage" / _app_dir_name(manifest)
@@ -343,7 +359,9 @@ def _prepare_app_dir(*, bundle_path: Path, manifest: dict[str, Any], build_root:
         shutil.copy2(bundle_path, bundle_destination / bundle_path.name)
         executable_name = bundle_path.name
 
-    _write_apprun(app_dir / "AppRun", app_name=app_name, executable_name=executable_name)
+    _write_apprun(
+        app_dir / "AppRun", app_name=app_name, executable_name=executable_name
+    )
     _write_desktop_entries(app_dir, manifest=manifest)
     _copy_appimage_icon(app_dir, manifest=manifest)
     return app_dir
@@ -399,7 +417,16 @@ def _copy_appimage_icon(app_dir: Path, *, manifest: dict[str, Any]) -> None:
     root_icon.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(icon_source, root_icon)
 
-    share_icon = app_dir / "usr" / "share" / "icons" / "hicolor" / "scalable" / "apps" / f"{app_name}{icon_suffix}"
+    share_icon = (
+        app_dir
+        / "usr"
+        / "share"
+        / "icons"
+        / "hicolor"
+        / "scalable"
+        / "apps"
+        / f"{app_name}{icon_suffix}"
+    )
     share_icon.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(icon_source, share_icon)
 
@@ -469,12 +496,19 @@ def _smoke_test_archive(
 
     members = _archive_members(archive_path)
     app_name = str(manifest["app"]["name"])
-    executable_name = f"{app_name}.exe" if platform_id.startswith("windows-") else app_name
+    executable_name = (
+        f"{app_name}.exe" if platform_id.startswith("windows-") else app_name
+    )
     if not any(PurePosixPath(name).name == executable_name for name in members):
         raise RuntimeError(f"В архиве не найден исполняемый файл {executable_name}.")
-    if not any(PurePosixPath(name).name == "oiv_ampelometric_scales.json" for name in members):
+    if not any(
+        PurePosixPath(name).name == "oiv_ampelometric_scales.json" for name in members
+    ):
         raise RuntimeError("В архиве не найден oiv_ampelometric_scales.json.")
-    if not any("magicborder/assets/" in name or "magicborder/assets\\" in name for name in members):
+    if not any(
+        "magicborder/assets/" in name or "magicborder/assets\\" in name
+        for name in members
+    ):
         raise RuntimeError("В архиве не найдены assets MagicBorder.")
 
 
@@ -495,7 +529,9 @@ def _smoke_test_onefile(
     if artifact_path.name != expected_name:
         raise RuntimeError(f"Onefile exe имеет неожиданное имя: {artifact_path.name}")
     if platform_id.startswith("windows-") and artifact_path.suffix.lower() != ".exe":
-        raise RuntimeError(f"Windows onefile должен иметь расширение .exe: {artifact_path}")
+        raise RuntimeError(
+            f"Windows onefile должен иметь расширение .exe: {artifact_path}"
+        )
 
 
 def _smoke_test_appimage(artifact_path: Path) -> None:
@@ -525,7 +561,11 @@ def _artifact_output_path(
     artifact: str,
 ) -> Path:
     app = manifest["app"]
-    return output_root / platform_id / _artifact_name(str(app["name"]), str(app["version"]), platform_id, artifact)
+    return (
+        output_root
+        / platform_id
+        / _artifact_name(str(app["name"]), str(app["version"]), platform_id, artifact)
+    )
 
 
 def _archive_name(app_name: str, version: str, platform_id: str) -> str:
@@ -552,7 +592,9 @@ def _app_dir_name(manifest: dict[str, Any]) -> str:
 
 
 def _appimage_categories(manifest: dict[str, Any]) -> str:
-    categories = manifest.get("appimage", {}).get("desktop_categories", ["Graphics", "Science", "Education"])
+    categories = manifest.get("appimage", {}).get(
+        "desktop_categories", ["Graphics", "Science", "Education"]
+    )
     cleaned = [str(category).strip().strip(";") for category in categories]
     cleaned = [category for category in cleaned if category]
     if not cleaned:

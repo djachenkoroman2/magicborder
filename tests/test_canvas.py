@@ -77,7 +77,9 @@ def _calibration_label_center(canvas: ImageCanvas) -> QPointF:
     rect = item.boundingRect()
     scale_x = abs(canvas.transform().m11()) or 1.0
     scale_y = abs(canvas.transform().m22()) or scale_x
-    return item.pos() + QPointF(rect.center().x() / scale_x, rect.center().y() / scale_y)
+    return item.pos() + QPointF(
+        rect.center().x() / scale_x, rect.center().y() / scale_y
+    )
 
 
 def _path_signature(path) -> list[tuple[float, float]]:
@@ -205,7 +207,9 @@ class ImageCanvasLineColorTest(unittest.TestCase):
 
         self.assertEqual(canvas.segment_measurement_line_color("segment-a"), "#dc2626")
         self.assertEqual(canvas.segment_measurement_label_color("segment-a"), "#9a3412")
-        self.assertEqual(canvas._segment_graphics[0].line.pen().color().name(), "#dc2626")
+        self.assertEqual(
+            canvas._segment_graphics[0].line.pen().color().name(), "#dc2626"
+        )
         self.assertEqual(
             canvas._segment_graphics[0].length_label.defaultTextColor().name(),
             "#9a3412",
@@ -215,8 +219,12 @@ class ImageCanvasLineColorTest(unittest.TestCase):
             SEGMENT_LINE_COLOR,
         )
 
-        self.assertTrue(canvas.set_segment_measurement_line_color("segment-b", "#2563EB"))
-        self.assertTrue(canvas.set_segment_measurement_label_color("segment-b", "#0F766E"))
+        self.assertTrue(
+            canvas.set_segment_measurement_line_color("segment-b", "#2563EB")
+        )
+        self.assertTrue(
+            canvas.set_segment_measurement_label_color("segment-b", "#0F766E")
+        )
         canvas.highlight_segment_measurement("segment-b")
         canvas.segment_handle_moved(1, 1, QPointF(40, 20))
         canvas.clear_measurement_highlight()
@@ -242,7 +250,9 @@ class ImageCanvasLineColorTest(unittest.TestCase):
 
 
 class ImageCanvasContourVisibilityTest(unittest.TestCase):
-    def test_contour_visibility_hides_path_and_handles_without_losing_geometry(self) -> None:
+    def test_contour_visibility_hides_path_and_handles_without_losing_geometry(
+        self,
+    ) -> None:
         canvas = _canvas_with_image()
         points = [Point(1, 1), Point(18, 1), Point(18, 18), Point(1, 18)]
 
@@ -269,7 +279,9 @@ class ImageCanvasContourVisibilityTest(unittest.TestCase):
         self.assertTrue(canvas._path_item.isVisible())
         self.assertTrue(all(handle.isVisible() for handle in canvas._handles))
 
-    def test_hidden_contour_stays_hidden_after_refresh_and_new_contour_defaults_visible(self) -> None:
+    def test_hidden_contour_stays_hidden_after_refresh_and_new_contour_defaults_visible(
+        self,
+    ) -> None:
         canvas = _canvas_with_image()
         canvas.set_contour([Point(1, 1), Point(18, 1), Point(18, 18), Point(1, 18)])
         canvas.set_contour_visible(False)
@@ -379,7 +391,9 @@ class ImageCanvasContourVisibilityTest(unittest.TestCase):
 
 
 class ImageCanvasCalibrationPreviewTest(unittest.TestCase):
-    def test_calibration_preview_marks_first_point_updates_and_emits_segment(self) -> None:
+    def test_calibration_preview_marks_first_point_updates_and_emits_segment(
+        self,
+    ) -> None:
         canvas = _canvas_with_image()
         selected_segments: list[list[Point]] = []
         canvas.calibration_segment_selected.connect(selected_segments.append)
@@ -562,7 +576,9 @@ class ImageCanvasAngleMeasurementTest(unittest.TestCase):
 
         self.assertEqual(canvas.angle_measurements()[0][2], Point(20, 20))
         self.assertEqual(canvas._angle_graphics[0].label.toPlainText(), "Угол 1: 45°")
-        self.assertNotEqual(initial_arc, _path_signature(canvas._angle_graphics[0].arc.path()))
+        self.assertNotEqual(
+            initial_arc, _path_signature(canvas._angle_graphics[0].arc.path())
+        )
 
         canvas._angle_graphics[0].handles[0].setSelected(True)
         self.assertFalse(canvas.has_selected_angle_vertex())
@@ -577,7 +593,9 @@ class ImageCanvasAngleMeasurementTest(unittest.TestCase):
         self.assertEqual(canvas.angle_measurements(), [])
         self.assertFalse(canvas.has_angle_measurements())
 
-    def test_angle_handle_selection_highlights_whole_angle_without_changing_delete_rules(self) -> None:
+    def test_angle_handle_selection_highlights_whole_angle_without_changing_delete_rules(
+        self,
+    ) -> None:
         canvas = _canvas_with_image()
         canvas.set_angle_measurement_records(
             [
@@ -624,10 +642,16 @@ class ImageCanvasAngleMeasurementTest(unittest.TestCase):
 
         self.assertEqual(canvas.highlighted_angle_id(), "angle-b")
         self.assertIsNone(canvas.highlighted_segment_id())
-        self.assertEqual(canvas._angle_graphics[0].first_line.pen().widthF(), first_width)
-        self.assertGreater(canvas._angle_graphics[1].first_line.pen().widthF(), second_width)
+        self.assertEqual(
+            canvas._angle_graphics[0].first_line.pen().widthF(), first_width
+        )
+        self.assertGreater(
+            canvas._angle_graphics[1].first_line.pen().widthF(), second_width
+        )
 
-    def test_angle_label_uses_custom_name_and_keeps_it_after_geometry_change(self) -> None:
+    def test_angle_label_uses_custom_name_and_keeps_it_after_geometry_change(
+        self,
+    ) -> None:
         canvas = _canvas_with_image()
         canvas.set_angle_measurement_records(
             [
@@ -641,11 +665,15 @@ class ImageCanvasAngleMeasurementTest(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(canvas._angle_graphics[0].label.toPlainText(), "Контрольный угол: 90°")
+        self.assertEqual(
+            canvas._angle_graphics[0].label.toPlainText(), "Контрольный угол: 90°"
+        )
 
         canvas.angle_handle_moved(0, 2, QPointF(20, 20))
 
-        self.assertEqual(canvas._angle_graphics[0].label.toPlainText(), "Контрольный угол: 45°")
+        self.assertEqual(
+            canvas._angle_graphics[0].label.toPlainText(), "Контрольный угол: 45°"
+        )
         self.assertEqual(
             canvas.angle_measurement_records(include_names=True)[0],
             (
@@ -731,7 +759,9 @@ class ImageCanvasAngleMeasurementTest(unittest.TestCase):
         self.assertFalse(canvas.set_angle_measurement_visible("missing-angle", False))
         self.assertFalse(canvas.is_angle_measurement_visible("missing-angle"))
 
-    def test_angle_labels_follow_collection_order_and_renumber_after_delete(self) -> None:
+    def test_angle_labels_follow_collection_order_and_renumber_after_delete(
+        self,
+    ) -> None:
         canvas = _canvas_with_image()
         canvas.set_angle_measurement_records(
             [
@@ -758,13 +788,21 @@ class ImageCanvasAngleMeasurementTest(unittest.TestCase):
             ["angle-a", "angle-c"],
         )
 
-    def test_angle_delete_preserves_custom_names_and_renumbers_fallback_names(self) -> None:
+    def test_angle_delete_preserves_custom_names_and_renumbers_fallback_names(
+        self,
+    ) -> None:
         canvas = _canvas_with_image()
         canvas.set_angle_measurement_records(
             [
                 ("angle-a", Point(10, 20), Point(10, 10), Point(20, 10), ""),
                 ("angle-b", Point(30, 30), Point(30, 10), Point(50, 30), ""),
-                ("angle-c", Point(60, 30), Point(60, 10), Point(80, 10), "Именованный угол"),
+                (
+                    "angle-c",
+                    Point(60, 30),
+                    Point(60, 10),
+                    Point(80, 10),
+                    "Именованный угол",
+                ),
             ]
         )
 
@@ -781,7 +819,9 @@ class ImageCanvasAngleMeasurementTest(unittest.TestCase):
             ["Угол 1: 45°", "Именованный угол: 90°"],
         )
 
-    def test_angle_capture_cancel_clears_preview_without_creating_measurement(self) -> None:
+    def test_angle_capture_cancel_clears_preview_without_creating_measurement(
+        self,
+    ) -> None:
         canvas = _canvas_with_image()
 
         canvas.begin_angle_measurement()
@@ -834,11 +874,17 @@ class ImageCanvasSegmentMeasurementTest(unittest.TestCase):
             SEGMENT_LINE_COLOR,
         )
         self.assertTrue(
-            canvas._segment_graphics[0].length_label.toPlainText().startswith("Отрезок 1\n")
+            canvas._segment_graphics[0]
+            .length_label.toPlainText()
+            .startswith("Отрезок 1\n")
         )
-        self.assertTrue(canvas._segment_graphics[0].length_label.toPlainText().endswith(" px"))
+        self.assertTrue(
+            canvas._segment_graphics[0].length_label.toPlainText().endswith(" px")
+        )
         self.assertTrue(canvas._segment_graphics[0].line.isVisible())
-        self.assertTrue(all(handle.isVisible() for handle in canvas._segment_graphics[0].handles))
+        self.assertTrue(
+            all(handle.isVisible() for handle in canvas._segment_graphics[0].handles)
+        )
         self.assertFalse(canvas._segment_graphics[0].start_label.isVisible())
         self.assertFalse(canvas._segment_graphics[0].end_label.isVisible())
 
@@ -860,31 +906,43 @@ class ImageCanvasSegmentMeasurementTest(unittest.TestCase):
         self.assertEqual(len(canvas._segment_capture_points), 1)
         self.assertTrue(canvas._segment_preview_line_item.isVisible())
 
-    def test_segment_handles_recalculate_labels_and_delete_by_selected_endpoint(self) -> None:
+    def test_segment_handles_recalculate_labels_and_delete_by_selected_endpoint(
+        self,
+    ) -> None:
         canvas = _canvas_with_image()
         canvas.set_segment_measurements([(Point(1, 1), Point(6, 1))])
 
         self.assertEqual(len(canvas.segment_measurement_records()), 1)
         self.assertEqual(canvas.segment_measurement_records()[0][3:], ("", ""))
-        self.assertEqual(canvas._segment_graphics[0].length_label.toPlainText(), "Отрезок 1\n5 px")
+        self.assertEqual(
+            canvas._segment_graphics[0].length_label.toPlainText(), "Отрезок 1\n5 px"
+        )
 
         canvas.set_segment_measurement_records(
             [("segment-a", Point(10, 10), Point(30, 10), "A", "B")]
         )
 
         self.assertTrue(canvas.has_segment_measurements())
-        self.assertEqual(canvas.segment_measurements()[0], (Point(10, 10), Point(30, 10)))
+        self.assertEqual(
+            canvas.segment_measurements()[0], (Point(10, 10), Point(30, 10))
+        )
         self.assertEqual(canvas.segment_measurement_records()[0][0], "segment-a")
         self.assertEqual(canvas._segment_graphics[0].start_label.toPlainText(), "A")
         self.assertEqual(canvas._segment_graphics[0].end_label.toPlainText(), "B")
         self.assertTrue(canvas._segment_graphics[0].start_label.isVisible())
         self.assertTrue(canvas._segment_graphics[0].end_label.isVisible())
-        self.assertEqual(canvas._segment_graphics[0].length_label.toPlainText(), "Отрезок 1\n20 px")
+        self.assertEqual(
+            canvas._segment_graphics[0].length_label.toPlainText(), "Отрезок 1\n20 px"
+        )
 
         canvas.segment_handle_moved(0, 1, QPointF(40, 10))
 
-        self.assertEqual(canvas.segment_measurements()[0], (Point(10, 10), Point(40, 10)))
-        self.assertEqual(canvas._segment_graphics[0].length_label.toPlainText(), "Отрезок 1\n30 px")
+        self.assertEqual(
+            canvas.segment_measurements()[0], (Point(10, 10), Point(40, 10))
+        )
+        self.assertEqual(
+            canvas._segment_graphics[0].length_label.toPlainText(), "Отрезок 1\n30 px"
+        )
         self.assertEqual(canvas._segment_graphics[0].start_label.toPlainText(), "A")
         self.assertEqual(canvas._segment_graphics[0].end_label.toPlainText(), "B")
 
@@ -933,7 +991,9 @@ class ImageCanvasSegmentMeasurementTest(unittest.TestCase):
         self.assertEqual(canvas.highlighted_segment_id(), "segment-b")
         self.assertGreater(second_graphics.line.pen().widthF(), second_width)
 
-    def test_angle_and_segment_selection_transfer_highlight_between_measurement_types(self) -> None:
+    def test_angle_and_segment_selection_transfer_highlight_between_measurement_types(
+        self,
+    ) -> None:
         canvas = _canvas_with_image()
         canvas.set_angle_measurement_records(
             [("angle-a", Point(10, 20), Point(10, 10), Point(20, 10), "")]
@@ -957,7 +1017,9 @@ class ImageCanvasSegmentMeasurementTest(unittest.TestCase):
         self.assertEqual(canvas.highlighted_angle_id(), "angle-a")
         self.assertIsNone(canvas.highlighted_segment_id())
 
-    def test_segment_label_uses_custom_name_and_renumbers_fallback_after_delete(self) -> None:
+    def test_segment_label_uses_custom_name_and_renumbers_fallback_after_delete(
+        self,
+    ) -> None:
         canvas = _canvas_with_image()
         canvas.set_segment_measurement_records(
             [
@@ -975,7 +1037,10 @@ class ImageCanvasSegmentMeasurementTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            [graphics.length_label.toPlainText() for graphics in canvas._segment_graphics],
+            [
+                graphics.length_label.toPlainText()
+                for graphics in canvas._segment_graphics
+            ],
             [
                 "Отрезок 1\n20 px",
                 "Контрольный отрезок\n30 px",
@@ -1012,7 +1077,10 @@ class ImageCanvasSegmentMeasurementTest(unittest.TestCase):
 
         self.assertTrue(canvas.delete_selected_segment())
         self.assertEqual(
-            [graphics.length_label.toPlainText() for graphics in canvas._segment_graphics],
+            [
+                graphics.length_label.toPlainText()
+                for graphics in canvas._segment_graphics
+            ],
             ["Контрольный отрезок\n40 px", "Новый отрезок\n40 px"],
         )
 
@@ -1022,7 +1090,9 @@ class ImageCanvasSegmentMeasurementTest(unittest.TestCase):
             [("segment-a", Point(10, 10), Point(70, 10), "", "")]
         )
 
-        self.assertEqual(canvas._segment_graphics[0].length_label.toPlainText(), "Отрезок 1\n60 px")
+        self.assertEqual(
+            canvas._segment_graphics[0].length_label.toPlainText(), "Отрезок 1\n60 px"
+        )
 
         canvas.set_calibration(Point(0, 0), Point(30, 0), "10 мм")
 
@@ -1040,7 +1110,9 @@ class ImageCanvasSegmentMeasurementTest(unittest.TestCase):
 
         canvas.clear_calibration()
 
-        self.assertEqual(canvas._segment_graphics[0].length_label.toPlainText(), "Отрезок 1\n60 px")
+        self.assertEqual(
+            canvas._segment_graphics[0].length_label.toPlainText(), "Отрезок 1\n60 px"
+        )
 
     def test_segment_visibility_hides_graphics_without_losing_measurement(self) -> None:
         canvas = _canvas_with_image()
@@ -1124,7 +1196,9 @@ class ImageCanvasSegmentMeasurementTest(unittest.TestCase):
         self.assertTrue(canvas.set_segment_measurement_visible("segment-a", True))
         self.assertFalse(graphics.start_label.isVisible())
         self.assertFalse(graphics.end_label.isVisible())
-        self.assertFalse(canvas.set_segment_measurement_visible("missing-segment", False))
+        self.assertFalse(
+            canvas.set_segment_measurement_visible("missing-segment", False)
+        )
         self.assertFalse(canvas.is_segment_measurement_visible("missing-segment"))
 
 

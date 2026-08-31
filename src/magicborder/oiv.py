@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 OIV_SYSTEM_NAME = "OIV"
 OIV_SCALES_FILE_NAME = "oiv_ampelometric_scales.json"
 
@@ -27,13 +26,15 @@ class OivScaleInterval:
     comment: str = ""
 
     @classmethod
-    def from_dict(cls, data: Any, *, trait_code: str) -> "OivScaleInterval":
+    def from_dict(cls, data: Any, *, trait_code: str) -> OivScaleInterval:
         if not isinstance(data, dict):
             raise OivScaleError(f"Интервал шкалы {trait_code} должен быть объектом.")
 
         score = data.get("score")
         if not isinstance(score, int):
-            raise OivScaleError(f"Интервал шкалы {trait_code} должен содержать целый score.")
+            raise OivScaleError(
+                f"Интервал шкалы {trait_code} должен содержать целый score."
+            )
 
         label = str(data.get("label") or "").strip()
         if not label:
@@ -42,7 +43,9 @@ class OivScaleInterval:
         min_value = _optional_float(data.get("min"), f"{trait_code}.scale.min")
         max_value = _optional_float(data.get("max"), f"{trait_code}.scale.max")
         if min_value is not None and max_value is not None and min_value >= max_value:
-            raise OivScaleError(f"Интервал шкалы {trait_code} имеет некорректные границы.")
+            raise OivScaleError(
+                f"Интервал шкалы {trait_code} имеет некорректные границы."
+            )
 
         return cls(
             score=score,
@@ -84,7 +87,7 @@ class OivTrait:
     boundary_method: str = ""
 
     @classmethod
-    def from_dict(cls, data: Any) -> "OivTrait":
+    def from_dict(cls, data: Any) -> OivTrait:
         if not isinstance(data, dict):
             raise OivScaleError("OIV-признак должен быть объектом.")
 
@@ -102,14 +105,18 @@ class OivTrait:
         raw_tool_kinds = data.get("tool_kinds")
         if not isinstance(raw_tool_kinds, list) or not raw_tool_kinds:
             raise OivScaleError(f"Признак {code} должен содержать непустой tool_kinds.")
-        tool_kinds = tuple(str(item).strip() for item in raw_tool_kinds if str(item).strip())
+        tool_kinds = tuple(
+            str(item).strip() for item in raw_tool_kinds if str(item).strip()
+        )
         if not tool_kinds:
             raise OivScaleError(f"Признак {code} должен содержать непустой tool_kinds.")
 
         raw_scale = data.get("scale")
         if not isinstance(raw_scale, list) or not raw_scale:
             raise OivScaleError(f"Признак {code} должен содержать непустую scale.")
-        scale = tuple(OivScaleInterval.from_dict(item, trait_code=code) for item in raw_scale)
+        scale = tuple(
+            OivScaleInterval.from_dict(item, trait_code=code) for item in raw_scale
+        )
         _validate_scale_ranges(code, scale)
 
         return cls(
@@ -155,9 +162,7 @@ class OivScaleCatalog:
     def traits_for_tool(self, tool_kind: str) -> list[OivTrait]:
         normalized_tool_kind = str(tool_kind or "").strip()
         return [
-            trait
-            for trait in self._traits
-            if normalized_tool_kind in trait.tool_kinds
+            trait for trait in self._traits if normalized_tool_kind in trait.tool_kinds
         ]
 
     def trait_by_code(self, code: str | None) -> OivTrait | None:
@@ -282,7 +287,9 @@ def load_oiv_catalog(path: str | Path | None = None) -> OivScaleCatalog:
 
     traits = [OivTrait.from_dict(item) for item in traits_payload]
     if any(trait.code == "OIV 616" for trait in traits):
-        raise OivScaleError("OIV 616 не должен быть доступен как ампелометрическая шкала.")
+        raise OivScaleError(
+            "OIV 616 не должен быть доступен как ампелометрическая шкала."
+        )
     return OivScaleCatalog(traits)
 
 
@@ -319,7 +326,9 @@ def make_status_result(
     unit: str = "",
     trait: OivTrait | None = None,
 ) -> OivClassificationResult:
-    normalized_code = normalize_oiv_code(code) if code is not None else (trait.code if trait else "")
+    normalized_code = (
+        normalize_oiv_code(code) if code is not None else (trait.code if trait else "")
+    )
     return OivClassificationResult(
         status=status,
         message=message,
@@ -344,9 +353,13 @@ def _optional_float(value: Any, field_name: str) -> float | None:
 
 def _validate_scale_ranges(code: str, scale: tuple[OivScaleInterval, ...]) -> None:
     if scale[0].min_value is not None:
-        raise OivScaleError(f"Шкала {code} должна начинаться открытым нижним интервалом.")
+        raise OivScaleError(
+            f"Шкала {code} должна начинаться открытым нижним интервалом."
+        )
     if scale[-1].max_value is not None:
-        raise OivScaleError(f"Шкала {code} должна завершаться открытым верхним интервалом.")
+        raise OivScaleError(
+            f"Шкала {code} должна завершаться открытым верхним интервалом."
+        )
 
     previous_max: float | None = None
     previous_include_max = False
@@ -356,7 +369,9 @@ def _validate_scale_ranges(code: str, scale: tuple[OivScaleInterval, ...]) -> No
             previous_include_max = interval.include_max
             continue
         if interval.min_value != previous_max:
-            raise OivScaleError(f"Шкала {code} содержит разрыв или пересечение интервалов.")
+            raise OivScaleError(
+                f"Шкала {code} содержит разрыв или пересечение интервалов."
+            )
         if previous_include_max and interval.include_min:
             raise OivScaleError(f"Шкала {code} включает общую границу дважды.")
         previous_max = interval.max_value

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable
 
 import cv2
 import numpy as np
@@ -63,7 +63,9 @@ class HistogramPanel(QFrame):
         self._save_button.setIcon(load_icon("save-image"))
         self._save_button.setIconSize(QSize(20, 20))
         self._save_button.setToolTip(f"Сохранить {title.lower()} в PNG")
-        self._save_button.setStatusTip(f"Сохранить текущий вид {title.lower()} на диск.")
+        self._save_button.setStatusTip(
+            f"Сохранить текущий вид {title.lower()} на диск."
+        )
         self._save_button.setAutoRaise(True)
         self._save_button.setEnabled(False)
         self._save_button.clicked.connect(self._save_histogram)
@@ -183,7 +185,9 @@ class HistogramCanvas(QWidget):
         painter.setPen(QColor("#667085"))
         painter.setFont(_font(9))
         text_rect = rect.adjusted(16, 16, -16, -16)
-        painter.drawText(text_rect, Qt.AlignCenter | Qt.TextWordWrap, self._empty_message)
+        painter.drawText(
+            text_rect, Qt.AlignCenter | Qt.TextWordWrap, self._empty_message
+        )
 
     def _draw_grid(
         self,
@@ -194,11 +198,15 @@ class HistogramCanvas(QWidget):
         painter.setPen(QPen(QColor("#e6ebf2"), 1.0))
         for step in range(6):
             y = plot_rect.top() + plot_rect.height() * step / 5
-            painter.drawLine(QPointF(plot_rect.left(), y), QPointF(plot_rect.right(), y))
+            painter.drawLine(
+                QPointF(plot_rect.left(), y), QPointF(plot_rect.right(), y)
+            )
 
         for tick, _label in data.x_ticks:
             x = _x_for_bin(plot_rect, tick)
-            painter.drawLine(QPointF(x, plot_rect.top()), QPointF(x, plot_rect.bottom()))
+            painter.drawLine(
+                QPointF(x, plot_rect.top()), QPointF(x, plot_rect.bottom())
+            )
 
         painter.setPen(QPen(QColor("#9aa8ba"), 1.2))
         painter.drawRect(plot_rect)
@@ -250,10 +258,14 @@ class HistogramCanvas(QWidget):
         for tick, label in data.x_ticks:
             x = _x_for_bin(plot_rect, tick)
             label_width = metrics.horizontalAdvance(label)
-            label_rect = QRectF(x - label_width / 2, plot_rect.bottom() + 4, label_width + 2, 16)
+            label_rect = QRectF(
+                x - label_width / 2, plot_rect.bottom() + 4, label_width + 2, 16
+            )
             painter.drawText(label_rect, Qt.AlignCenter, label)
 
-        axis_label = metrics.elidedText(data.x_label, Qt.ElideRight, max(60, int(plot_rect.width())))
+        axis_label = metrics.elidedText(
+            data.x_label, Qt.ElideRight, max(60, int(plot_rect.width()))
+        )
         painter.drawText(
             QRectF(plot_rect.left(), self.height() - 20, plot_rect.width(), 16),
             Qt.AlignCenter,
@@ -269,7 +281,9 @@ class HistogramCanvas(QWidget):
             sample_text,
         )
 
-    def _draw_legend(self, painter: QPainter, series: tuple[HistogramSeries, ...]) -> None:
+    def _draw_legend(
+        self, painter: QPainter, series: tuple[HistogramSeries, ...]
+    ) -> None:
         painter.setFont(_font(8, bold=True))
         metrics = QFontMetrics(painter.font())
         x = 8
@@ -282,7 +296,9 @@ class HistogramCanvas(QWidget):
             painter.setPen(QPen(item.color, 2.4))
             painter.drawLine(QPointF(x, y + 7), QPointF(x + 14, y + 7))
             painter.setPen(QColor("#1f2937"))
-            painter.drawText(QRectF(x + 18, y, text_width + 2, 16), Qt.AlignLeft, item.name)
+            painter.drawText(
+                QRectF(x + 18, y, text_width + 2, 16), Qt.AlignLeft, item.name
+            )
             x += text_width + 34
 
 
@@ -315,7 +331,9 @@ def build_lab_histogram(rgb_pixels: np.ndarray) -> HistogramPlotData | None:
     if rgb_pixels.size == 0:
         return None
 
-    lab_pixels = cv2.cvtColor(rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2LAB).reshape((-1, 3))
+    lab_pixels = cv2.cvtColor(
+        rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2LAB
+    ).reshape((-1, 3))
     lab_pixels = lab_pixels.astype(np.float32)
 
     lightness = lab_pixels[:, 0] * (100.0 / 255.0)
@@ -351,7 +369,9 @@ def build_hsv_histogram(rgb_pixels: np.ndarray) -> HistogramPlotData | None:
     if rgb_pixels.size == 0:
         return None
 
-    hsv_pixels = cv2.cvtColor(rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2HSV).reshape((-1, 3))
+    hsv_pixels = cv2.cvtColor(
+        rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2HSV
+    ).reshape((-1, 3))
     hue = np.rint(hsv_pixels[:, 0].astype(np.float32) * (255.0 / 179.0))
     hue = np.clip(hue, 0, 255).astype(np.uint8)
 
@@ -384,7 +404,9 @@ def build_yuv_histogram(rgb_pixels: np.ndarray) -> HistogramPlotData | None:
     if rgb_pixels.size == 0:
         return None
 
-    yuv_pixels = cv2.cvtColor(rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2YUV).reshape((-1, 3))
+    yuv_pixels = cv2.cvtColor(
+        rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2YUV
+    ).reshape((-1, 3))
     series = (
         HistogramSeries(
             name="Y",
