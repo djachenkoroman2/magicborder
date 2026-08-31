@@ -21,7 +21,9 @@ def detect_leaf_contour(rgb_image: np.ndarray) -> list[Point]:
 
     contour = _extract_largest_contour(mask)
     if contour is None:
-        raise ValueError("Не удалось определить контур листа. Попробуйте изображение с более контрастным фоном.")
+        raise ValueError(
+            "Не удалось определить контур листа. Попробуйте изображение с более контрастным фоном."
+        )
 
     points = _simplify_contour(contour)
     if scale != 1.0:
@@ -30,7 +32,9 @@ def detect_leaf_contour(rgb_image: np.ndarray) -> list[Point]:
     return [Point(float(x), float(y)) for x, y in points]
 
 
-def _resize_for_detection(rgb_image: np.ndarray, max_side: int = 1400) -> tuple[np.ndarray, float]:
+def _resize_for_detection(
+    rgb_image: np.ndarray, max_side: int = 1400
+) -> tuple[np.ndarray, float]:
     height, width = rgb_image.shape[:2]
     largest_side = max(height, width)
     if largest_side <= max_side:
@@ -76,13 +80,19 @@ def _fallback_color_mask(image_bgr: np.ndarray) -> np.ndarray:
     image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB).astype(np.float32)
     red, green, blue = cv2.split(image_rgb)
     excess_green = 2.0 * green - red - blue
-    excess_green = cv2.normalize(excess_green, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    excess_green = cv2.normalize(excess_green, None, 0, 255, cv2.NORM_MINMAX).astype(
+        np.uint8
+    )
 
     hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
     saturation = hsv[:, :, 1]
 
-    _, exg_mask = cv2.threshold(excess_green, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    _, saturation_mask = cv2.threshold(saturation, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    _, exg_mask = cv2.threshold(
+        excess_green, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    )
+    _, saturation_mask = cv2.threshold(
+        saturation, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    )
 
     combined = cv2.bitwise_and(exg_mask, saturation_mask)
     if not _mask_is_reasonable(combined):
@@ -125,13 +135,17 @@ def _extract_largest_contour(mask: np.ndarray) -> np.ndarray | None:
     return contour
 
 
-def _simplify_contour(contour: np.ndarray, min_points: int = 16, max_points: int = 80) -> np.ndarray:
+def _simplify_contour(
+    contour: np.ndarray, min_points: int = 16, max_points: int = 80
+) -> np.ndarray:
     perimeter = cv2.arcLength(contour, True)
     source_points = contour[:, 0, :].astype(np.float32)
     candidate = source_points
 
     for ratio in np.linspace(0.001, 0.02, 30):
-        approx = cv2.approxPolyDP(contour, epsilon=float(perimeter * ratio), closed=True)
+        approx = cv2.approxPolyDP(
+            contour, epsilon=float(perimeter * ratio), closed=True
+        )
         approx_points = approx[:, 0, :].astype(np.float32)
         candidate = approx_points
         if min_points <= len(approx_points) <= max_points:
@@ -174,7 +188,9 @@ def _resample_closed_polyline(points: np.ndarray, target_count: int) -> np.ndarr
 
         local_distance = target - cumulative[segment_index]
         local_ratio = float(local_distance / segment_length)
-        interpolated = points[segment_index] + local_ratio * (points[next_index] - points[segment_index])
+        interpolated = points[segment_index] + local_ratio * (
+            points[next_index] - points[segment_index]
+        )
         resampled.append(interpolated)
 
     return np.vstack(resampled).astype(np.float32)

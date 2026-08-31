@@ -12,7 +12,9 @@ def portable_path_reference(path: Path, base_dir: Path) -> str:
     return reference_path.as_posix()
 
 
-def annotation_image_candidates(image_reference: str, annotation_path: Path) -> list[Path]:
+def annotation_image_candidates(
+    image_reference: str, annotation_path: Path
+) -> list[Path]:
     normalized_reference = image_reference.strip()
     if not normalized_reference:
         return []

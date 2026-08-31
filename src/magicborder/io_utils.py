@@ -6,7 +6,9 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from xml.sax.saxutils import escape, quoteattr
+
+# saxutils.escape/quoteattr only escape output, they do not parse XML.
+from xml.sax.saxutils import escape, quoteattr  # nosec B406
 
 import numpy as np
 from PIL import ExifTags, Image, UnidentifiedImageError
@@ -44,7 +46,9 @@ def load_raster_image(path: str | Path) -> LoadedImage:
             rgba_image = pil_image.convert("RGBA")
             rgb_image = pil_image.convert("RGB")
     except UnidentifiedImageError as exc:
-        raise ValueError("Не удалось распознать файл как растровое изображение.") from exc
+        raise ValueError(
+            "Не удалось распознать файл как растровое изображение."
+        ) from exc
     except OSError as exc:
         raise ValueError(f"Не удалось открыть изображение: {exc}") from exc
 
@@ -119,7 +123,9 @@ def write_xlsx_table(
             fill_colors=fill_colors,
         ),
     }
-    with zipfile.ZipFile(Path(output_path), "w", compression=zipfile.ZIP_DEFLATED) as workbook:
+    with zipfile.ZipFile(
+        Path(output_path), "w", compression=zipfile.ZIP_DEFLATED
+    ) as workbook:
         for name, content in archive_parts.items():
             workbook.writestr(name, content)
 
@@ -262,8 +268,8 @@ def _xlsx_styles_xml(fill_colors: list[str] | None = None) -> str:
     fill_colors = fill_colors or []
     color_fills_xml = "\n".join(
         (
-            "    <fill><patternFill patternType=\"solid\">"
-            f"<fgColor rgb=\"{color}\"/><bgColor indexed=\"64\"/>"
+            '    <fill><patternFill patternType="solid">'
+            f'<fgColor rgb="{color}"/><bgColor indexed="64"/>'
             "</patternFill></fill>"
         )
         for color in fill_colors
@@ -314,13 +320,9 @@ def _xlsx_sheet_xml(
     cell_fills: dict[tuple[int, str], str],
     fill_colors: list[str],
 ) -> str:
-    fill_style_ids = {
-        color: 2 + index
-        for index, color in enumerate(fill_colors)
-    }
+    fill_style_ids = {color: 2 + index for index, color in enumerate(fill_colors)}
     bold_fill_style_ids = {
-        color: 2 + len(fill_colors) + index
-        for index, color in enumerate(fill_colors)
+        color: 2 + len(fill_colors) + index for index, color in enumerate(fill_colors)
     }
     table_rows: list[tuple[list[str], list[int]]] = [
         (fieldnames, [0 for _field in fieldnames])
@@ -376,14 +378,18 @@ def _xlsx_row_xml(values: list[str], row_index: int, *, style_ids: list[int]) ->
             value,
             _xlsx_column_name(column_index),
             row_index,
-            style_id=style_ids[column_index - 1] if column_index - 1 < len(style_ids) else 0,
+            style_id=style_ids[column_index - 1]
+            if column_index - 1 < len(style_ids)
+            else 0,
         )
         for column_index, value in enumerate(values, start=1)
     )
     return f'    <row r="{row_index}">{cells_xml}</row>'
 
 
-def _xlsx_cell_xml(value: str, column_name: str, row_index: int, *, style_id: int = 0) -> str:
+def _xlsx_cell_xml(
+    value: str, column_name: str, row_index: int, *, style_id: int = 0
+) -> str:
     cell_ref = f"{column_name}{row_index}"
     text = escape(_clean_xml_text(str(value)))
     style_attribute = f' s="{style_id}"' if style_id else ""
@@ -423,11 +429,7 @@ def _normalize_xlsx_color(color: str) -> str | None:
 
 
 def _clean_xml_text(value: str) -> str:
-    return "".join(
-        char
-        for char in value
-        if _is_valid_xml_character(ord(char))
-    )
+    return "".join(char for char in value if _is_valid_xml_character(ord(char)))
 
 
 def _is_valid_xml_character(codepoint: int) -> bool:
@@ -447,7 +449,9 @@ def _parse_exif_datetime(value: object) -> str:
         return ""
     for format_string in ("%Y:%m:%d %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
         try:
-            return datetime.strptime(raw_text, format_string).isoformat(timespec="seconds")
+            return datetime.strptime(raw_text, format_string).isoformat(
+                timespec="seconds"
+            )
         except ValueError:
             continue
     return raw_text

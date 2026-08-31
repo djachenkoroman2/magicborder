@@ -58,7 +58,9 @@ class OivClassifierTest(unittest.TestCase):
     def test_classifies_lengths_by_midpoint_boundaries(self) -> None:
         catalog = default_oiv_catalog()
 
-        self.assertEqual(catalog.classify("OIV 601", 89.9, tool_kind="segment").score, 1)
+        self.assertEqual(
+            catalog.classify("OIV 601", 89.9, tool_kind="segment").score, 1
+        )
         self.assertEqual(catalog.classify("OIV 601", 90, tool_kind="segment").score, 3)
         self.assertEqual(catalog.classify("OIV 601", 136, tool_kind="segment").score, 5)
         self.assertEqual(catalog.classify("OIV 601", 180, tool_kind="segment").score, 9)
