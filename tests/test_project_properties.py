@@ -915,7 +915,11 @@ class ProjectPropertiesTest(unittest.TestCase):
             window._set_project(project_path, load_project(project_path))
 
             self.assertTrue(window.canvas.has_image())
-            self.assertEqual(window.canvas.current_image_path(), image_dir / "leaf.png")
+            # Канвас хранит разрешённый путь: на macOS /var — симлинк на /private/var.
+            self.assertEqual(
+                window.canvas.current_image_path(),
+                (image_dir / "leaf.png").resolve(),
+            )
             self.assertEqual(window.property_points.text(), "5")
             self.assertEqual(window.property_contour_area_mm2.text(), "калибровка не произведена")
             self.assertEqual(window.property_calibration_length.text(), "калибровка не произведена")
