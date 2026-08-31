@@ -69,7 +69,12 @@ class TestApplyLightTheme:
 
         apply_light_theme(recorder)
 
-        for selector in ("QToolTip", "QMenuBar, QMenu", "QMenu::item:selected", "QStatusBar"):
+        for selector in (
+            "QToolTip",
+            "QMenuBar, QMenu",
+            "QMenu::item:selected",
+            "QStatusBar",
+        ):
             assert selector in recorder.style_sheet
 
 
@@ -134,7 +139,9 @@ def fake_application(monkeypatch: pytest.MonkeyPatch) -> type[_FakeApplication]:
 
 
 class TestMain:
-    def test_application_is_configured(self, fake_application: type[_FakeApplication]) -> None:
+    def test_application_is_configured(
+        self, fake_application: type[_FakeApplication]
+    ) -> None:
         exit_code = main()
 
         assert exit_code == 7
@@ -153,7 +160,9 @@ class TestMain:
 
         assert (Qt.AA_DontShowIconsInMenus, False) in fake_application.attributes
 
-    def test_light_theme_is_applied(self, fake_application: type[_FakeApplication]) -> None:
+    def test_light_theme_is_applied(
+        self, fake_application: type[_FakeApplication]
+    ) -> None:
         main()
 
         app = fake_application.created[0]

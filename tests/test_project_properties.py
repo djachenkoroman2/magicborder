@@ -94,8 +94,15 @@ def _read_xlsx_rows(path: Path) -> list[list[str]]:
             cell_ref = cell.attrib["r"]
             column_name = "".join(char for char in cell_ref if char.isalpha())
             text_node = cell.find("s:is/s:t", namespace)
-            row_values[_xlsx_column_index(column_name)] = "" if text_node is None else (text_node.text or "")
-        values.append([row_values.get(index, "") for index in range(max(row_values, default=-1) + 1)])
+            row_values[_xlsx_column_index(column_name)] = (
+                "" if text_node is None else (text_node.text or "")
+            )
+        values.append(
+            [
+                row_values.get(index, "")
+                for index in range(max(row_values, default=-1) + 1)
+            ]
+        )
     return values
 
 
@@ -106,7 +113,7 @@ def _read_xlsx_dict_rows(path: Path) -> list[dict[str, str]]:
         return []
     headers = values[0]
     return [
-        dict(zip(headers, row + [""] * (len(headers) - len(row))))
+        dict(zip(headers, row + [""] * (len(headers) - len(row)), strict=False))
         for row in values[1:]
     ]
 
@@ -307,7 +314,11 @@ class ProjectPropertiesTest(unittest.TestCase):
 
         actions = window.findChildren(QAction)
         action_texts = {action.text() for action in actions}
-        shortcuts = {action.shortcut().toString() for action in actions if not action.shortcut().isEmpty()}
+        shortcuts = {
+            action.shortcut().toString()
+            for action in actions
+            if not action.shortcut().isEmpty()
+        }
 
         self.assertNotIn("Открыть изображение...", action_texts)
         self.assertNotIn("Сохранить изображение...", action_texts)
@@ -332,8 +343,12 @@ class ProjectPropertiesTest(unittest.TestCase):
 
         self.assertIsInstance(window.show_all_canvas_elements_action, QAction)
         self.assertIsInstance(window.hide_all_canvas_elements_action, QAction)
-        self.assertEqual(window.show_all_canvas_elements_action.text(), "Показать все элементы")
-        self.assertEqual(window.hide_all_canvas_elements_action.text(), "Скрыть все элементы")
+        self.assertEqual(
+            window.show_all_canvas_elements_action.text(), "Показать все элементы"
+        )
+        self.assertEqual(
+            window.hide_all_canvas_elements_action.text(), "Скрыть все элементы"
+        )
         self.assertFalse(window.show_all_canvas_elements_action.isEnabled())
         self.assertFalse(window.hide_all_canvas_elements_action.isEnabled())
 
@@ -431,13 +446,27 @@ class ProjectPropertiesTest(unittest.TestCase):
             ],
         )
         calibration_group = _property_group(window.properties_browser, "Калибровка")
-        contour_group = _property_group(window.properties_browser, "Информация о главном контуре")
-        color_spaces_group = _property_group(window.properties_browser, "Цветовые пространства")
-        rgb_group = _property_group(window.properties_browser, "Цветовое пространство RGB")
-        lab_group = _property_group(window.properties_browser, "Цветовое пространство Lab")
-        hsv_group = _property_group(window.properties_browser, "Цветовое пространство HSV")
-        yuv_group = _property_group(window.properties_browser, "Цветовое пространство YUV")
-        lms_group = _property_group(window.properties_browser, "Цветовое пространство LMS")
+        contour_group = _property_group(
+            window.properties_browser, "Информация о главном контуре"
+        )
+        color_spaces_group = _property_group(
+            window.properties_browser, "Цветовые пространства"
+        )
+        rgb_group = _property_group(
+            window.properties_browser, "Цветовое пространство RGB"
+        )
+        lab_group = _property_group(
+            window.properties_browser, "Цветовое пространство Lab"
+        )
+        hsv_group = _property_group(
+            window.properties_browser, "Цветовое пространство HSV"
+        )
+        yuv_group = _property_group(
+            window.properties_browser, "Цветовое пространство YUV"
+        )
+        lms_group = _property_group(
+            window.properties_browser, "Цветовое пространство LMS"
+        )
 
         self.assertIs(
             window.properties_browser.property_item("Длина калибровки, мм").parent(),
@@ -461,24 +490,38 @@ class ProjectPropertiesTest(unittest.TestCase):
         )
         for group in (rgb_group, lab_group, hsv_group, yuv_group, lms_group):
             self.assertIs(group.parent(), color_spaces_group)
-        self.assertIs(window.properties_browser.property_item("Красный").parent(), rgb_group)
+        self.assertIs(
+            window.properties_browser.property_item("Красный").parent(), rgb_group
+        )
         self.assertEqual(window.properties_browser.indexOfTopLevelItem(rgb_group), -1)
         self.assertLess(
-            window.properties_browser.indexOfTopLevelItem(window.measurements_group_item),
+            window.properties_browser.indexOfTopLevelItem(
+                window.measurements_group_item
+            ),
             window.properties_browser.indexOfTopLevelItem(color_spaces_group),
         )
         self.assertLess(
             window.properties_browser.indexOfTopLevelItem(color_spaces_group),
-            window.properties_browser.indexOfTopLevelItem(_property_group(window.properties_browser, "Локация")),
+            window.properties_browser.indexOfTopLevelItem(
+                _property_group(window.properties_browser, "Локация")
+            ),
         )
 
-    def test_project_properties_panel_is_between_images_and_image_properties(self) -> None:
+    def test_project_properties_panel_is_between_images_and_image_properties(
+        self,
+    ) -> None:
         _app()
         window = MainWindow()
 
-        self.assertEqual(window.project_splitter.widget(0).objectName(), "projectImagesPanel")
-        self.assertEqual(window.project_splitter.widget(1).objectName(), "projectPropertiesPanel")
-        self.assertEqual(window.project_splitter.widget(2).objectName(), "imagePropertiesPanel")
+        self.assertEqual(
+            window.project_splitter.widget(0).objectName(), "projectImagesPanel"
+        )
+        self.assertEqual(
+            window.project_splitter.widget(1).objectName(), "projectPropertiesPanel"
+        )
+        self.assertEqual(
+            window.project_splitter.widget(2).objectName(), "imagePropertiesPanel"
+        )
         self.assertEqual(
             _project_property_panel_rows(window),
             [
@@ -510,7 +553,9 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Средний S",
             ],
         )
-        project_color_spaces_group = _property_group(window.project_properties_browser, "Цветовые пространства")
+        project_color_spaces_group = _property_group(
+            window.project_properties_browser, "Цветовые пространства"
+        )
         for group_title in (
             "Цветовое пространство RGB",
             "Цветовое пространство Lab",
@@ -520,7 +565,9 @@ class ProjectPropertiesTest(unittest.TestCase):
         ):
             group = _property_group(window.project_properties_browser, group_title)
             self.assertIs(group.parent(), project_color_spaces_group)
-            self.assertEqual(window.project_properties_browser.indexOfTopLevelItem(group), -1)
+            self.assertEqual(
+                window.project_properties_browser.indexOfTopLevelItem(group), -1
+            )
 
     def test_project_properties_show_project_name_and_path(self) -> None:
         _app()
@@ -537,17 +584,23 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertIsInstance(window.project_path_field, QLineEdit)
             self.assertEqual(window.project_name.text(), "display")
             self.assertEqual(window.project_document.name, "display")
-            self.assertEqual(window.project_path_field.text(), str(project_path.resolve()))
+            self.assertEqual(
+                window.project_path_field.text(), str(project_path.resolve())
+            )
             self.assertTrue(window._save_project_silently(show_error=True))
             self.assertEqual(load_project(project_path).name, "display")
             self.assertTrue(window.project_path_field.isReadOnly())
             self.assertTrue(window.project_path_field.isEnabled())
             self.assertIs(
-                window.project_properties_browser.property_item("project_name").parent(),
+                window.project_properties_browser.property_item(
+                    "project_name"
+                ).parent(),
                 _property_group(window.project_properties_browser, "Общие свойства"),
             )
             self.assertIs(
-                window.project_properties_browser.property_item("project_path").parent(),
+                window.project_properties_browser.property_item(
+                    "project_path"
+                ).parent(),
                 _property_group(window.project_properties_browser, "Общие свойства"),
             )
 
@@ -586,12 +639,18 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertTrue((new_project_dir / "images").is_dir())
             self.assertTrue(new_project_path.exists())
             self.assertEqual(window.project_path, new_project_path.resolve())
-            self.assertEqual(window.project_path_field.text(), str(new_project_path.resolve()))
+            self.assertEqual(
+                window.project_path_field.text(), str(new_project_path.resolve())
+            )
             self.assertEqual(window.project_document.name, "Renamed_Project")
             self.assertEqual(window.project_name.text(), "Renamed_Project")
-            self.assertEqual(window.project_document.images[0].relative_path, "images/leaf.png")
+            self.assertEqual(
+                window.project_document.images[0].relative_path, "images/leaf.png"
+            )
             self.assertEqual(load_project(new_project_path).name, "Renamed_Project")
-            self.assertEqual(window.windowTitle(), "MagicBorder - Renamed_Project - leaf.png")
+            self.assertEqual(
+                window.windowTitle(), "MagicBorder - Renamed_Project - leaf.png"
+            )
 
             window.project_general_info.setPlainText("После переименования")
             window._project_autosave_timer.stop()
@@ -632,7 +691,9 @@ class ProjectPropertiesTest(unittest.TestCase):
                 self.assertEqual(window.project_path, project_path.resolve())
                 self.assertEqual(window.project_document.name, "safe")
                 self.assertEqual(window.project_name.text(), "safe")
-                self.assertEqual(window.project_path_field.text(), str(project_path.resolve()))
+                self.assertEqual(
+                    window.project_path_field.text(), str(project_path.resolve())
+                )
                 show_warning.assert_called_once()
 
     def test_project_name_edit_rejects_empty_name_and_paths(self) -> None:
@@ -662,11 +723,19 @@ class ProjectPropertiesTest(unittest.TestCase):
         window = MainWindow()
         style_sheet = window.project_splitter.parentWidget().styleSheet()
 
-        self.assertIn("QWidget#projectImagesPanel { background: #f7fbff; }", style_sheet)
-        self.assertIn("QWidget#projectPropertiesPanel { background: #f8fcf6; }", style_sheet)
-        self.assertIn("QWidget#imagePropertiesPanel { background: #fffaf4; }", style_sheet)
+        self.assertIn(
+            "QWidget#projectImagesPanel { background: #f7fbff; }", style_sheet
+        )
+        self.assertIn(
+            "QWidget#projectPropertiesPanel { background: #f8fcf6; }", style_sheet
+        )
+        self.assertIn(
+            "QWidget#imagePropertiesPanel { background: #fffaf4; }", style_sheet
+        )
 
-    def test_property_groups_are_collapsed_by_default_and_toggle_independently(self) -> None:
+    def test_property_groups_are_collapsed_by_default_and_toggle_independently(
+        self,
+    ) -> None:
         _app()
         window = MainWindow()
 
@@ -720,7 +789,9 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             self.assertIsInstance(browser, PropertyBrowser)
             self.assertFalse(browser.isHeaderHidden())
-            self.assertEqual(browser.header().sectionResizeMode(0), QHeaderView.Interactive)
+            self.assertEqual(
+                browser.header().sectionResizeMode(0), QHeaderView.Interactive
+            )
             self.assertEqual(browser.header().sectionResizeMode(1), QHeaderView.Stretch)
 
             browser.set_key_column_width(110)
@@ -756,12 +827,16 @@ class ProjectPropertiesTest(unittest.TestCase):
         group = browser.add_group("Группа", expanded=True)
         subgroup = browser.add_group("Подгруппа", expanded=True, parent=group)
 
-        browser.add_property_to_item(subgroup, "Свойство", PropertyValueLabel("Значение"))
+        browser.add_property_to_item(
+            subgroup, "Свойство", PropertyValueLabel("Значение")
+        )
 
         self.assertTrue(group.isFirstColumnSpanned())
         self.assertTrue(subgroup.isFirstColumnSpanned())
 
-    def test_property_browser_long_values_remain_available_and_resize_rows(self) -> None:
+    def test_property_browser_long_values_remain_available_and_resize_rows(
+        self,
+    ) -> None:
         _app()
         browser = PropertyBrowser()
         browser.resize(260, 220)
@@ -821,9 +896,15 @@ class ProjectPropertiesTest(unittest.TestCase):
                 return str(root)
 
             window = MainWindow()
-            with patch("magicborder.main_window.QInputDialog.getText", side_effect=get_project_name), patch(
-                "magicborder.main_window.QFileDialog.getExistingDirectory",
-                side_effect=get_parent_directory,
+            with (
+                patch(
+                    "magicborder.main_window.QInputDialog.getText",
+                    side_effect=get_project_name,
+                ),
+                patch(
+                    "magicborder.main_window.QFileDialog.getExistingDirectory",
+                    side_effect=get_parent_directory,
+                ),
             ):
                 window.new_project()
 
@@ -841,9 +922,14 @@ class ProjectPropertiesTest(unittest.TestCase):
         _app()
         window = MainWindow()
 
-        with patch("magicborder.main_window.QInputDialog.getText", return_value=("", False)), patch(
-            "magicborder.main_window.QFileDialog.getExistingDirectory",
-        ) as get_directory:
+        with (
+            patch(
+                "magicborder.main_window.QInputDialog.getText", return_value=("", False)
+            ),
+            patch(
+                "magicborder.main_window.QFileDialog.getExistingDirectory",
+            ) as get_directory,
+        ):
             window.new_project()
 
         get_directory.assert_not_called()
@@ -856,9 +942,15 @@ class ProjectPropertiesTest(unittest.TestCase):
             root = Path(temp_dir)
             window = MainWindow()
 
-            with patch("magicborder.main_window.QInputDialog.getText", return_value=("Leaves 2026", True)), patch(
-                "magicborder.main_window.QFileDialog.getExistingDirectory",
-                return_value="",
+            with (
+                patch(
+                    "magicborder.main_window.QInputDialog.getText",
+                    return_value=("Leaves 2026", True),
+                ),
+                patch(
+                    "magicborder.main_window.QFileDialog.getExistingDirectory",
+                    return_value="",
+                ),
             ):
                 window.new_project()
 
@@ -921,8 +1013,12 @@ class ProjectPropertiesTest(unittest.TestCase):
                 (image_dir / "leaf.png").resolve(),
             )
             self.assertEqual(window.property_points.text(), "5")
-            self.assertEqual(window.property_contour_area_mm2.text(), "калибровка не произведена")
-            self.assertEqual(window.property_calibration_length.text(), "калибровка не произведена")
+            self.assertEqual(
+                window.property_contour_area_mm2.text(), "калибровка не произведена"
+            )
+            self.assertEqual(
+                window.property_calibration_length.text(), "калибровка не произведена"
+            )
             self.assertFalse(window.property_calibration_length.isEnabled())
             self.assertEqual(window.property_calibration_scale.text(), "-")
 
@@ -937,9 +1033,15 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             self.assertEqual(window.property_points.text(), "4")
             self.assertEqual(window.property_contour_pixels.text(), "324")
-            self.assertEqual(window.property_contour_area_mm2.text(), "калибровка не произведена")
-            self.assertEqual(window.property_calibration_length.text(), "калибровка не произведена")
-            self.assertEqual(len(window.project_document.images[0].annotation.points), 4)
+            self.assertEqual(
+                window.property_contour_area_mm2.text(), "калибровка не произведена"
+            )
+            self.assertEqual(
+                window.property_calibration_length.text(), "калибровка не произведена"
+            )
+            self.assertEqual(
+                len(window.project_document.images[0].annotation.points), 4
+            )
 
             window.delete_current_contour()
 
@@ -949,7 +1051,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.property_points.text(), "-")
             self.assertEqual(window.property_contour_pixels.text(), "-")
             self.assertEqual(window.property_contour_area_mm2.text(), "-")
-            self.assertEqual(window.property_calibration_length.text(), "калибровка не произведена")
+            self.assertEqual(
+                window.property_calibration_length.text(), "калибровка не произведена"
+            )
             self.assertEqual(window.property_calibration_scale.text(), "-")
             self.assertEqual(window.property_lab_l.text(), "-")
             self.assertEqual(window.property_lab_a.text(), "-")
@@ -964,7 +1068,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.property_lms_m.text(), "-")
             self.assertEqual(window.property_lms_s.text(), "-")
 
-    def test_contour_visibility_property_toggles_canvas_without_changing_annotation(self) -> None:
+    def test_contour_visibility_property_toggles_canvas_without_changing_annotation(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1021,14 +1127,18 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertTrue(window.property_contour_visible.isEnabled())
             self.assertTrue(window.property_contour_visible.isChecked())
             self.assertTrue(window.canvas._path_item.isVisible())
-            self.assertTrue(all(handle.isVisible() for handle in window.canvas._handles))
+            self.assertTrue(
+                all(handle.isVisible() for handle in window.canvas._handles)
+            )
 
             window._project_autosave_timer.stop()
             window.property_contour_visible.setChecked(False)
 
             self.assertFalse(window.canvas.is_contour_visible())
             self.assertFalse(window.canvas._path_item.isVisible())
-            self.assertTrue(all(not handle.isVisible() for handle in window.canvas._handles))
+            self.assertTrue(
+                all(not handle.isVisible() for handle in window.canvas._handles)
+            )
             self.assertIsNotNone(record.annotation)
             self.assertEqual(record.annotation.points, annotation.points)
             self.assertFalse(window._project_autosave_timer.isActive())
@@ -1037,7 +1147,9 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             self.assertTrue(window.canvas.is_contour_visible())
             self.assertTrue(window.canvas._path_item.isVisible())
-            self.assertTrue(all(handle.isVisible() for handle in window.canvas._handles))
+            self.assertTrue(
+                all(handle.isVisible() for handle in window.canvas._handles)
+            )
 
     def test_line_color_properties_update_canvas_save_and_restore(self) -> None:
         _app()
@@ -1049,10 +1161,18 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertIsNotNone(record)
 
             contour_item = window.properties_browser.property_item("contour:line_color")
-            angle_item = window.properties_browser.property_item("angle:angle-a:line_color")
-            angle_label_item = window.properties_browser.property_item("angle:angle-a:label_color")
-            segment_item = window.properties_browser.property_item("segment:segment-a:line_color")
-            segment_label_item = window.properties_browser.property_item("segment:segment-a:label_color")
+            angle_item = window.properties_browser.property_item(
+                "angle:angle-a:line_color"
+            )
+            angle_label_item = window.properties_browser.property_item(
+                "angle:angle-a:label_color"
+            )
+            segment_item = window.properties_browser.property_item(
+                "segment:segment-a:line_color"
+            )
+            segment_label_item = window.properties_browser.property_item(
+                "segment:segment-a:label_color"
+            )
             self.assertIsNotNone(contour_item)
             self.assertIsNotNone(angle_item)
             self.assertIsNotNone(angle_label_item)
@@ -1066,9 +1186,15 @@ class ProjectPropertiesTest(unittest.TestCase):
                 segment_item.parent().indexOfChild(segment_label_item),
                 segment_item.parent().indexOfChild(segment_item) + 1,
             )
-            self.assertEqual(window.property_contour_line_color.text(), CONTOUR_LINE_COLOR)
-            self.assertEqual(window._angle_line_color_fields["angle-a"].text(), ANGLE_LINE_COLOR)
-            self.assertEqual(window._angle_label_color_fields["angle-a"].text(), ANGLE_LABEL_COLOR)
+            self.assertEqual(
+                window.property_contour_line_color.text(), CONTOUR_LINE_COLOR
+            )
+            self.assertEqual(
+                window._angle_line_color_fields["angle-a"].text(), ANGLE_LINE_COLOR
+            )
+            self.assertEqual(
+                window._angle_label_color_fields["angle-a"].text(), ANGLE_LABEL_COLOR
+            )
             self.assertEqual(
                 window._segment_line_color_fields["segment-a"].text(),
                 SEGMENT_LINE_COLOR,
@@ -1158,11 +1284,15 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             self.assertEqual(record.measurements.segments[0].label_color, "#c2410c")
             self.assertEqual(
-                window.canvas._segment_graphics[0].length_label.defaultTextColor().name(),
+                window.canvas._segment_graphics[0]
+                .length_label.defaultTextColor()
+                .name(),
                 "#c2410c",
             )
             self.assertEqual(
-                window.canvas._segment_graphics[0].start_label.defaultTextColor().name(),
+                window.canvas._segment_graphics[0]
+                .start_label.defaultTextColor()
+                .name(),
                 "#c2410c",
             )
             self.assertEqual(
@@ -1348,8 +1478,12 @@ class ProjectPropertiesTest(unittest.TestCase):
             window = MainWindow()
             window._set_project(project_path, load_project(project_path))
             self.assertEqual(window.canvas.contour_line_color(), "#111111")
-            self.assertEqual(window.canvas.angle_measurement_line_color("angle-a"), "#222222")
-            self.assertEqual(window.canvas.angle_measurement_label_color("angle-a"), "#223344")
+            self.assertEqual(
+                window.canvas.angle_measurement_line_color("angle-a"), "#222222"
+            )
+            self.assertEqual(
+                window.canvas.angle_measurement_label_color("angle-a"), "#223344"
+            )
             self.assertEqual(
                 window.canvas.segment_measurement_line_color("segment-a"),
                 "#333333",
@@ -1362,8 +1496,12 @@ class ProjectPropertiesTest(unittest.TestCase):
             window.project_list.setCurrentRow(1)
 
             self.assertEqual(window.canvas.contour_line_color(), "#444444")
-            self.assertEqual(window.canvas.angle_measurement_line_color("angle-b"), "#555555")
-            self.assertEqual(window.canvas.angle_measurement_label_color("angle-b"), "#556677")
+            self.assertEqual(
+                window.canvas.angle_measurement_line_color("angle-b"), "#555555"
+            )
+            self.assertEqual(
+                window.canvas.angle_measurement_label_color("angle-b"), "#556677"
+            )
             self.assertEqual(
                 window.canvas.segment_measurement_line_color("segment-b"),
                 "#666666",
@@ -1373,14 +1511,22 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "#667788",
             )
             self.assertEqual(window.property_contour_line_color.text(), "#444444")
-            self.assertEqual(window._angle_label_color_fields["angle-b"].text(), "#556677")
-            self.assertEqual(window._segment_label_color_fields["segment-b"].text(), "#667788")
+            self.assertEqual(
+                window._angle_label_color_fields["angle-b"].text(), "#556677"
+            )
+            self.assertEqual(
+                window._segment_label_color_fields["segment-b"].text(), "#667788"
+            )
 
             window.project_list.setCurrentRow(0)
 
             self.assertEqual(window.canvas.contour_line_color(), "#111111")
-            self.assertEqual(window.canvas.angle_measurement_line_color("angle-a"), "#222222")
-            self.assertEqual(window.canvas.angle_measurement_label_color("angle-a"), "#223344")
+            self.assertEqual(
+                window.canvas.angle_measurement_line_color("angle-a"), "#222222"
+            )
+            self.assertEqual(
+                window.canvas.angle_measurement_label_color("angle-a"), "#223344"
+            )
             self.assertEqual(
                 window.canvas.segment_measurement_line_color("segment-a"),
                 "#333333",
@@ -1390,8 +1536,12 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "#334455",
             )
             self.assertEqual(window.property_contour_line_color.text(), "#111111")
-            self.assertEqual(window._angle_label_color_fields["angle-a"].text(), "#223344")
-            self.assertEqual(window._segment_label_color_fields["segment-a"].text(), "#334455")
+            self.assertEqual(
+                window._angle_label_color_fields["angle-a"].text(), "#223344"
+            )
+            self.assertEqual(
+                window._segment_label_color_fields["segment-a"].text(), "#334455"
+            )
 
     def test_open_annotation_restores_contour_line_color(self) -> None:
         _app()
@@ -1471,14 +1621,20 @@ class ProjectPropertiesTest(unittest.TestCase):
             serialized_image = json.dumps(image_payload, ensure_ascii=False)
             self.assertNotIn('"visible"', serialized_image)
 
-    def test_image_property_measurement_click_highlights_canvas_item_without_selecting_it(self) -> None:
+    def test_image_property_measurement_click_highlights_canvas_item_without_selecting_it(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             window, _project_path = _measurement_export_window(root)
 
-            first_angle_width = window.canvas._angle_graphics[0].first_line.pen().widthF()
-            second_angle_width = window.canvas._angle_graphics[1].first_line.pen().widthF()
+            first_angle_width = (
+                window.canvas._angle_graphics[0].first_line.pen().widthF()
+            )
+            second_angle_width = (
+                window.canvas._angle_graphics[1].first_line.pen().widthF()
+            )
             segment_width = window.canvas._segment_graphics[0].line.pen().widthF()
 
             window._handle_image_property_item_clicked(
@@ -1510,15 +1666,21 @@ class ProjectPropertiesTest(unittest.TestCase):
                 window.canvas._angle_graphics[0].first_line.pen().widthF(),
                 first_angle_width,
             )
-            self.assertGreater(window.canvas._segment_graphics[0].line.pen().widthF(), segment_width)
+            self.assertGreater(
+                window.canvas._segment_graphics[0].line.pen().widthF(), segment_width
+            )
             self.assertFalse(window.canvas.has_selected_segment_endpoint())
             self.assertFalse(window.delete_segment_action.isEnabled())
 
-            window._handle_image_property_item_clicked(window.properties_browser.property_item("Файл"), 0)
+            window._handle_image_property_item_clicked(
+                window.properties_browser.property_item("Файл"), 0
+            )
 
             self.assertIsNone(window.canvas.highlighted_angle_id())
             self.assertIsNone(window.canvas.highlighted_segment_id())
-            self.assertEqual(window.canvas._segment_graphics[0].line.pen().widthF(), segment_width)
+            self.assertEqual(
+                window.canvas._segment_graphics[0].line.pen().widthF(), segment_width
+            )
 
     def test_image_property_contour_click_highlights_canvas_contour(self) -> None:
         _app()
@@ -1528,7 +1690,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             _add_test_contour(window)
             normal_width = window.canvas._path_item.pen().widthF()
 
-            contour_group = window.properties_browser.group_item("Информация о главном контуре")
+            contour_group = window.properties_browser.group_item(
+                "Информация о главном контуре"
+            )
             self.assertEqual(contour_group.data(0, Qt.UserRole + 1), "contour")
 
             window._handle_image_property_item_clicked(contour_group, 0)
@@ -1565,7 +1729,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(window.canvas.highlighted_segment_id(), "segment-a")
 
             window.canvas.highlight_contour()
-            window._handle_image_property_item_clicked(window.properties_browser.property_item("Файл"), 0)
+            window._handle_image_property_item_clicked(
+                window.properties_browser.property_item("Файл"), 0
+            )
 
             self.assertFalse(window.canvas.is_contour_highlighted())
             self.assertIsNone(window.canvas.highlighted_angle_id())
@@ -1798,7 +1964,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(name_field.text(), "")
             name_field.setText("Контрольный отрезок")
             window._handle_segment_name_edit_finished(segment_id, name_field)
-            self.assertEqual(record.measurements.segments[0].name, "Контрольный отрезок")
+            self.assertEqual(
+                record.measurements.segments[0].name, "Контрольный отрезок"
+            )
             self.assertIn("--- Контрольный отрезок", _property_panel_rows(window))
             self.assertEqual(
                 window.canvas._segment_graphics[0].length_label.toPlainText(),
@@ -1807,20 +1975,30 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             start_label_field = window._segment_start_label_fields[segment_id]
             start_label_field.setText("Начало")
-            window._handle_segment_label_edit_finished(segment_id, start_label_field, "start")
+            window._handle_segment_label_edit_finished(
+                segment_id, start_label_field, "start"
+            )
             end_label_field = window._segment_end_label_fields[segment_id]
             end_label_field.setText("Конец")
-            window._handle_segment_label_edit_finished(segment_id, end_label_field, "end")
+            window._handle_segment_label_edit_finished(
+                segment_id, end_label_field, "end"
+            )
             note_field = window._segment_note_fields[segment_id]
             note_field.setText("измерить повторно")
             window._handle_segment_note_edit_finished(segment_id, note_field)
 
-            self.assertEqual(record.measurements.segments[0].name, "Контрольный отрезок")
+            self.assertEqual(
+                record.measurements.segments[0].name, "Контрольный отрезок"
+            )
             self.assertEqual(record.measurements.segments[0].start_label, "Начало")
             self.assertEqual(record.measurements.segments[0].end_label, "Конец")
             self.assertEqual(record.measurements.segments[0].note, "измерить повторно")
-            self.assertEqual(window.canvas._segment_graphics[0].start_label.toPlainText(), "Начало")
-            self.assertEqual(window.canvas._segment_graphics[0].end_label.toPlainText(), "Конец")
+            self.assertEqual(
+                window.canvas._segment_graphics[0].start_label.toPlainText(), "Начало"
+            )
+            self.assertEqual(
+                window.canvas._segment_graphics[0].end_label.toPlainText(), "Конец"
+            )
 
             window.canvas._segment_graphics[0].handles[0].setSelected(True)
 
@@ -1833,7 +2011,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertFalse(visibility_field.isChecked())
             self.assertFalse(window.canvas.is_segment_measurement_visible(segment_id))
             self.assertFalse(window.canvas._segment_graphics[0].line.isVisible())
-            self.assertFalse(window.canvas._segment_graphics[0].length_label.isVisible())
+            self.assertFalse(
+                window.canvas._segment_graphics[0].length_label.isVisible()
+            )
             self.assertFalse(window.canvas.has_selected_segment_endpoint())
             self.assertFalse(window.delete_segment_action.isEnabled())
             self.assertEqual(len(record.measurements.segments), 1)
@@ -1872,13 +2052,19 @@ class ProjectPropertiesTest(unittest.TestCase):
             window.project_list.setCurrentRow(0)
 
             self.assertEqual(len(window.canvas.segment_measurements()), 1)
-            self.assertEqual(window.canvas.segment_measurement_records()[0][0], segment_id)
+            self.assertEqual(
+                window.canvas.segment_measurement_records()[0][0], segment_id
+            )
             self.assertEqual(
                 window.canvas._segment_graphics[0].length_label.toPlainText(),
                 "Контрольный отрезок\n10 px / 5 мм",
             )
-            self.assertEqual(window._segment_name_fields[segment_id].text(), "Контрольный отрезок")
-            self.assertEqual(window._segment_note_fields[segment_id].text(), "измерить повторно")
+            self.assertEqual(
+                window._segment_name_fields[segment_id].text(), "Контрольный отрезок"
+            )
+            self.assertEqual(
+                window._segment_note_fields[segment_id].text(), "измерить повторно"
+            )
 
             window.canvas._segment_graphics[0].handles[0].setSelected(True)
             window.delete_selected_segment()
@@ -1972,12 +2158,18 @@ class ProjectPropertiesTest(unittest.TestCase):
             payload = json.loads(project_path.read_text(encoding="utf-8"))
             saved_angle = payload["images"][0]["measurements"]["angles"][0]
             saved_segment = payload["images"][0]["measurements"]["segments"][0]
-            self.assertEqual(saved_angle["assessment"], {"system": "OIV", "code": "OIV 607"})
-            self.assertEqual(saved_segment["assessment"], {"system": "OIV", "code": "OIV 601"})
+            self.assertEqual(
+                saved_angle["assessment"], {"system": "OIV", "code": "OIV 607"}
+            )
+            self.assertEqual(
+                saved_segment["assessment"], {"system": "OIV", "code": "OIV 601"}
+            )
             self.assertNotIn("score", saved_angle)
             self.assertNotIn("score", saved_segment)
 
-    def test_oiv_assessment_selection_keeps_current_measurement_group_expanded(self) -> None:
+    def test_oiv_assessment_selection_keeps_current_measurement_group_expanded(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1989,7 +2181,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             angles_group = window.properties_browser.group_item("measurements:angles")
             angle_group = window.properties_browser.group_item("angle:angle-a")
             other_angle_group = window.properties_browser.group_item("angle:angle-b")
-            segments_group = window.properties_browser.group_item("measurements:segments")
+            segments_group = window.properties_browser.group_item(
+                "measurements:segments"
+            )
             segment_group = window.properties_browser.group_item("segment:segment-a")
 
             measurements_group.setExpanded(True)
@@ -2003,12 +2197,22 @@ class ProjectPropertiesTest(unittest.TestCase):
             angle_combo.setCurrentIndex(angle_combo.findData("OIV 607"))
 
             self.assertEqual(record.measurements.angles[0].assessment.code, "OIV 607")
-            self.assertTrue(window.properties_browser.group_item("measurements").isExpanded())
-            self.assertTrue(window.properties_browser.group_item("measurements:angles").isExpanded())
-            self.assertTrue(window.properties_browser.group_item("angle:angle-a").isExpanded())
-            self.assertFalse(window.properties_browser.group_item("angle:angle-b").isExpanded())
             self.assertTrue(
-                window.properties_browser.is_property_visible("angle:angle-a:assessment_result")
+                window.properties_browser.group_item("measurements").isExpanded()
+            )
+            self.assertTrue(
+                window.properties_browser.group_item("measurements:angles").isExpanded()
+            )
+            self.assertTrue(
+                window.properties_browser.group_item("angle:angle-a").isExpanded()
+            )
+            self.assertFalse(
+                window.properties_browser.group_item("angle:angle-b").isExpanded()
+            )
+            self.assertTrue(
+                window.properties_browser.is_property_visible(
+                    "angle:angle-a:assessment_result"
+                )
             )
             self.assertEqual(
                 window._angle_assessment_result_fields["angle-a"].text(),
@@ -2019,11 +2223,21 @@ class ProjectPropertiesTest(unittest.TestCase):
             segment_combo.setCurrentIndex(segment_combo.findData("OIV 601"))
 
             self.assertEqual(record.measurements.segments[0].assessment.code, "OIV 601")
-            self.assertTrue(window.properties_browser.group_item("measurements").isExpanded())
-            self.assertTrue(window.properties_browser.group_item("measurements:segments").isExpanded())
-            self.assertTrue(window.properties_browser.group_item("segment:segment-a").isExpanded())
             self.assertTrue(
-                window.properties_browser.is_property_visible("segment:segment-a:assessment_result")
+                window.properties_browser.group_item("measurements").isExpanded()
+            )
+            self.assertTrue(
+                window.properties_browser.group_item(
+                    "measurements:segments"
+                ).isExpanded()
+            )
+            self.assertTrue(
+                window.properties_browser.group_item("segment:segment-a").isExpanded()
+            )
+            self.assertTrue(
+                window.properties_browser.is_property_visible(
+                    "segment:segment-a:assessment_result"
+                )
             )
             self.assertEqual(
                 window._segment_assessment_result_fields["segment-a"].text(),
@@ -2136,13 +2350,19 @@ class ProjectPropertiesTest(unittest.TestCase):
             payload = json.loads(project_path.read_text(encoding="utf-8"))
             self.assertNotIn("calibration", payload["images"][0])
 
-            with patch("magicborder.main_window.QInputDialog.getDouble", return_value=(5.0, False)):
+            with patch(
+                "magicborder.main_window.QInputDialog.getDouble",
+                return_value=(5.0, False),
+            ):
                 window._handle_calibration_segment_selected([Point(2, 2), Point(22, 2)])
 
             self.assertFalse(window.canvas.has_calibration())
             self.assertIsNone(record.calibration)
 
-            with patch("magicborder.main_window.QInputDialog.getDouble", return_value=(5.0, True)):
+            with patch(
+                "magicborder.main_window.QInputDialog.getDouble",
+                return_value=(5.0, True),
+            ):
                 window._handle_calibration_segment_selected([Point(2, 2), Point(22, 2)])
 
             self.assertTrue(window.canvas.has_calibration())
@@ -2245,7 +2465,9 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             window.canvas.calibration_handle_moved(1, QPointF(10, 1))
 
-            self.assertNotEqual(window.canvas._calibration_label_item.pos(), label_position)
+            self.assertNotEqual(
+                window.canvas._calibration_label_item.pos(), label_position
+            )
             self.assertEqual(window.canvas.calibration_label_text(), "3 мм")
             self.assertEqual(window.property_contour_area_mm2.text(), "9 мм²")
 
@@ -2294,7 +2516,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertFalse(window.property_calibration_length.isEnabled())
             self.assertFalse(window.canvas._calibration_label_item.isVisible())
 
-    def test_image_properties_lab_values_update_export_and_stay_out_of_json(self) -> None:
+    def test_image_properties_lab_values_update_export_and_stay_out_of_json(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -2451,11 +2675,15 @@ class ProjectPropertiesTest(unittest.TestCase):
             window.save_project_file()
 
             loaded_project = load_project(project_path)
-            self.assertEqual(loaded_project.project_info.general_info, "Серия измерений 2026")
+            self.assertEqual(
+                loaded_project.project_info.general_info, "Серия измерений 2026"
+            )
 
             reopened = MainWindow()
             reopened._set_project(project_path, load_project(project_path))
-            self.assertEqual(reopened.project_general_info.toPlainText(), "Серия измерений 2026")
+            self.assertEqual(
+                reopened.project_general_info.toPlainText(), "Серия измерений 2026"
+            )
             self.assertEqual(reopened.project_image_count.text(), "2")
             self.assertEqual(reopened.project_mean_lab_l.text(), "-")
             self.assertEqual(reopened.project_mean_lab_a.text(), "-")
@@ -2478,7 +2706,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             image_dir.mkdir()
             Image.new("RGB", (20, 20), (100, 50, 0)).save(image_dir / "leaf_a.png")
             Image.new("RGB", (20, 20), (10, 20, 30)).save(image_dir / "leaf_b.png")
-            Image.new("RGB", (20, 20), (200, 200, 200)).save(image_dir / "no_contour.png")
+            Image.new("RGB", (20, 20), (200, 200, 200)).save(
+                image_dir / "no_contour.png"
+            )
 
             contour = [
                 Point(1, 1),
@@ -2582,12 +2812,24 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             window.save_project_file()
             payload = json.loads(project_path.read_text(encoding="utf-8"))
-            self.assertNotIn("project_mean_lab_l", json.dumps(payload, ensure_ascii=False))
-            self.assertNotIn("project_mean_lab_a", json.dumps(payload, ensure_ascii=False))
-            self.assertNotIn("project_mean_lab_b", json.dumps(payload, ensure_ascii=False))
-            self.assertNotIn("project_mean_hsv_h", json.dumps(payload, ensure_ascii=False))
-            self.assertNotIn("project_mean_yuv_y", json.dumps(payload, ensure_ascii=False))
-            self.assertNotIn("project_mean_lms_l", json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn(
+                "project_mean_lab_l", json.dumps(payload, ensure_ascii=False)
+            )
+            self.assertNotIn(
+                "project_mean_lab_a", json.dumps(payload, ensure_ascii=False)
+            )
+            self.assertNotIn(
+                "project_mean_lab_b", json.dumps(payload, ensure_ascii=False)
+            )
+            self.assertNotIn(
+                "project_mean_hsv_h", json.dumps(payload, ensure_ascii=False)
+            )
+            self.assertNotIn(
+                "project_mean_yuv_y", json.dumps(payload, ensure_ascii=False)
+            )
+            self.assertNotIn(
+                "project_mean_lms_l", json.dumps(payload, ensure_ascii=False)
+            )
 
     def test_project_list_item_color_tracks_annotation_state(self) -> None:
         _app()
@@ -2706,7 +2948,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             window._set_project(project_path, load_project(project_path))
 
             self.assertTrue(window.new_contour_action.isEnabled())
-            with patch("magicborder.main_window.QInputDialog.getInt", return_value=(5, True)):
+            with patch(
+                "magicborder.main_window.QInputDialog.getInt", return_value=(5, True)
+            ):
                 window.create_new_contour()
 
             annotation = window.project_document.images[0].annotation
@@ -2741,9 +2985,13 @@ class ProjectPropertiesTest(unittest.TestCase):
             window._set_project(project_path, load_project(project_path))
 
             window.metadata_humidity.setText("65")
-            window._handle_metadata_line_edit_finished("humidity", window.metadata_humidity)
+            window._handle_metadata_line_edit_finished(
+                "humidity", window.metadata_humidity
+            )
             window.metadata_latitude.setText("48.7")
-            window._handle_metadata_line_edit_finished("latitude", window.metadata_latitude)
+            window._handle_metadata_line_edit_finished(
+                "latitude", window.metadata_latitude
+            )
             window.metadata_notes.setPlainText("Проверка метаданных")
             window.property_file_name.setText("renamed")
             window._handle_file_name_edit_finished()
@@ -2792,7 +3040,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             window = MainWindow()
             window._set_project(project_path, load_project(project_path))
 
-            self.assertEqual(window.rename_file_as_id_button.toolTip(), "Переименовать файл как ID")
+            self.assertEqual(
+                window.rename_file_as_id_button.toolTip(), "Переименовать файл как ID"
+            )
             self.assertTrue(window.rename_file_as_id_button.isEnabled())
 
             window.image_id.setText("SAMPLE_001")
@@ -2863,13 +3113,22 @@ class ProjectPropertiesTest(unittest.TestCase):
             _assert_uuid4(self, second_generated_id)
             self.assertEqual(window.image_id.text(), second_generated_id)
             self.assertEqual(loaded_project.images[0].id, second_generated_id)
-            self.assertEqual(loaded_project.images[1].id, "22222222-2222-4222-8222-222222222222")
+            self.assertEqual(
+                loaded_project.images[1].id, "22222222-2222-4222-8222-222222222222"
+            )
             self.assertNotIn("sample_id", loaded_project.images[0].metadata)
 
             output_path = root / "generated_ids"
-            with patch.object(window, "_select_project_export_columns", return_value=PROJECT_EXPORT_FIELDNAMES), patch(
-                "magicborder.main_window.QFileDialog.getSaveFileName",
-                return_value=(str(output_path), ""),
+            with (
+                patch.object(
+                    window,
+                    "_select_project_export_columns",
+                    return_value=PROJECT_EXPORT_FIELDNAMES,
+                ),
+                patch(
+                    "magicborder.main_window.QFileDialog.getSaveFileName",
+                    return_value=(str(output_path), ""),
+                ),
             ):
                 window.export_project_excel()
 
@@ -2972,17 +3231,32 @@ class ProjectPropertiesTest(unittest.TestCase):
             window._set_project(project_path, load_project(project_path))
             output_path = root / "report"
 
-            self.assertEqual(window.export_project_excel_action.text(), "Экспорт списка в Excel...")
-            self.assertEqual(window.export_project_excel_action.toolTip(), "Экспорт списка в Excel")
-            self.assertEqual(window.export_project_excel_button.toolTip(), "Экспорт списка в Excel")
+            self.assertEqual(
+                window.export_project_excel_action.text(), "Экспорт списка в Excel..."
+            )
+            self.assertEqual(
+                window.export_project_excel_action.toolTip(), "Экспорт списка в Excel"
+            )
+            self.assertEqual(
+                window.export_project_excel_button.toolTip(), "Экспорт списка в Excel"
+            )
 
-            with patch.object(window, "_select_project_export_columns", return_value=PROJECT_EXPORT_FIELDNAMES), patch(
-                "magicborder.main_window.QFileDialog.getSaveFileName",
-                return_value=(str(output_path), ""),
-            ) as get_save_file_name:
+            with (
+                patch.object(
+                    window,
+                    "_select_project_export_columns",
+                    return_value=PROJECT_EXPORT_FIELDNAMES,
+                ),
+                patch(
+                    "magicborder.main_window.QFileDialog.getSaveFileName",
+                    return_value=(str(output_path), ""),
+                ) as get_save_file_name,
+            ):
                 window.export_project_excel()
 
-            self.assertEqual(get_save_file_name.call_args.args[1], "Экспорт списка в Excel")
+            self.assertEqual(
+                get_save_file_name.call_args.args[1], "Экспорт списка в Excel"
+            )
             xlsx_path = root / "report.xlsx"
             raw_rows = _read_xlsx_rows(xlsx_path)
             rows = _read_xlsx_dict_rows(xlsx_path)
@@ -3021,9 +3295,16 @@ class ProjectPropertiesTest(unittest.TestCase):
             window = _minimal_export_window(root)
             output_path = root / "selected"
 
-            with patch.object(window, "_select_project_export_columns", return_value=["file_name", "diagnosis"]), patch(
-                "magicborder.main_window.QFileDialog.getSaveFileName",
-                return_value=(str(output_path), ""),
+            with (
+                patch.object(
+                    window,
+                    "_select_project_export_columns",
+                    return_value=["file_name", "diagnosis"],
+                ),
+                patch(
+                    "magicborder.main_window.QFileDialog.getSaveFileName",
+                    return_value=(str(output_path), ""),
+                ),
             ):
                 window.export_project_excel()
 
@@ -3034,15 +3315,22 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(raw_rows[0], ["Имя файла", "Диагноз"])
             self.assertEqual(rows, [{"Имя файла": "missing.png", "Диагноз": "class_x"}])
 
-    def test_project_excel_export_cancel_column_selection_does_not_open_file_dialog(self) -> None:
+    def test_project_excel_export_cancel_column_selection_does_not_open_file_dialog(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             window = _minimal_export_window(root)
 
-            with patch.object(window, "_select_project_export_columns", return_value=None), patch(
-                "magicborder.main_window.QFileDialog.getSaveFileName",
-            ) as get_save_file_name:
+            with (
+                patch.object(
+                    window, "_select_project_export_columns", return_value=None
+                ),
+                patch(
+                    "magicborder.main_window.QFileDialog.getSaveFileName",
+                ) as get_save_file_name,
+            ):
                 window.export_project_excel()
 
             get_save_file_name.assert_not_called()
@@ -3053,12 +3341,16 @@ class ProjectPropertiesTest(unittest.TestCase):
             root = Path(temp_dir)
             window = _minimal_export_window(root)
 
-            with patch.object(window, "_select_project_export_columns", return_value=[]), patch.object(
-                window,
-                "_show_warning",
-            ) as show_warning, patch(
-                "magicborder.main_window.QFileDialog.getSaveFileName",
-            ) as get_save_file_name:
+            with (
+                patch.object(window, "_select_project_export_columns", return_value=[]),
+                patch.object(
+                    window,
+                    "_show_warning",
+                ) as show_warning,
+                patch(
+                    "magicborder.main_window.QFileDialog.getSaveFileName",
+                ) as get_save_file_name,
+            ):
                 window.export_project_excel()
 
             show_warning.assert_called_once_with(
@@ -3071,12 +3363,16 @@ class ProjectPropertiesTest(unittest.TestCase):
         _app()
         window = MainWindow()
 
-        with patch("magicborder.main_window.QDialog.exec_", return_value=QDialog.Accepted):
+        with patch(
+            "magicborder.main_window.QDialog.exec_", return_value=QDialog.Accepted
+        ):
             selected_fieldnames = window._select_project_export_columns()
 
         self.assertEqual(selected_fieldnames, PROJECT_EXPORT_FIELDNAMES)
 
-    def test_image_properties_excel_export_uses_selected_properties_with_group_rows(self) -> None:
+    def test_image_properties_excel_export_uses_selected_properties_with_group_rows(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -3094,17 +3390,23 @@ class ProjectPropertiesTest(unittest.TestCase):
                 "Экспорт свойств изображения в Excel",
             )
 
-            with patch.object(
-                window,
-                "_select_image_property_export_items",
-                return_value=["file_name", "diagnosis", "status"],
-            ), patch(
-                "magicborder.main_window.QFileDialog.getSaveFileName",
-                return_value=(str(output_path), ""),
-            ) as get_save_file_name:
+            with (
+                patch.object(
+                    window,
+                    "_select_image_property_export_items",
+                    return_value=["file_name", "diagnosis", "status"],
+                ),
+                patch(
+                    "magicborder.main_window.QFileDialog.getSaveFileName",
+                    return_value=(str(output_path), ""),
+                ) as get_save_file_name,
+            ):
                 window.export_image_properties_excel()
 
-            self.assertEqual(get_save_file_name.call_args.args[1], "Экспорт свойств изображения в Excel")
+            self.assertEqual(
+                get_save_file_name.call_args.args[1],
+                "Экспорт свойств изображения в Excel",
+            )
             xlsx_path = root / "properties.xlsx"
             raw_rows = _read_xlsx_rows(xlsx_path)
             rows = _read_xlsx_dict_rows(xlsx_path)
@@ -3121,15 +3423,22 @@ class ProjectPropertiesTest(unittest.TestCase):
                 ],
             )
 
-    def test_image_properties_excel_export_cancel_property_selection_does_not_open_file_dialog(self) -> None:
+    def test_image_properties_excel_export_cancel_property_selection_does_not_open_file_dialog(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             window = _minimal_export_window(root)
 
-            with patch.object(window, "_select_image_property_export_items", return_value=None), patch(
-                "magicborder.main_window.QFileDialog.getSaveFileName",
-            ) as get_save_file_name:
+            with (
+                patch.object(
+                    window, "_select_image_property_export_items", return_value=None
+                ),
+                patch(
+                    "magicborder.main_window.QFileDialog.getSaveFileName",
+                ) as get_save_file_name,
+            ):
                 window.export_image_properties_excel()
 
             get_save_file_name.assert_not_called()
@@ -3140,12 +3449,18 @@ class ProjectPropertiesTest(unittest.TestCase):
             root = Path(temp_dir)
             window = _minimal_export_window(root)
 
-            with patch.object(window, "_select_image_property_export_items", return_value=[]), patch.object(
-                window,
-                "_show_warning",
-            ) as show_warning, patch(
-                "magicborder.main_window.QFileDialog.getSaveFileName",
-            ) as get_save_file_name:
+            with (
+                patch.object(
+                    window, "_select_image_property_export_items", return_value=[]
+                ),
+                patch.object(
+                    window,
+                    "_show_warning",
+                ) as show_warning,
+                patch(
+                    "magicborder.main_window.QFileDialog.getSaveFileName",
+                ) as get_save_file_name,
+            ):
                 window.export_image_properties_excel()
 
             show_warning.assert_called_once_with(
@@ -3167,9 +3482,12 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertFalse(window.export_image_properties_excel_action.isEnabled())
             self.assertFalse(window.export_image_properties_excel_button.isEnabled())
 
-            with patch.object(window, "_show_warning") as show_warning, patch(
-                "magicborder.main_window.QFileDialog.getSaveFileName",
-            ) as get_save_file_name:
+            with (
+                patch.object(window, "_show_warning") as show_warning,
+                patch(
+                    "magicborder.main_window.QFileDialog.getSaveFileName",
+                ) as get_save_file_name,
+            ):
                 window.export_image_properties_excel()
 
             show_warning.assert_called_once_with(
@@ -3185,16 +3503,26 @@ class ProjectPropertiesTest(unittest.TestCase):
         def accept_and_check_defaults(dialog: QDialog) -> int:
             tree = dialog.findChild(QTreeWidget, "exportItemTree")
             self.assertIsNotNone(tree)
-            self.assertEqual(_tree_item_by_text(tree, "Общая информация о файле").checkState(0), Qt.Checked)
-            self.assertEqual(_tree_item_by_text(tree, "Калибровка").checkState(0), Qt.Unchecked)
+            self.assertEqual(
+                _tree_item_by_text(tree, "Общая информация о файле").checkState(0),
+                Qt.Checked,
+            )
+            self.assertEqual(
+                _tree_item_by_text(tree, "Калибровка").checkState(0), Qt.Unchecked
+            )
             self.assertEqual(
                 _tree_item_by_text(tree, "Информация о главном контуре").checkState(0),
                 Qt.Unchecked,
             )
-            self.assertEqual(_tree_item_by_text(tree, "Цветовые пространства").checkState(0), Qt.Unchecked)
+            self.assertEqual(
+                _tree_item_by_text(tree, "Цветовые пространства").checkState(0),
+                Qt.Unchecked,
+            )
             return QDialog.Accepted
 
-        with patch("magicborder.main_window.QDialog.exec_", new=accept_and_check_defaults):
+        with patch(
+            "magicborder.main_window.QDialog.exec_", new=accept_and_check_defaults
+        ):
             selected_properties = window._select_image_property_export_items()
 
         self.assertEqual(
@@ -3247,7 +3575,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             ):
                 self.assertIn(key, keys)
 
-    def test_image_properties_excel_export_contains_measurement_properties(self) -> None:
+    def test_image_properties_excel_export_contains_measurement_properties(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -3295,10 +3625,16 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             window.save_project_file()
             payload = json.loads(project_path.read_text(encoding="utf-8"))
-            self.assertNotIn("visible", payload["images"][0]["measurements"]["angles"][0])
-            self.assertNotIn("visible", payload["images"][0]["measurements"]["segments"][0])
+            self.assertNotIn(
+                "visible", payload["images"][0]["measurements"]["angles"][0]
+            )
+            self.assertNotIn(
+                "visible", payload["images"][0]["measurements"]["segments"][0]
+            )
 
-    def test_image_properties_export_keys_skip_placeholder_and_action_rows(self) -> None:
+    def test_image_properties_export_keys_skip_placeholder_and_action_rows(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -3323,8 +3659,12 @@ class ProjectPropertiesTest(unittest.TestCase):
         def check_rgb_group(dialog: QDialog) -> int:
             tree = dialog.findChild(QTreeWidget, "exportItemTree")
             self.assertIsNotNone(tree)
-            _tree_item_by_text(tree, "Цветовое пространство RGB").setCheckState(0, Qt.Checked)
-            observed_states["color_spaces"] = _tree_item_by_text(tree, "Цветовые пространства").checkState(0)
+            _tree_item_by_text(tree, "Цветовое пространство RGB").setCheckState(
+                0, Qt.Checked
+            )
+            observed_states["color_spaces"] = _tree_item_by_text(
+                tree, "Цветовые пространства"
+            ).checkState(0)
             return QDialog.Accepted
 
         with patch("magicborder.main_window.QDialog.exec_", new=check_rgb_group):
@@ -3339,17 +3679,23 @@ class ProjectPropertiesTest(unittest.TestCase):
         self.assertNotIn("lab_l", selected_properties)
         self.assertNotIn("annotation", selected_properties)
 
-    def test_image_properties_export_dialog_toggles_color_spaces_parent_group(self) -> None:
+    def test_image_properties_export_dialog_toggles_color_spaces_parent_group(
+        self,
+    ) -> None:
         _app()
         window = MainWindow()
 
         def check_color_spaces_group(dialog: QDialog) -> int:
             tree = dialog.findChild(QTreeWidget, "exportItemTree")
             self.assertIsNotNone(tree)
-            _tree_item_by_text(tree, "Цветовые пространства").setCheckState(0, Qt.Checked)
+            _tree_item_by_text(tree, "Цветовые пространства").setCheckState(
+                0, Qt.Checked
+            )
             return QDialog.Accepted
 
-        with patch("magicborder.main_window.QDialog.exec_", new=check_color_spaces_group):
+        with patch(
+            "magicborder.main_window.QDialog.exec_", new=check_color_spaces_group
+        ):
             selected_properties = window._select_image_property_export_items()
 
         for key in (
@@ -3374,7 +3720,9 @@ class ProjectPropertiesTest(unittest.TestCase):
         self.assertIn("file_name", selected_properties)
         self.assertNotIn("annotation", selected_properties)
 
-    def test_image_properties_excel_export_groups_color_space_rows_under_parent(self) -> None:
+    def test_image_properties_excel_export_groups_color_space_rows_under_parent(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -3423,7 +3771,9 @@ class ProjectPropertiesTest(unittest.TestCase):
                 ["red", "green", "blue", "average_color"],
             )
 
-            self.assertEqual(_read_xlsx_rows(export_path)[0], ["Свойство", "Значение", "Цвет"])
+            self.assertEqual(
+                _read_xlsx_rows(export_path)[0], ["Свойство", "Значение", "Цвет"]
+            )
             rows = _read_xlsx_dict_rows(export_path)
             self.assertEqual(
                 rows[-1],
@@ -3463,9 +3813,12 @@ class ProjectPropertiesTest(unittest.TestCase):
             root = Path(temp_dir)
             window, _project_path = _measurement_export_window(root)
 
-            with patch.object(window, "_show_warning") as show_warning, patch(
-                "magicborder.main_window.QFileDialog.getSaveFileName",
-            ) as get_save_file_name:
+            with (
+                patch.object(window, "_show_warning") as show_warning,
+                patch(
+                    "magicborder.main_window.QFileDialog.getSaveFileName",
+                ) as get_save_file_name,
+            ):
                 window.save_average_color_sample()
 
             show_warning.assert_called_once_with(
@@ -3492,8 +3845,12 @@ class ProjectPropertiesTest(unittest.TestCase):
                 self.assertEqual(image.convert("RGB").getpixel((0, 0)), (255, 255, 255))
                 self.assertEqual(image.convert("RGB").getpixel((10, 10)), (120, 80, 40))
             canvas_rgb = window.canvas.current_rgb_array()
-            self.assertEqual(tuple(int(value) for value in canvas_rgb[0, 0]), (255, 255, 255))
-            self.assertEqual(tuple(int(value) for value in canvas_rgb[10, 10]), (120, 80, 40))
+            self.assertEqual(
+                tuple(int(value) for value in canvas_rgb[0, 0]), (255, 255, 255)
+            )
+            self.assertEqual(
+                tuple(int(value) for value in canvas_rgb[10, 10]), (120, 80, 40)
+            )
 
     def test_flatten_background_survives_switching_images(self) -> None:
         _app()
@@ -3540,8 +3897,12 @@ class ProjectPropertiesTest(unittest.TestCase):
             window.project_list.setCurrentRow(0)
 
             canvas_rgb = window.canvas.current_rgb_array()
-            self.assertEqual(tuple(int(value) for value in canvas_rgb[0, 0]), (255, 255, 255))
-            self.assertEqual(tuple(int(value) for value in canvas_rgb[10, 10]), (120, 80, 40))
+            self.assertEqual(
+                tuple(int(value) for value in canvas_rgb[0, 0]), (255, 255, 255)
+            )
+            self.assertEqual(
+                tuple(int(value) for value in canvas_rgb[10, 10]), (120, 80, 40)
+            )
 
     def test_flatten_background_cancel_leaves_canvas_and_file_unchanged(self) -> None:
         _app()
@@ -3560,9 +3921,13 @@ class ProjectPropertiesTest(unittest.TestCase):
             with Image.open(image_path) as image:
                 self.assertEqual(image.convert("RGB").getpixel((0, 0)), (120, 80, 40))
             canvas_rgb = window.canvas.current_rgb_array()
-            self.assertEqual(tuple(int(value) for value in canvas_rgb[0, 0]), (120, 80, 40))
+            self.assertEqual(
+                tuple(int(value) for value in canvas_rgb[0, 0]), (120, 80, 40)
+            )
 
-    def test_image_properties_export_dialog_toggles_nested_measurement_groups(self) -> None:
+    def test_image_properties_export_dialog_toggles_nested_measurement_groups(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -3572,10 +3937,14 @@ class ProjectPropertiesTest(unittest.TestCase):
                 tree = dialog.findChild(QTreeWidget, "exportItemTree")
                 self.assertIsNotNone(tree)
                 _tree_item_by_text(tree, "Измерения").setCheckState(0, Qt.Checked)
-                _tree_item_by_text(tree, "Контрольный угол").setCheckState(0, Qt.Unchecked)
+                _tree_item_by_text(tree, "Контрольный угол").setCheckState(
+                    0, Qt.Unchecked
+                )
                 return QDialog.Accepted
 
-            with patch("magicborder.main_window.QDialog.exec_", new=uncheck_first_angle_group):
+            with patch(
+                "magicborder.main_window.QDialog.exec_", new=uncheck_first_angle_group
+            ):
                 selected_properties = window._select_image_property_export_items()
 
             self.assertNotIn("angle:angle-a:id", selected_properties)
@@ -3583,7 +3952,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertIn("angle:angle-b:id", selected_properties)
             self.assertIn("segment:segment-a:id", selected_properties)
 
-    def test_image_properties_export_dialog_marks_parent_groups_partially_checked(self) -> None:
+    def test_image_properties_export_dialog_marks_parent_groups_partially_checked(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -3594,13 +3965,23 @@ class ProjectPropertiesTest(unittest.TestCase):
                 tree = dialog.findChild(QTreeWidget, "exportItemTree")
                 self.assertIsNotNone(tree)
                 _tree_item_by_text(tree, "Измерения").setCheckState(0, Qt.Checked)
-                _tree_item_by_key(tree, "angle:angle-a:id").setCheckState(0, Qt.Unchecked)
-                observed_states["angle"] = _tree_item_by_text(tree, "Контрольный угол").checkState(0)
-                observed_states["angles"] = _tree_item_by_text(tree, "Углы").checkState(0)
-                observed_states["measurements"] = _tree_item_by_text(tree, "Измерения").checkState(0)
+                _tree_item_by_key(tree, "angle:angle-a:id").setCheckState(
+                    0, Qt.Unchecked
+                )
+                observed_states["angle"] = _tree_item_by_text(
+                    tree, "Контрольный угол"
+                ).checkState(0)
+                observed_states["angles"] = _tree_item_by_text(tree, "Углы").checkState(
+                    0
+                )
+                observed_states["measurements"] = _tree_item_by_text(
+                    tree, "Измерения"
+                ).checkState(0)
                 return QDialog.Accepted
 
-            with patch("magicborder.main_window.QDialog.exec_", new=uncheck_single_angle_leaf):
+            with patch(
+                "magicborder.main_window.QDialog.exec_", new=uncheck_single_angle_leaf
+            ):
                 selected_properties = window._select_image_property_export_items()
 
             self.assertNotIn("angle:angle-a:id", selected_properties)
@@ -3609,7 +3990,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertEqual(observed_states["angles"], Qt.PartiallyChecked)
             self.assertEqual(observed_states["measurements"], Qt.PartiallyChecked)
 
-    def test_datetime_metadata_fields_have_picker_buttons_and_validate_text(self) -> None:
+    def test_datetime_metadata_fields_have_picker_buttons_and_validate_text(
+        self,
+    ) -> None:
         _app()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -3633,11 +4016,15 @@ class ProjectPropertiesTest(unittest.TestCase):
             window = MainWindow()
             window._set_project(project_path, load_project(project_path))
 
-            self.assertEqual(window.metadata_added_at_button.toolTip(), "Выбрать дату и время")
+            self.assertEqual(
+                window.metadata_added_at_button.toolTip(), "Выбрать дату и время"
+            )
             self.assertTrue(_qdatetime_from_text("2026-05-03T10:20:30").isValid())
 
             window.metadata_captured_at.setText("2026-05-03 10:20:30")
-            window._handle_metadata_line_edit_finished("captured_at", window.metadata_captured_at)
+            window._handle_metadata_line_edit_finished(
+                "captured_at", window.metadata_captured_at
+            )
             self.assertEqual(
                 window.project_document.images[0].metadata["captured_at"],
                 "2026-05-03 10:20:30",
@@ -3645,7 +4032,9 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             window.metadata_captured_at.setText("не дата")
             with patch.object(window, "_show_warning"):
-                window._handle_metadata_line_edit_finished("captured_at", window.metadata_captured_at)
+                window._handle_metadata_line_edit_finished(
+                    "captured_at", window.metadata_captured_at
+                )
             self.assertEqual(window.metadata_captured_at.text(), "2026-05-03 10:20:30")
 
     def test_added_image_gets_added_at_metadata(self) -> None:
@@ -3710,7 +4099,10 @@ class ProjectPropertiesTest(unittest.TestCase):
             window = MainWindow()
 
             self.assertFalse(window.sync_images_action.isEnabled())
-            self.assertEqual(window.sync_images_action.toolTip(), "Синхронизировать папку изображений")
+            self.assertEqual(
+                window.sync_images_action.toolTip(),
+                "Синхронизировать папку изображений",
+            )
             self.assertEqual(
                 window.sync_images_action.statusTip(),
                 "Добавить в проект изображения из папки проекта, которых ещё нет в JSON.",
@@ -3725,7 +4117,9 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertTrue(show_warning.called)
 
             loaded_project = load_project(project_path)
-            records_by_path = {record.relative_path: record for record in loaded_project.images}
+            records_by_path = {
+                record.relative_path: record for record in loaded_project.images
+            }
 
             self.assertEqual(len(loaded_project.images), 3)
             self.assertIn("images/existing.png", records_by_path)
@@ -3739,9 +4133,13 @@ class ProjectPropertiesTest(unittest.TestCase):
             self.assertIsNone(new_record.annotation)
             self.assertIsNone(nested_record.annotation)
             self.assertEqual(new_record.display_name, "new.png")
-            self.assertEqual((new_record.image_width, new_record.image_height), (18, 12))
+            self.assertEqual(
+                (new_record.image_width, new_record.image_height), (18, 12)
+            )
             self.assertEqual(nested_record.display_name, "nested.jpg")
-            self.assertEqual((nested_record.image_width, nested_record.image_height), (16, 14))
+            self.assertEqual(
+                (nested_record.image_width, nested_record.image_height), (16, 14)
+            )
             self.assertTrue(new_record.metadata["added_at"])
             self.assertEqual(new_record.metadata["diagnosis"], "Не указано")
             self.assertNotIn("sample_id", new_record.metadata)
@@ -3779,7 +4177,9 @@ class ProjectPropertiesTest(unittest.TestCase):
 
             window.metadata_humidity.setText("150")
             with patch.object(window, "_show_warning"):
-                window._handle_metadata_line_edit_finished("humidity", window.metadata_humidity)
+                window._handle_metadata_line_edit_finished(
+                    "humidity", window.metadata_humidity
+                )
 
             self.assertEqual(window.project_document.images[0].metadata["humidity"], "")
             self.assertEqual(window.metadata_humidity.text(), "")

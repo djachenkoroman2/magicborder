@@ -136,7 +136,11 @@ class TestBuildHsvHistogram:
         import cv2
 
         hsv = np.stack(
-            [np.arange(180, dtype=np.uint8), np.full(180, 255, np.uint8), np.full(180, 255, np.uint8)],
+            [
+                np.arange(180, dtype=np.uint8),
+                np.full(180, 255, np.uint8),
+                np.full(180, 255, np.uint8),
+            ],
             axis=1,
         ).reshape((-1, 1, 3))
         rgb = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB).reshape((-1, 3))
@@ -154,7 +158,13 @@ class TestBuildYuvHistogram:
 
         assert data is not None
         assert [item.name for item in data.series] == ["Y", "U", "V"]
-        assert data.x_ticks == ((0, "0"), (64, "64"), (128, "128"), (192, "192"), (255, "255"))
+        assert data.x_ticks == (
+            (0, "0"),
+            (64, "64"),
+            (128, "128"),
+            (192, "192"),
+            (255, "255"),
+        )
         assert data.x_label == "Y яркость; U,V цветность, нейтраль около 128"
 
 
@@ -171,10 +181,14 @@ class TestRgbToLms:
         # 10/255 = 0.0392 попадает в линейную ветку, 128/255 = 0.502 — в степенную.
         pixels = _pixels((10, 10, 10), (128, 128, 128))
         rgb = pixels.astype(np.float32) / 255.0
-        expected_linear = np.where(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4)
+        expected_linear = np.where(
+            rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055) ** 2.4
+        )
 
         assert expected_linear[0, 0] == pytest.approx(10 / 255 / 12.92, rel=1e-5)
-        assert expected_linear[1, 0] == pytest.approx(((128 / 255 + 0.055) / 1.055) ** 2.4, rel=1e-5)
+        assert expected_linear[1, 0] == pytest.approx(
+            ((128 / 255 + 0.055) / 1.055) ** 2.4, rel=1e-5
+        )
 
         lms = rgb_to_lms(pixels)
         assert lms[1, 0] > lms[0, 0]
@@ -460,9 +474,13 @@ class TestHistogramPanel:
         monkeypatch.setattr(
             histograms.QMessageBox,
             "critical",
-            staticmethod(lambda _parent, title, message: shown.append((title, message))),
+            staticmethod(
+                lambda _parent, title, message: shown.append((title, message))
+            ),
         )
 
         panel._save_histogram()
 
-        assert shown == [("Ошибка сохранения", "Не удалось сохранить гистограмму в PNG.")]
+        assert shown == [
+            ("Ошибка сохранения", "Не удалось сохранить гистограмму в PNG.")
+        ]

@@ -110,18 +110,24 @@ class NodeHandleItem(QGraphicsEllipseItem):
         self.setBrush(QColor("#ffb000"))
         self.setPen(QPen(QColor("white"), self._normal_pen_width))
         self.setZValue(self._normal_z_value)
-        self.setToolTip("Перетащите для редактирования. Правая кнопка мыши удаляет узел.")
+        self.setToolTip(
+            "Перетащите для редактирования. Правая кнопка мыши удаляет узел."
+        )
         self.setPos(position)
 
     def set_highlighted(self, highlighted: bool) -> None:
-        self.setPen(QPen(QColor("white"), 2.8 if highlighted else self._normal_pen_width))
+        self.setPen(
+            QPen(QColor("white"), 2.8 if highlighted else self._normal_pen_width)
+        )
         self.setZValue(
             self._normal_z_value + MEASUREMENT_HIGHLIGHT_Z_OFFSET
             if highlighted
             else self._normal_z_value
         )
 
-    def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: object) -> object:
+    def itemChange(
+        self, change: QGraphicsItem.GraphicsItemChange, value: object
+    ) -> object:
         if change == QGraphicsItem.ItemPositionChange and isinstance(value, QPointF):
             return self.canvas.constrain_point(value)
         if change == QGraphicsItem.ItemPositionHasChanged:
@@ -154,7 +160,9 @@ class CalibrationHandleItem(QGraphicsEllipseItem):
         self.setToolTip("Перетащите для редактирования калибровочного отрезка.")
         self.setPos(position)
 
-    def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: object) -> object:
+    def itemChange(
+        self, change: QGraphicsItem.GraphicsItemChange, value: object
+    ) -> object:
         if change == QGraphicsItem.ItemPositionChange and isinstance(value, QPointF):
             return self.canvas.constrain_point(value)
         if change == QGraphicsItem.ItemPositionHasChanged:
@@ -193,20 +201,28 @@ class AngleHandleItem(QGraphicsEllipseItem):
         self.setPos(position)
 
     def set_highlighted(self, highlighted: bool) -> None:
-        self.setPen(QPen(QColor("white"), 2.9 if highlighted else self._normal_pen_width))
+        self.setPen(
+            QPen(QColor("white"), 2.9 if highlighted else self._normal_pen_width)
+        )
         self.setZValue(
             self._normal_z_value + MEASUREMENT_HIGHLIGHT_Z_OFFSET
             if highlighted
             else self._normal_z_value
         )
 
-    def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: object) -> object:
+    def itemChange(
+        self, change: QGraphicsItem.GraphicsItemChange, value: object
+    ) -> object:
         if change == QGraphicsItem.ItemPositionChange and isinstance(value, QPointF):
             return self.canvas.constrain_point(value)
         if change == QGraphicsItem.ItemPositionHasChanged:
-            self.canvas.angle_handle_moved(self.angle_index, self.point_index, self.pos())
+            self.canvas.angle_handle_moved(
+                self.angle_index, self.point_index, self.pos()
+            )
         if change == QGraphicsItem.ItemSelectedHasChanged:
-            self.canvas.angle_selection_changed(self.angle_index if self.isSelected() else None)
+            self.canvas.angle_selection_changed(
+                self.angle_index if self.isSelected() else None
+            )
         return super().itemChange(change, value)
 
 
@@ -236,20 +252,28 @@ class SegmentHandleItem(QGraphicsEllipseItem):
         self.setPos(position)
 
     def set_highlighted(self, highlighted: bool) -> None:
-        self.setPen(QPen(QColor("white"), 2.8 if highlighted else self._normal_pen_width))
+        self.setPen(
+            QPen(QColor("white"), 2.8 if highlighted else self._normal_pen_width)
+        )
         self.setZValue(
             self._normal_z_value + MEASUREMENT_HIGHLIGHT_Z_OFFSET
             if highlighted
             else self._normal_z_value
         )
 
-    def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value: object) -> object:
+    def itemChange(
+        self, change: QGraphicsItem.GraphicsItemChange, value: object
+    ) -> object:
         if change == QGraphicsItem.ItemPositionChange and isinstance(value, QPointF):
             return self.canvas.constrain_point(value)
         if change == QGraphicsItem.ItemPositionHasChanged:
-            self.canvas.segment_handle_moved(self.segment_index, self.point_index, self.pos())
+            self.canvas.segment_handle_moved(
+                self.segment_index, self.point_index, self.pos()
+            )
         if change == QGraphicsItem.ItemSelectedHasChanged:
-            self.canvas.segment_selection_changed(self.segment_index if self.isSelected() else None)
+            self.canvas.segment_selection_changed(
+                self.segment_index if self.isSelected() else None
+            )
         return super().itemChange(change, value)
 
 
@@ -297,7 +321,9 @@ class ImageCanvas(QGraphicsView):
         label_font.setBold(True)
         label_font.setPointSize(9)
         self._calibration_label_item.setFont(label_font)
-        self._calibration_label_item.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+        self._calibration_label_item.setFlag(
+            QGraphicsItem.ItemIgnoresTransformations, True
+        )
         self._calibration_label_item.setZValue(30)
         self._calibration_label_item.setVisible(False)
         self._scene.addItem(self._calibration_label_item)
@@ -354,9 +380,15 @@ class ImageCanvas(QGraphicsView):
         self._angle_preview_fixed_line_item.setVisible(False)
         self._scene.addItem(self._angle_preview_fixed_line_item)
 
-        self._angle_preview_first_item = self._create_angle_preview_marker("#22c55e", 29)
-        self._angle_preview_vertex_item = self._create_angle_preview_marker("#7c3aed", 30)
-        self._segment_preview_start_item = self._create_angle_preview_marker("#f97316", 29)
+        self._angle_preview_first_item = self._create_angle_preview_marker(
+            "#22c55e", 29
+        )
+        self._angle_preview_vertex_item = self._create_angle_preview_marker(
+            "#7c3aed", 30
+        )
+        self._segment_preview_start_item = self._create_angle_preview_marker(
+            "#f97316", 29
+        )
 
         self._loaded_image: LoadedImage | None = None
         self._contour_points: list[QPointF] = []
@@ -525,7 +557,9 @@ class ImageCanvas(QGraphicsView):
                 return measurement.line_color
         return None
 
-    def set_segment_measurement_line_color(self, segment_id: str, color_name: str) -> bool:
+    def set_segment_measurement_line_color(
+        self, segment_id: str, color_name: str
+    ) -> bool:
         normalized_color = normalize_line_color(color_name, SEGMENT_LINE_COLOR)
         for index, measurement in enumerate(self._segment_measurements):
             if measurement.id != segment_id:
@@ -543,7 +577,9 @@ class ImageCanvas(QGraphicsView):
                 return measurement.label_color
         return None
 
-    def set_segment_measurement_label_color(self, segment_id: str, color_name: str) -> bool:
+    def set_segment_measurement_label_color(
+        self, segment_id: str, color_name: str
+    ) -> bool:
         normalized_color = normalize_line_color(color_name, SEGMENT_LABEL_COLOR)
         for index, measurement in enumerate(self._segment_measurements):
             if measurement.id != segment_id:
@@ -609,7 +645,9 @@ class ImageCanvas(QGraphicsView):
         normalized_id = str(angle_id or "").strip()
         if not normalized_id:
             return self.clear_canvas_highlight()
-        if not any(measurement.id == normalized_id for measurement in self._angle_measurements):
+        if not any(
+            measurement.id == normalized_id for measurement in self._angle_measurements
+        ):
             return self.clear_canvas_highlight()
         if (
             self._highlighted_angle_id == normalized_id
@@ -628,7 +666,10 @@ class ImageCanvas(QGraphicsView):
         normalized_id = str(segment_id or "").strip()
         if not normalized_id:
             return self.clear_canvas_highlight()
-        if not any(measurement.id == normalized_id for measurement in self._segment_measurements):
+        if not any(
+            measurement.id == normalized_id
+            for measurement in self._segment_measurements
+        ):
             return self.clear_canvas_highlight()
         if (
             self._highlighted_segment_id == normalized_id
@@ -687,16 +728,22 @@ class ImageCanvas(QGraphicsView):
         self,
         *,
         include_names: bool = False,
-    ) -> list[tuple[str, Point, Point, Point]] | list[tuple[str, Point, Point, Point, str]]:
-        records: list[tuple[str, Point, Point, Point]] | list[
-            tuple[str, Point, Point, Point, str]
-        ] = []
+    ) -> (
+        list[tuple[str, Point, Point, Point]]
+        | list[tuple[str, Point, Point, Point, str]]
+    ):
+        records: (
+            list[tuple[str, Point, Point, Point]]
+            | list[tuple[str, Point, Point, Point, str]]
+        ) = []
         for measurement in self._angle_measurements:
             first = Point(measurement.first.x(), measurement.first.y())
             vertex = Point(measurement.vertex.x(), measurement.vertex.y())
             second = Point(measurement.second.x(), measurement.second.y())
             if include_names:
-                records.append((measurement.id, first, vertex, second, measurement.name))
+                records.append(
+                    (measurement.id, first, vertex, second, measurement.name)
+                )
             else:
                 records.append((measurement.id, first, vertex, second))
         return records
@@ -714,10 +761,14 @@ class ImageCanvas(QGraphicsView):
         self,
         *,
         include_names: bool = False,
-    ) -> list[tuple[str, Point, Point, str, str]] | list[tuple[str, Point, Point, str, str, str]]:
-        records: list[tuple[str, Point, Point, str, str]] | list[
-            tuple[str, Point, Point, str, str, str]
-        ] = []
+    ) -> (
+        list[tuple[str, Point, Point, str, str]]
+        | list[tuple[str, Point, Point, str, str, str]]
+    ):
+        records: (
+            list[tuple[str, Point, Point, str, str]]
+            | list[tuple[str, Point, Point, str, str, str]]
+        ) = []
         for measurement in self._segment_measurements:
             start = Point(measurement.start.x(), measurement.start.y())
             end = Point(measurement.end.x(), measurement.end.y())
@@ -784,7 +835,9 @@ class ImageCanvas(QGraphicsView):
         self._loaded_image = updated_image
         self._image_item.setPixmap(updated_image.pixmap)
         self._image_item.setOffset(0, 0)
-        self._scene.setSceneRect(QRectF(0, 0, updated_image.width, updated_image.height))
+        self._scene.setSceneRect(
+            QRectF(0, 0, updated_image.width, updated_image.height)
+        )
         self._refresh_path()
         self._rebuild_handles()
         self.image_state_changed.emit(True)
@@ -829,7 +882,9 @@ class ImageCanvas(QGraphicsView):
         self._rebuild_handles()
         self.contour_state_changed.emit(True)
         self.contour_geometry_changed.emit()
-        self.message_changed.emit(f"Контур загружен: {len(self._contour_points)} узлов.")
+        self.message_changed.emit(
+            f"Контур загружен: {len(self._contour_points)} узлов."
+        )
 
     def set_contour_visible(self, visible: bool) -> None:
         self._contour_visible = bool(visible)
@@ -954,9 +1009,13 @@ class ImageCanvas(QGraphicsView):
             elif len(measurement) == 6:
                 angle_id = measurement[0]
                 if hasattr(measurement[1], "x"):
-                    first_point, vertex_point, second_point, name, line_color = measurement[1:]
+                    first_point, vertex_point, second_point, name, line_color = (
+                        measurement[1:]
+                    )
                 else:
-                    name, first_point, vertex_point, second_point, line_color = measurement[1:]
+                    name, first_point, vertex_point, second_point, line_color = (
+                        measurement[1:]
+                    )
             elif len(measurement) == 7:
                 angle_id = measurement[0]
                 if hasattr(measurement[1], "x"):
@@ -980,9 +1039,15 @@ class ImageCanvas(QGraphicsView):
             else:
                 continue
             try:
-                first = self.constrain_point(QPointF(float(first_point.x), float(first_point.y)))
-                vertex = self.constrain_point(QPointF(float(vertex_point.x), float(vertex_point.y)))
-                second = self.constrain_point(QPointF(float(second_point.x), float(second_point.y)))
+                first = self.constrain_point(
+                    QPointF(float(first_point.x), float(first_point.y))
+                )
+                vertex = self.constrain_point(
+                    QPointF(float(vertex_point.x), float(vertex_point.y))
+                )
+                second = self.constrain_point(
+                    QPointF(float(second_point.x), float(second_point.y))
+                )
             except (AttributeError, TypeError, ValueError):
                 continue
             if _angle_degrees(first, vertex, second) is None:
@@ -1081,9 +1146,13 @@ class ImageCanvas(QGraphicsView):
             elif len(measurement) == 6:
                 segment_id = measurement[0]
                 if hasattr(measurement[1], "x"):
-                    start_point, end_point, start_label, end_label, name = measurement[1:]
+                    start_point, end_point, start_label, end_label, name = measurement[
+                        1:
+                    ]
                 else:
-                    name, start_point, end_point, start_label, end_label = measurement[1:]
+                    name, start_point, end_point, start_label, end_label = measurement[
+                        1:
+                    ]
             elif len(measurement) == 7:
                 segment_id = measurement[0]
                 if hasattr(measurement[1], "x"):
@@ -1129,8 +1198,12 @@ class ImageCanvas(QGraphicsView):
             else:
                 continue
             try:
-                start = self.constrain_point(QPointF(float(start_point.x), float(start_point.y)))
-                end = self.constrain_point(QPointF(float(end_point.x), float(end_point.y)))
+                start = self.constrain_point(
+                    QPointF(float(start_point.x), float(start_point.y))
+                )
+                end = self.constrain_point(
+                    QPointF(float(end_point.x), float(end_point.y))
+                )
             except (AttributeError, TypeError, ValueError):
                 continue
             if _point_distance(start, end) <= 1e-6:
@@ -1164,7 +1237,9 @@ class ImageCanvas(QGraphicsView):
             return True
         return False
 
-    def set_segment_labels(self, segment_id: str, start_label: str, end_label: str) -> bool:
+    def set_segment_labels(
+        self, segment_id: str, start_label: str, end_label: str
+    ) -> bool:
         normalized_start = str(start_label or "").strip()
         normalized_end = str(end_label or "").strip()
         for index, measurement in enumerate(self._segment_measurements):
@@ -1196,7 +1271,9 @@ class ImageCanvas(QGraphicsView):
     def delete_selected_segment(self) -> bool:
         selected_index = self._selected_segment_index()
         if selected_index is None:
-            self.message_changed.emit("Выберите точку отрезка, чтобы удалить измерение.")
+            self.message_changed.emit(
+                "Выберите точку отрезка, чтобы удалить измерение."
+            )
             return False
 
         deleted_id = self._segment_measurements[selected_index].id
@@ -1245,14 +1322,18 @@ class ImageCanvas(QGraphicsView):
         self._sync_canvas_highlight_from_selection(preferred_contour_selected=selected)
 
     def calibration_handle_moved(self, index: int, position: QPointF) -> None:
-        if self._suppress_calibration_handle_events or index >= len(self._calibration_points):
+        if self._suppress_calibration_handle_events or index >= len(
+            self._calibration_points
+        ):
             return
         self._calibration_points[index] = self.constrain_point(position)
         self._refresh_calibration_line()
         self._refresh_segment_labels()
         self.calibration_geometry_changed.emit()
 
-    def angle_handle_moved(self, angle_index: int, point_index: int, position: QPointF) -> None:
+    def angle_handle_moved(
+        self, angle_index: int, point_index: int, position: QPointF
+    ) -> None:
         if (
             self._suppress_angle_handle_events
             or angle_index >= len(self._angle_measurements)
@@ -1276,7 +1357,9 @@ class ImageCanvas(QGraphicsView):
         self._sync_canvas_highlight_from_selection(preferred_angle_index=angle_index)
         self.angle_state_changed.emit()
 
-    def segment_handle_moved(self, segment_index: int, point_index: int, position: QPointF) -> None:
+    def segment_handle_moved(
+        self, segment_index: int, point_index: int, position: QPointF
+    ) -> None:
         if (
             self._suppress_segment_handle_events
             or segment_index >= len(self._segment_measurements)
@@ -1295,7 +1378,9 @@ class ImageCanvas(QGraphicsView):
         self.segment_state_changed.emit()
 
     def segment_selection_changed(self, segment_index: int | None = None) -> None:
-        self._sync_canvas_highlight_from_selection(preferred_segment_index=segment_index)
+        self._sync_canvas_highlight_from_selection(
+            preferred_segment_index=segment_index
+        )
         self.segment_state_changed.emit()
 
     def remove_node(self, index: int) -> bool:
@@ -1324,7 +1409,9 @@ class ImageCanvas(QGraphicsView):
 
         removable_count = max(0, len(self._contour_points) - 3)
         if removable_count == 0:
-            self.message_changed.emit("Нельзя удалить больше узлов: контур должен остаться замкнутым.")
+            self.message_changed.emit(
+                "Нельзя удалить больше узлов: контур должен остаться замкнутым."
+            )
             return False
 
         removed = 0
@@ -1366,7 +1453,9 @@ class ImageCanvas(QGraphicsView):
             self.message_changed.emit("Щёлкните ближе к сегменту, чтобы добавить узел.")
             return False
 
-        self._contour_points.insert(best_insert_index, self.constrain_point(best_projection))
+        self._contour_points.insert(
+            best_insert_index, self.constrain_point(best_projection)
+        )
         self._refresh_path()
         self._rebuild_handles()
         self.highlight_contour()
@@ -1430,15 +1519,21 @@ class ImageCanvas(QGraphicsView):
                 if _point_distance(start, end) <= 1e-6:
                     self._segment_capture_points = self._segment_capture_points[:1]
                     self._refresh_segment_preview(start)
-                    self.message_changed.emit("Отрезок некорректен: точки должны различаться.")
+                    self.message_changed.emit(
+                        "Отрезок некорректен: точки должны различаться."
+                    )
                     event.accept()
                     return
-                self._segment_measurements.append(SegmentMeasurement(_new_segment_id(), start, end))
+                self._segment_measurements.append(
+                    SegmentMeasurement(_new_segment_id(), start, end)
+                )
                 self._segment_capture_points.clear()
                 self._clear_segment_preview()
                 self._rebuild_segment_graphics()
                 self.setDragMode(QGraphicsView.NoDrag)
-                self.message_changed.emit("Отрезок задан. Укажите первую точку для следующего отрезка.")
+                self.message_changed.emit(
+                    "Отрезок задан. Укажите первую точку для следующего отрезка."
+                )
                 self.segment_state_changed.emit()
             event.accept()
             return
@@ -1467,7 +1562,9 @@ class ImageCanvas(QGraphicsView):
                 if _angle_degrees(first, vertex, second) is None:
                     self._angle_capture_points = self._angle_capture_points[:2]
                     self._refresh_angle_preview(vertex)
-                    self.message_changed.emit("Угол некорректен: точки лучей должны отличаться от вершины.")
+                    self.message_changed.emit(
+                        "Угол некорректен: точки лучей должны отличаться от вершины."
+                    )
                     event.accept()
                     return
 
@@ -1478,7 +1575,9 @@ class ImageCanvas(QGraphicsView):
                 self._clear_angle_preview()
                 self._rebuild_angle_graphics()
                 self.setDragMode(QGraphicsView.NoDrag)
-                self.message_changed.emit("Угол задан. Укажите точку первого луча для следующего угла.")
+                self.message_changed.emit(
+                    "Угол задан. Укажите точку первого луча для следующего угла."
+                )
                 self.angle_state_changed.emit()
             event.accept()
             return
@@ -1491,7 +1590,9 @@ class ImageCanvas(QGraphicsView):
         if self._calibration_capture_active and event.button() == Qt.LeftButton:
             scene_pos = self.mapToScene(event.pos())
             if not self._image_item.boundingRect().contains(scene_pos):
-                self.message_changed.emit("Калибровка: укажите точку внутри изображения.")
+                self.message_changed.emit(
+                    "Калибровка: укажите точку внутри изображения."
+                )
                 event.accept()
                 return
 
@@ -1500,7 +1601,10 @@ class ImageCanvas(QGraphicsView):
                 self._refresh_calibration_preview(self._calibration_capture_points[0])
                 self.message_changed.emit("Калибровка: укажите конец отрезка.")
             else:
-                points = [Point(point.x(), point.y()) for point in self._calibration_capture_points[:2]]
+                points = [
+                    Point(point.x(), point.y())
+                    for point in self._calibration_capture_points[:2]
+                ]
                 self._calibration_capture_active = False
                 self._calibration_capture_points.clear()
                 self._clear_calibration_preview()
@@ -1526,7 +1630,11 @@ class ImageCanvas(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:
-        if self._angle_capture_active or self._calibration_capture_active or self._segment_capture_active:
+        if (
+            self._angle_capture_active
+            or self._calibration_capture_active
+            or self._segment_capture_active
+        ):
             event.accept()
             return
         if event.button() == Qt.LeftButton and self.is_contour_visible():
@@ -1566,7 +1674,10 @@ class ImageCanvas(QGraphicsView):
         ):
             event.accept()
             return
-        if event.key() in (Qt.Key_Delete, Qt.Key_Backspace) and self.delete_selected_nodes():
+        if (
+            event.key() in (Qt.Key_Delete, Qt.Key_Backspace)
+            and self.delete_selected_nodes()
+        ):
             event.accept()
             return
         if event.key() in (Qt.Key_Plus, Qt.Key_Equal):
@@ -1662,7 +1773,9 @@ class ImageCanvas(QGraphicsView):
         self._calibration_preview_line_item.setVisible(False)
         self._calibration_preview_line_item.setLine(0.0, 0.0, 0.0, 0.0)
 
-    def _create_angle_preview_marker(self, color_name: str, z_value: float) -> QGraphicsEllipseItem:
+    def _create_angle_preview_marker(
+        self, color_name: str, z_value: float
+    ) -> QGraphicsEllipseItem:
         radius = 5.4
         marker = QGraphicsEllipseItem(-radius, -radius, radius * 2.0, radius * 2.0)
         marker.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
@@ -1771,7 +1884,9 @@ class ImageCanvas(QGraphicsView):
         self._suppress_angle_handle_events = True
         try:
             for index, measurement in enumerate(self._angle_measurements):
-                self._angle_graphics.append(self._create_angle_graphic(index, measurement))
+                self._angle_graphics.append(
+                    self._create_angle_graphic(index, measurement)
+                )
                 self._refresh_angle_graphic(index)
         finally:
             self._suppress_angle_handle_events = False
@@ -1825,7 +1940,9 @@ class ImageCanvas(QGraphicsView):
         return AngleGraphics(first_line, second_line, arc, label, handles)
 
     def _refresh_angle_graphic(self, angle_index: int) -> None:
-        if angle_index >= len(self._angle_measurements) or angle_index >= len(self._angle_graphics):
+        if angle_index >= len(self._angle_measurements) or angle_index >= len(
+            self._angle_graphics
+        ):
             return
 
         measurement = self._angle_measurements[angle_index]
@@ -1842,8 +1959,12 @@ class ImageCanvas(QGraphicsView):
             measurement.second.x(),
             measurement.second.y(),
         )
-        angle_degrees = _angle_degrees(measurement.first, measurement.vertex, measurement.second)
-        arc_path = _angle_arc_path(measurement.first, measurement.vertex, measurement.second)
+        angle_degrees = _angle_degrees(
+            measurement.first, measurement.vertex, measurement.second
+        )
+        arc_path = _angle_arc_path(
+            measurement.first, measurement.vertex, measurement.second
+        )
         graphics.arc.setPath(arc_path)
         display_name = _angle_display_name(measurement.name, angle_index)
         graphics.label.setPlainText(_format_angle_label(display_name, angle_degrees))
@@ -1853,7 +1974,7 @@ class ImageCanvas(QGraphicsView):
         self._suppress_angle_handle_events = True
         try:
             points = (measurement.first, measurement.vertex, measurement.second)
-            for handle, point in zip(graphics.handles, points):
+            for handle, point in zip(graphics.handles, points, strict=True):
                 handle.setPos(point)
         finally:
             self._suppress_angle_handle_events = False
@@ -1865,7 +1986,9 @@ class ImageCanvas(QGraphicsView):
             self._refresh_angle_graphic(index)
 
     def _apply_angle_visibility(self, angle_index: int) -> None:
-        if angle_index >= len(self._angle_measurements) or angle_index >= len(self._angle_graphics):
+        if angle_index >= len(self._angle_measurements) or angle_index >= len(
+            self._angle_graphics
+        ):
             return
 
         measurement = self._angle_measurements[angle_index]
@@ -1878,7 +2001,9 @@ class ImageCanvas(QGraphicsView):
         self._set_measurement_handles_visible(graphics.handles, visible)
 
     def _apply_angle_label_color(self, angle_index: int) -> None:
-        if angle_index >= len(self._angle_measurements) or angle_index >= len(self._angle_graphics):
+        if angle_index >= len(self._angle_measurements) or angle_index >= len(
+            self._angle_graphics
+        ):
             return
 
         measurement = self._angle_measurements[angle_index]
@@ -1892,7 +2017,9 @@ class ImageCanvas(QGraphicsView):
         self._suppress_segment_handle_events = True
         try:
             for index, measurement in enumerate(self._segment_measurements):
-                self._segment_graphics.append(self._create_segment_graphic(index, measurement))
+                self._segment_graphics.append(
+                    self._create_segment_graphic(index, measurement)
+                )
                 self._refresh_segment_graphic(index)
         finally:
             self._suppress_segment_handle_events = False
@@ -1907,7 +2034,9 @@ class ImageCanvas(QGraphicsView):
         measurement: SegmentMeasurement,
     ) -> SegmentGraphics:
         line = QGraphicsLineItem()
-        line.setPen(self._measurement_pen(measurement.line_color, MEASUREMENT_LINE_WIDTH))
+        line.setPen(
+            self._measurement_pen(measurement.line_color, MEASUREMENT_LINE_WIDTH)
+        )
         line.setZValue(SEGMENT_LINE_Z)
         self._scene.addItem(line)
 
@@ -1924,7 +2053,9 @@ class ImageCanvas(QGraphicsView):
 
         return SegmentGraphics(line, length_label, start_label, end_label, handles)
 
-    def _create_segment_text_item(self, color_name: str, z_value: float) -> QGraphicsTextItem:
+    def _create_segment_text_item(
+        self, color_name: str, z_value: float
+    ) -> QGraphicsTextItem:
         label = QGraphicsTextItem()
         label.setDefaultTextColor(QColor(color_name))
         label_font = label.font()
@@ -1938,7 +2069,9 @@ class ImageCanvas(QGraphicsView):
         return label
 
     def _refresh_segment_graphic(self, segment_index: int) -> None:
-        if segment_index >= len(self._segment_measurements) or segment_index >= len(self._segment_graphics):
+        if segment_index >= len(self._segment_measurements) or segment_index >= len(
+            self._segment_graphics
+        ):
             return
 
         measurement = self._segment_measurements[segment_index]
@@ -1984,7 +2117,9 @@ class ImageCanvas(QGraphicsView):
 
         self._suppress_segment_handle_events = True
         try:
-            for handle, point in zip(graphics.handles, (measurement.start, measurement.end)):
+            for handle, point in zip(
+                graphics.handles, (measurement.start, measurement.end), strict=True
+            ):
                 handle.setPos(point)
         finally:
             self._suppress_segment_handle_events = False
@@ -1996,9 +2131,8 @@ class ImageCanvas(QGraphicsView):
             self._refresh_segment_graphic(index)
 
     def _apply_segment_visibility(self, segment_index: int) -> None:
-        if (
-            segment_index >= len(self._segment_measurements)
-            or segment_index >= len(self._segment_graphics)
+        if segment_index >= len(self._segment_measurements) or segment_index >= len(
+            self._segment_graphics
         ):
             return
 
@@ -2012,9 +2146,8 @@ class ImageCanvas(QGraphicsView):
         self._set_measurement_handles_visible(graphics.handles, visible)
 
     def _apply_segment_label_color(self, segment_index: int) -> None:
-        if (
-            segment_index >= len(self._segment_measurements)
-            or segment_index >= len(self._segment_graphics)
+        if segment_index >= len(self._segment_measurements) or segment_index >= len(
+            self._segment_graphics
         ):
             return
 
@@ -2052,8 +2185,12 @@ class ImageCanvas(QGraphicsView):
 
     def _apply_contour_highlight(self) -> None:
         highlighted = self._contour_highlighted and self.has_contour()
-        line_width = MEASUREMENT_HIGHLIGHT_LINE_WIDTH if highlighted else CONTOUR_LINE_WIDTH
-        line_z = CONTOUR_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else CONTOUR_Z
+        line_width = (
+            MEASUREMENT_HIGHLIGHT_LINE_WIDTH if highlighted else CONTOUR_LINE_WIDTH
+        )
+        line_z = (
+            CONTOUR_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else CONTOUR_Z
+        )
 
         pen = QPen(QColor(self._contour_line_color), line_width)
         pen.setCosmetic(True)
@@ -2075,9 +2212,15 @@ class ImageCanvas(QGraphicsView):
             self._highlighted_segment_id = None
 
     def _highlight_angle_index(self, angle_index: int | None) -> bool:
-        if angle_index is None or angle_index < 0 or angle_index >= len(self._angle_measurements):
+        if (
+            angle_index is None
+            or angle_index < 0
+            or angle_index >= len(self._angle_measurements)
+        ):
             return self.clear_measurement_highlight()
-        return self.highlight_angle_measurement(self._angle_measurements[angle_index].id)
+        return self.highlight_angle_measurement(
+            self._angle_measurements[angle_index].id
+        )
 
     def _highlight_segment_index(self, segment_index: int | None) -> bool:
         if (
@@ -2086,7 +2229,9 @@ class ImageCanvas(QGraphicsView):
             or segment_index >= len(self._segment_measurements)
         ):
             return self.clear_measurement_highlight()
-        return self.highlight_segment_measurement(self._segment_measurements[segment_index].id)
+        return self.highlight_segment_measurement(
+            self._segment_measurements[segment_index].id
+        )
 
     def _sync_canvas_highlight_from_selection(
         self,
@@ -2147,14 +2292,20 @@ class ImageCanvas(QGraphicsView):
         return None
 
     def _has_selected_contour_handle(self) -> bool:
-        return self.is_contour_visible() and any(handle.isSelected() for handle in self._handles)
+        return self.is_contour_visible() and any(
+            handle.isSelected() for handle in self._handles
+        )
 
     def _is_selected_visible_angle(
         self,
         angle_index: int | None,
         graphics: AngleGraphics | None = None,
     ) -> bool:
-        if angle_index is None or angle_index < 0 or angle_index >= len(self._angle_measurements):
+        if (
+            angle_index is None
+            or angle_index < 0
+            or angle_index >= len(self._angle_measurements)
+        ):
             return False
         if graphics is None:
             if angle_index >= len(self._angle_graphics):
@@ -2184,18 +2335,32 @@ class ImageCanvas(QGraphicsView):
         )
 
     def _apply_angle_highlight(self, angle_index: int) -> None:
-        if angle_index >= len(self._angle_measurements) or angle_index >= len(self._angle_graphics):
+        if angle_index >= len(self._angle_measurements) or angle_index >= len(
+            self._angle_graphics
+        ):
             return
 
         measurement = self._angle_measurements[angle_index]
         graphics = self._angle_graphics[angle_index]
         highlighted = measurement.id == self._highlighted_angle_id
-        line_width = MEASUREMENT_HIGHLIGHT_LINE_WIDTH if highlighted else MEASUREMENT_LINE_WIDTH
-        line_z = ANGLE_LINE_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else ANGLE_LINE_Z
-        arc_z = ANGLE_ARC_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else ANGLE_ARC_Z
+        line_width = (
+            MEASUREMENT_HIGHLIGHT_LINE_WIDTH if highlighted else MEASUREMENT_LINE_WIDTH
+        )
+        line_z = (
+            ANGLE_LINE_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET
+            if highlighted
+            else ANGLE_LINE_Z
+        )
+        arc_z = (
+            ANGLE_ARC_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else ANGLE_ARC_Z
+        )
 
-        graphics.first_line.setPen(self._measurement_pen(measurement.line_color, line_width))
-        graphics.second_line.setPen(self._measurement_pen(measurement.line_color, line_width))
+        graphics.first_line.setPen(
+            self._measurement_pen(measurement.line_color, line_width)
+        )
+        graphics.second_line.setPen(
+            self._measurement_pen(measurement.line_color, line_width)
+        )
         graphics.arc.setPen(self._measurement_pen(ANGLE_ARC_COLOR, line_width))
         graphics.first_line.setZValue(line_z)
         graphics.second_line.setZValue(line_z)
@@ -2204,17 +2369,22 @@ class ImageCanvas(QGraphicsView):
             handle.set_highlighted(highlighted)
 
     def _apply_segment_highlight(self, segment_index: int) -> None:
-        if (
-            segment_index >= len(self._segment_measurements)
-            or segment_index >= len(self._segment_graphics)
+        if segment_index >= len(self._segment_measurements) or segment_index >= len(
+            self._segment_graphics
         ):
             return
 
         measurement = self._segment_measurements[segment_index]
         graphics = self._segment_graphics[segment_index]
         highlighted = measurement.id == self._highlighted_segment_id
-        line_width = MEASUREMENT_HIGHLIGHT_LINE_WIDTH if highlighted else MEASUREMENT_LINE_WIDTH
-        line_z = SEGMENT_LINE_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET if highlighted else SEGMENT_LINE_Z
+        line_width = (
+            MEASUREMENT_HIGHLIGHT_LINE_WIDTH if highlighted else MEASUREMENT_LINE_WIDTH
+        )
+        line_z = (
+            SEGMENT_LINE_Z + MEASUREMENT_HIGHLIGHT_Z_OFFSET
+            if highlighted
+            else SEGMENT_LINE_Z
+        )
 
         graphics.line.setPen(self._measurement_pen(measurement.line_color, line_width))
         graphics.line.setZValue(line_z)
@@ -2244,8 +2414,16 @@ class ImageCanvas(QGraphicsView):
         text_rect = label.boundingRect()
         scale_x = abs(self.transform().m11()) or 1.0
         scale_y = abs(self.transform().m22()) or scale_x
-        x = anchor.x() + horizontal_offset_px / scale_x - text_rect.center().x() / scale_x
-        y = anchor.y() + vertical_offset_px / scale_y - text_rect.height() / (2.0 * scale_y)
+        x = (
+            anchor.x()
+            + horizontal_offset_px / scale_x
+            - text_rect.center().x() / scale_x
+        )
+        y = (
+            anchor.y()
+            + vertical_offset_px / scale_y
+            - text_rect.height() / (2.0 * scale_y)
+        )
         if self._loaded_image is not None:
             image_rect = self._image_item.boundingRect()
             label_width = text_rect.width() / scale_x
@@ -2361,7 +2539,9 @@ class ImageCanvas(QGraphicsView):
         return mask
 
 
-def _distance_to_segment(point: QPointF, start: QPointF, end: QPointF) -> tuple[float, QPointF]:
+def _distance_to_segment(
+    point: QPointF, start: QPointF, end: QPointF
+) -> tuple[float, QPointF]:
     start_x, start_y = start.x(), start.y()
     end_x, end_y = end.x(), end.y()
     point_x, point_y = point.x(), point.y()
@@ -2375,9 +2555,8 @@ def _distance_to_segment(point: QPointF, start: QPointF, end: QPointF) -> tuple[
         return distance, projection
 
     projection_factor = (
-        ((point_x - start_x) * delta_x + (point_y - start_y) * delta_y)
-        / segment_length_squared
-    )
+        (point_x - start_x) * delta_x + (point_y - start_y) * delta_y
+    ) / segment_length_squared
     projection_factor = max(0.0, min(1.0, projection_factor))
 
     projected_x = start_x + projection_factor * delta_x
@@ -2424,7 +2603,9 @@ def _format_segment_length_label(
     if len(calibration_points) != 2 or calibration_length_mm is None:
         return pixel_text
 
-    calibration_pixel_length = _point_distance(calibration_points[0], calibration_points[1])
+    calibration_pixel_length = _point_distance(
+        calibration_points[0], calibration_points[1]
+    )
     if calibration_pixel_length <= 1e-6:
         return pixel_text
     length_mm = pixel_length * calibration_length_mm / calibration_pixel_length

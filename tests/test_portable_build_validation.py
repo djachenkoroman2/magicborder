@@ -77,7 +77,9 @@ class TestLoadManifestSections:
 
     @pytest.mark.parametrize("section", ["app", "python", "build"])
     def test_section_must_be_a_table(self, tmp_path: Path, section: str) -> None:
-        text = VALID_MANIFEST.replace(f"[{section}]", f"{section} = 5\n[{section}_unused]", 1)
+        text = VALID_MANIFEST.replace(
+            f"[{section}]", f"{section} = 5\n[{section}_unused]", 1
+        )
 
         with pytest.raises(ValueError, match=rf"секцию \[{section}\]"):
             portable_build._load_manifest(_write_manifest(tmp_path, text))
@@ -90,7 +92,9 @@ class TestLoadManifestSections:
             portable_build._load_manifest(_write_manifest(tmp_path, text))
 
     def test_valid_manifest_is_loaded(self, tmp_path: Path) -> None:
-        manifest = portable_build._load_manifest(_write_manifest(tmp_path, VALID_MANIFEST))
+        manifest = portable_build._load_manifest(
+            _write_manifest(tmp_path, VALID_MANIFEST)
+        )
 
         assert manifest["app"]["name"] == "magicborder"
         assert manifest["build"]["backend"] == "pyinstaller"
@@ -109,7 +113,9 @@ class TestLoadManifestData:
             portable_build._load_manifest(_write_manifest(tmp_path, text))
 
     def test_missing_source_is_reported(self, tmp_path: Path) -> None:
-        text = VALID_MANIFEST + '\n[[data]]\nsource = "нет/такого/файла"\ntarget = "."\n'
+        text = (
+            VALID_MANIFEST + '\n[[data]]\nsource = "нет/такого/файла"\ntarget = "."\n'
+        )
 
         with pytest.raises(FileNotFoundError, match="Файл данных не найден"):
             portable_build._load_manifest(_write_manifest(tmp_path, text))
@@ -162,7 +168,9 @@ class TestPackageArchive:
             bundle_path.mkdir(parents=True)
             (bundle_path / "magicborder").write_bytes(b"bin")
             (bundle_path / "assets").mkdir()
-            (bundle_path / "assets" / "about.svg").write_text("<svg/>", encoding="utf-8")
+            (bundle_path / "assets" / "about.svg").write_text(
+                "<svg/>", encoding="utf-8"
+            )
         else:
             bundle_path.parent.mkdir(parents=True)
             bundle_path.write_bytes(b"bin")
@@ -204,7 +212,9 @@ class TestPackageArchive:
         tmp_path: Path,
     ) -> None:
         build_root = tmp_path / "build"
-        stale = build_root / "package" / "magicborder-0.1.0-linux-x86_64" / "устаревшее.txt"
+        stale = (
+            build_root / "package" / "magicborder-0.1.0-linux-x86_64" / "устаревшее.txt"
+        )
         stale.parent.mkdir(parents=True)
         stale.write_text("старое", encoding="utf-8")
         bundle_path = self._bundle(tmp_path, as_directory=True)
@@ -287,7 +297,9 @@ class TestPackageAppImage:
         manifest_dict: dict[str, Any],
         tmp_path: Path,
     ) -> None:
-        with pytest.raises(RuntimeError, match="AppImage поддержан только для linux-x86_64"):
+        with pytest.raises(
+            RuntimeError, match="AppImage поддержан только для linux-x86_64"
+        ):
             portable_build._package_appimage(
                 bundle_path=tmp_path,
                 manifest=manifest_dict,
@@ -304,7 +316,9 @@ class TestPackageAppImage:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         output_root = tmp_path / "dist"
-        output_path = output_root / "linux-x86_64" / "magicborder-0.1.0-linux-x86_64.AppImage"
+        output_path = (
+            output_root / "linux-x86_64" / "magicborder-0.1.0-linux-x86_64.AppImage"
+        )
         output_path.parent.mkdir(parents=True)
         output_path.write_bytes(b"old artifact")
         self._stub_subprocess(monkeypatch)
@@ -406,13 +420,17 @@ class TestResolveAppImageTool:
         portable_build._add_executable_bits(tool)
         return tool
 
-    def test_explicit_path_argument(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_explicit_path_argument(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.delenv("APPIMAGETOOL", raising=False)
         tool = self._tool(tmp_path)
 
         assert portable_build._resolve_appimagetool(str(tool)) == tool
 
-    def test_environment_variable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_environment_variable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         tool = self._tool(tmp_path)
         monkeypatch.setenv("APPIMAGETOOL", str(tool))
 
@@ -452,8 +470,12 @@ class TestResolveAppImageTool:
 
 
 class TestResolveExecutable:
-    def test_bare_name_is_looked_up_in_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(portable_build.shutil, "which", lambda _name: "/usr/bin/tool")
+    def test_bare_name_is_looked_up_in_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            portable_build.shutil, "which", lambda _name: "/usr/bin/tool"
+        )
 
         assert portable_build._resolve_executable("tool") == Path("/usr/bin/tool")
 
@@ -619,7 +641,9 @@ class TestMain:
     ) -> None:
         output_dir = tmp_path / "готовые-сборки"
 
-        portable_build.main(["--platform", "linux-x86_64", "--output-dir", str(output_dir)])
+        portable_build.main(
+            ["--platform", "linux-x86_64", "--output-dir", str(output_dir)]
+        )
 
         assert mocked_build["packaged"][0]["output_root"] == output_dir
 
@@ -629,14 +653,19 @@ class TestMain:
     ) -> None:
         portable_build.main(["--platform", "linux-x86_64"])
 
-        assert mocked_build["packaged"][0]["output_root"] == portable_build.REPO_ROOT / "dist"
+        assert (
+            mocked_build["packaged"][0]["output_root"]
+            == portable_build.REPO_ROOT / "dist"
+        )
 
     def test_unsupported_manifest_backend(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr(portable_build, "_current_platform_id", lambda: "linux-x86_64")
+        monkeypatch.setattr(
+            portable_build, "_current_platform_id", lambda: "linux-x86_64"
+        )
         manifest_path = _write_manifest(
             tmp_path,
             VALID_MANIFEST.replace('backend = "pyinstaller"', 'backend = "nuitka"'),
@@ -651,7 +680,9 @@ class TestMain:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        monkeypatch.setattr(portable_build, "_current_platform_id", lambda: "linux-x86_64")
+        monkeypatch.setattr(
+            portable_build, "_current_platform_id", lambda: "linux-x86_64"
+        )
         monkeypatch.chdir(tmp_path)
 
         result = portable_build.main(
@@ -692,14 +723,22 @@ class TestAppDirContents:
     ) -> None:
         manifest_dict.pop("appimage")
 
-        assert portable_build._appimage_categories(manifest_dict) == "Graphics;Science;Education;"
+        assert (
+            portable_build._appimage_categories(manifest_dict)
+            == "Graphics;Science;Education;"
+        )
 
-    def test_icon_falls_back_to_repository_asset(self, manifest_dict: dict[str, Any]) -> None:
+    def test_icon_falls_back_to_repository_asset(
+        self, manifest_dict: dict[str, Any]
+    ) -> None:
         manifest_dict.pop("appimage")
 
         icon_source = portable_build._appimage_icon_source(manifest_dict)
 
-        assert icon_source == portable_build.REPO_ROOT / "build_tools" / "assets" / "magicborder.svg"
+        assert (
+            icon_source
+            == portable_build.REPO_ROOT / "build_tools" / "assets" / "magicborder.svg"
+        )
         assert icon_source.exists()
 
     def test_copy_icon_without_manifest_entry(
@@ -715,13 +754,22 @@ class TestAppDirContents:
 
         assert (app_dir / "magicborder.svg").is_file()
         assert (
-            app_dir / "usr" / "share" / "icons" / "hicolor" / "scalable" / "apps" / "magicborder.svg"
+            app_dir
+            / "usr"
+            / "share"
+            / "icons"
+            / "hicolor"
+            / "scalable"
+            / "apps"
+            / "magicborder.svg"
         ).is_file()
 
     def test_apprun_content_and_permissions(self, tmp_path: Path) -> None:
         app_run = tmp_path / "AppRun"
 
-        portable_build._write_apprun(app_run, app_name="magicborder", executable_name="magicborder")
+        portable_build._write_apprun(
+            app_run, app_name="magicborder", executable_name="magicborder"
+        )
 
         text = app_run.read_text(encoding="utf-8")
         assert text.startswith("#!/bin/sh\n")
@@ -742,7 +790,9 @@ def _make_tar(path: Path, members: dict[str, bytes], tmp_path: Path) -> Path:
 
 
 class TestSmokeTests:
-    def _archive_members(self, prefix: str = "magicborder-0.1.0-linux-x86_64") -> dict[str, bytes]:
+    def _archive_members(
+        self, prefix: str = "magicborder-0.1.0-linux-x86_64"
+    ) -> dict[str, bytes]:
         return {
             f"{prefix}/magicborder/magicborder": b"bin",
             f"{prefix}/magicborder/oiv_ampelometric_scales.json": b"{}",
@@ -770,7 +820,9 @@ class TestSmokeTests:
         members.pop("magicborder-0.1.0-linux-x86_64/magicborder/magicborder")
         archive_path = _make_tar(tmp_path / "a.tar.gz", members, tmp_path)
 
-        with pytest.raises(RuntimeError, match="не найден исполняемый файл magicborder"):
+        with pytest.raises(
+            RuntimeError, match="не найден исполняемый файл magicborder"
+        ):
             portable_build._smoke_test_archive(
                 archive_path,
                 manifest=manifest_dict,
@@ -783,7 +835,9 @@ class TestSmokeTests:
         tmp_path: Path,
     ) -> None:
         members = self._archive_members()
-        members.pop("magicborder-0.1.0-linux-x86_64/magicborder/oiv_ampelometric_scales.json")
+        members.pop(
+            "magicborder-0.1.0-linux-x86_64/magicborder/oiv_ampelometric_scales.json"
+        )
         archive_path = _make_tar(tmp_path / "a.tar.gz", members, tmp_path)
 
         with pytest.raises(RuntimeError, match="oiv_ampelometric_scales.json"):
@@ -799,7 +853,9 @@ class TestSmokeTests:
         tmp_path: Path,
     ) -> None:
         members = self._archive_members()
-        members.pop("magicborder-0.1.0-linux-x86_64/magicborder/magicborder/assets/about.svg")
+        members.pop(
+            "magicborder-0.1.0-linux-x86_64/magicborder/magicborder/assets/about.svg"
+        )
         archive_path = _make_tar(tmp_path / "a.tar.gz", members, tmp_path)
 
         with pytest.raises(RuntimeError, match="не найдены assets MagicBorder"):
@@ -816,7 +872,9 @@ class TestSmokeTests:
     ) -> None:
         archive_path = tmp_path / "magicborder-0.1.0-windows-x86_64.zip"
         with zipfile.ZipFile(archive_path, "w") as archive:
-            for name, payload in self._archive_members("magicborder-0.1.0-windows-x86_64").items():
+            for name, payload in self._archive_members(
+                "magicborder-0.1.0-windows-x86_64"
+            ).items():
                 archive.writestr(name, payload)
 
         with pytest.raises(RuntimeError, match="magicborder.exe"):
@@ -891,7 +949,9 @@ class TestArchiveMembers:
         assert portable_build._archive_members(archive_path) == ["root/file.txt"]
 
     def test_tar_gz_members(self, tmp_path: Path) -> None:
-        archive_path = _make_tar(tmp_path / "a.tar.gz", {"root/file.txt": b"data"}, tmp_path)
+        archive_path = _make_tar(
+            tmp_path / "a.tar.gz", {"root/file.txt": b"data"}, tmp_path
+        )
 
         assert portable_build._archive_members(archive_path) == ["root/file.txt"]
 
@@ -915,7 +975,9 @@ class TestArtifactName:
 
 
 class TestPyInstallerBackend:
-    def test_find_bundle_reports_missing_output(self, manifest_dict: dict[str, Any], tmp_path: Path) -> None:
+    def test_find_bundle_reports_missing_output(
+        self, manifest_dict: dict[str, Any], tmp_path: Path
+    ) -> None:
         plan = pyinstaller.create_plan(
             repo_root=tmp_path,
             manifest=manifest_dict,
@@ -959,7 +1021,9 @@ class TestPyInstallerBackend:
         platform_id: str,
         separator: str,
     ) -> None:
-        manifest_dict["data"] = [{"source": "src/magicborder/assets", "target": "magicborder/assets"}]
+        manifest_dict["data"] = [
+            {"source": "src/magicborder/assets", "target": "magicborder/assets"}
+        ]
 
         plan = pyinstaller.create_plan(
             repo_root=tmp_path,
@@ -970,7 +1034,9 @@ class TestPyInstallerBackend:
 
         add_data_value = plan.command[plan.command.index("--add-data") + 1]
         assert add_data_value.endswith(f"{separator}magicborder/assets")
-        assert add_data_value.startswith(str(tmp_path / "src" / "magicborder" / "assets"))
+        assert add_data_value.startswith(
+            str(tmp_path / "src" / "magicborder" / "assets")
+        )
 
     def test_hidden_imports_and_excludes_are_not_forwarded_yet(
         self,
@@ -1007,7 +1073,9 @@ class TestPyInstallerBackend:
                 bundle_mode=bundle_mode,
             )
 
-    def test_plan_paths_and_names(self, manifest_dict: dict[str, Any], tmp_path: Path) -> None:
+    def test_plan_paths_and_names(
+        self, manifest_dict: dict[str, Any], tmp_path: Path
+    ) -> None:
         plan = pyinstaller.create_plan(
             repo_root=tmp_path,
             manifest=manifest_dict,
@@ -1031,10 +1099,14 @@ class TestPyInstallerBackend:
             ("a:b:c", ("a", "b:c")),
         ],
     )
-    def test_split_entrypoint_valid(self, entrypoint: str, expected: tuple[str, str]) -> None:
+    def test_split_entrypoint_valid(
+        self, entrypoint: str, expected: tuple[str, str]
+    ) -> None:
         assert pyinstaller._split_entrypoint(entrypoint) == expected
 
-    @pytest.mark.parametrize("entrypoint", ["magicborder.main", ":main", "magicborder.main:", "  :  "])
+    @pytest.mark.parametrize(
+        "entrypoint", ["magicborder.main", ":main", "magicborder.main:", "  :  "]
+    )
     def test_split_entrypoint_invalid(self, entrypoint: str) -> None:
         with pytest.raises(ValueError, match="module:function"):
             pyinstaller._split_entrypoint(entrypoint)

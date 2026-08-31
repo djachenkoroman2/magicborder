@@ -45,10 +45,14 @@ class ContourAnalysis:
 
 
 def contour_signature(points: list[Point]) -> ContourSignature:
-    return tuple((round(float(point.x), 3), round(float(point.y), 3)) for point in points)
+    return tuple(
+        (round(float(point.x), 3), round(float(point.y), 3)) for point in points
+    )
 
 
-def contour_rgb_pixels_from_points(rgb_array: np.ndarray, points: list[Point]) -> np.ndarray:
+def contour_rgb_pixels_from_points(
+    rgb_array: np.ndarray, points: list[Point]
+) -> np.ndarray:
     if len(points) < 3:
         return np.empty((0, 3), dtype=np.uint8)
 
@@ -62,7 +66,9 @@ def contour_rgb_pixels_from_points(rgb_array: np.ndarray, points: list[Point]) -
     return np.ascontiguousarray(pixels.reshape((-1, 3)))
 
 
-def build_contour_analysis(rgb_array: np.ndarray, points: list[Point]) -> ContourAnalysis | None:
+def build_contour_analysis(
+    rgb_array: np.ndarray, points: list[Point]
+) -> ContourAnalysis | None:
     pixels = contour_rgb_pixels_from_points(rgb_array, points)
     if pixels.size == 0:
         return None
@@ -97,7 +103,9 @@ def build_contour_color_stats(rgb_pixels: np.ndarray) -> ContourColorStats:
 
 
 def lab_values_from_rgb_pixels(rgb_pixels: np.ndarray) -> np.ndarray:
-    lab_pixels = cv2.cvtColor(rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2LAB).reshape((-1, 3))
+    lab_pixels = cv2.cvtColor(
+        rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2LAB
+    ).reshape((-1, 3))
     lab_pixels = lab_pixels.astype(np.float32)
     return np.column_stack(
         (
@@ -109,14 +117,18 @@ def lab_values_from_rgb_pixels(rgb_pixels: np.ndarray) -> np.ndarray:
 
 
 def hsv_values_from_rgb_pixels(rgb_pixels: np.ndarray) -> np.ndarray:
-    hsv_pixels = cv2.cvtColor(rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2HSV).reshape((-1, 3))
+    hsv_pixels = cv2.cvtColor(
+        rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2HSV
+    ).reshape((-1, 3))
     hsv_values = hsv_pixels.astype(np.float32)
     hsv_values[:, 0] *= 2.0
     return hsv_values
 
 
 def yuv_values_from_rgb_pixels(rgb_pixels: np.ndarray) -> np.ndarray:
-    yuv_pixels = cv2.cvtColor(rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2YUV).reshape((-1, 3))
+    yuv_pixels = cv2.cvtColor(
+        rgb_pixels.reshape((-1, 1, 3)), cv2.COLOR_RGB2YUV
+    ).reshape((-1, 3))
     return yuv_pixels.astype(np.float32)
 
 

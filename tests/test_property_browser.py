@@ -23,7 +23,9 @@ def browser(qapp) -> PropertyBrowser:  # noqa: ARG001
 @pytest.fixture()
 def populated(browser: PropertyBrowser) -> PropertyBrowser:
     browser.add_group("Файл", expanded=True, key="file")
-    browser.add_property("file", "Имя файла", PropertyValueLabel("leaf.png"), key="file.name")
+    browser.add_property(
+        "file", "Имя файла", PropertyValueLabel("leaf.png"), key="file.name"
+    )
     browser.add_property("file", "Размер", PropertyValueLabel("40x30"), key="file.size")
     return browser
 
@@ -32,7 +34,9 @@ class TestGroupAndPropertyLookup:
     def test_group_is_found_by_key(self, populated: PropertyBrowser) -> None:
         assert populated.group_item("file").text(0) == "Файл"
 
-    def test_group_added_without_key_is_found_by_title(self, browser: PropertyBrowser) -> None:
+    def test_group_added_without_key_is_found_by_title(
+        self, browser: PropertyBrowser
+    ) -> None:
         browser.add_group("Контур")
 
         assert browser.group_item("Контур").text(0) == "Контур"
@@ -44,13 +48,17 @@ class TestGroupAndPropertyLookup:
     def test_property_is_found_by_key(self, populated: PropertyBrowser) -> None:
         assert populated.property_item("file.name").text(0) == "Имя файла"
 
-    def test_property_is_found_by_label_when_no_key(self, browser: PropertyBrowser) -> None:
+    def test_property_is_found_by_label_when_no_key(
+        self, browser: PropertyBrowser
+    ) -> None:
         browser.add_group("Файл", key="file")
         browser.add_property("file", "Имя файла", PropertyValueLabel("leaf.png"))
 
         assert browser.property_item("Имя файла").text(0) == "Имя файла"
 
-    def test_property_aliases_point_to_the_same_item(self, browser: PropertyBrowser) -> None:
+    def test_property_aliases_point_to_the_same_item(
+        self, browser: PropertyBrowser
+    ) -> None:
         browser.add_group("Файл", key="file")
         item = browser.add_property(
             "file",
@@ -71,7 +79,9 @@ class TestGroupAndPropertyLookup:
 class TestAddPropertyToItem:
     def test_nested_property_is_registered(self, populated: PropertyBrowser) -> None:
         parent = populated.group_item("file")
-        nested_group = populated.add_group("Вложенная", parent=parent, key="file.nested")
+        nested_group = populated.add_group(
+            "Вложенная", parent=parent, key="file.nested"
+        )
 
         item = populated.add_property_to_item(
             nested_group,
@@ -88,7 +98,9 @@ class TestAddPropertyToItem:
 
     def test_nested_property_appears_in_rows(self, populated: PropertyBrowser) -> None:
         parent = populated.group_item("file")
-        populated.add_property_to_item(parent, "Дополнительно", PropertyValueLabel("да"))
+        populated.add_property_to_item(
+            parent, "Дополнительно", PropertyValueLabel("да")
+        )
 
         assert populated.rows() == [
             "--- Файл",
@@ -99,7 +111,9 @@ class TestAddPropertyToItem:
 
 
 class TestClearChildren:
-    def test_children_are_removed_from_the_registry(self, populated: PropertyBrowser) -> None:
+    def test_children_are_removed_from_the_registry(
+        self, populated: PropertyBrowser
+    ) -> None:
         group = populated.group_item("file")
 
         populated.clear_children(group)
@@ -114,7 +128,9 @@ class TestClearChildren:
     def test_nested_groups_are_forgotten_too(self, populated: PropertyBrowser) -> None:
         parent = populated.group_item("file")
         nested = populated.add_group("Вложенная", parent=parent, key="file.nested")
-        populated.add_property_to_item(nested, "Ключ", PropertyValueLabel("v"), key="nested.key")
+        populated.add_property_to_item(
+            nested, "Ключ", PropertyValueLabel("v"), key="nested.key"
+        )
 
         populated.clear_children(parent)
 
@@ -131,7 +147,9 @@ class TestClearChildren:
 
         assert populated._property_rows == []
 
-    def test_aliases_are_removed_with_their_item(self, browser: PropertyBrowser) -> None:
+    def test_aliases_are_removed_with_their_item(
+        self, browser: PropertyBrowser
+    ) -> None:
         browser.add_group("Файл", key="file")
         browser.add_property(
             "file",
@@ -158,8 +176,12 @@ class TestIsPropertyVisible:
 
     def test_hidden_inside_collapsed_ancestor(self, populated: PropertyBrowser) -> None:
         parent = populated.group_item("file")
-        nested = populated.add_group("Вложенная", expanded=True, parent=parent, key="file.nested")
-        populated.add_property_to_item(nested, "Ключ", PropertyValueLabel("v"), key="nested.key")
+        nested = populated.add_group(
+            "Вложенная", expanded=True, parent=parent, key="file.nested"
+        )
+        populated.add_property_to_item(
+            nested, "Ключ", PropertyValueLabel("v"), key="nested.key"
+        )
 
         assert populated.is_property_visible("nested.key") is True
 
@@ -191,7 +213,9 @@ class TestEditorConfiguration:
 
         assert editor.toolTip() == ""
 
-    def test_non_label_editor_is_only_width_relaxed(self, browser: PropertyBrowser) -> None:
+    def test_non_label_editor_is_only_width_relaxed(
+        self, browser: PropertyBrowser
+    ) -> None:
         browser.add_group("Файл", key="file")
         editor = QLineEdit("текст")
 
@@ -214,7 +238,13 @@ class TestEditorConfiguration:
 
     @pytest.mark.parametrize(
         "event_type",
-        [QEvent.FontChange, QEvent.LayoutRequest, QEvent.Resize, QEvent.Show, QEvent.StyleChange],
+        [
+            QEvent.FontChange,
+            QEvent.LayoutRequest,
+            QEvent.Resize,
+            QEvent.Show,
+            QEvent.StyleChange,
+        ],
     )
     def test_event_filter_schedules_refresh(
         self,
@@ -228,7 +258,9 @@ class TestEditorConfiguration:
 
         assert populated._refresh_layout_pending is True
 
-    def test_event_filter_ignores_other_events(self, populated: PropertyBrowser) -> None:
+    def test_event_filter_ignores_other_events(
+        self, populated: PropertyBrowser
+    ) -> None:
         populated.refresh_layout()
         editor = populated.itemWidget(populated.property_item("file.name"), 1)
 
@@ -238,13 +270,19 @@ class TestEditorConfiguration:
 
 
 class TestPropertyRowHeight:
-    def test_multiline_value_is_taller_than_single_line(self, browser: PropertyBrowser) -> None:
+    def test_multiline_value_is_taller_than_single_line(
+        self, browser: PropertyBrowser
+    ) -> None:
         browser.add_group("Файл", key="file")
-        short_item = browser.add_property("file", "Короткое", PropertyValueLabel("да"), key="a")
+        short_item = browser.add_property(
+            "file", "Короткое", PropertyValueLabel("да"), key="a"
+        )
         long_item = browser.add_property(
             "file",
             "Длинное",
-            PropertyValueLabel("очень длинное значение свойства, которое точно не влезет в одну строку виджета"),
+            PropertyValueLabel(
+                "очень длинное значение свойства, которое точно не влезет в одну строку виджета"
+            ),
             key="b",
         )
         browser.setColumnWidth(0, 120)
@@ -253,11 +291,15 @@ class TestPropertyRowHeight:
         short_height = browser._property_row_height(
             short_item, browser.itemWidget(short_item, 1)
         )
-        long_height = browser._property_row_height(long_item, browser.itemWidget(long_item, 1))
+        long_height = browser._property_row_height(
+            long_item, browser.itemWidget(long_item, 1)
+        )
 
         assert long_height > short_height
 
-    def test_long_key_text_also_increases_height(self, browser: PropertyBrowser) -> None:
+    def test_long_key_text_also_increases_height(
+        self, browser: PropertyBrowser
+    ) -> None:
         browser.add_group("Файл", key="file")
         item = browser.add_property(
             "file",
@@ -281,12 +323,16 @@ class TestKeyColumnWidthClamping:
 
         assert clamped == viewport_width - PROPERTY_VALUE_MIN_WIDTH
 
-    def test_narrow_viewport_keeps_requested_width(self, browser: PropertyBrowser) -> None:
+    def test_narrow_viewport_keeps_requested_width(
+        self, browser: PropertyBrowser
+    ) -> None:
         browser.resize(PROPERTY_KEY_MIN_WIDTH + PROPERTY_VALUE_MIN_WIDTH - 20, 200)
 
         assert browser._clamped_key_column_width(200) == 200
 
-    def test_set_key_column_width_applies_clamping(self, browser: PropertyBrowser) -> None:
+    def test_set_key_column_width_applies_clamping(
+        self, browser: PropertyBrowser
+    ) -> None:
         browser.set_key_column_width(5)
 
         assert browser.key_column_width() == PROPERTY_KEY_MIN_WIDTH
@@ -296,7 +342,10 @@ class TestKeyColumnWidthClamping:
 
         browser.resize(300, 300)
 
-        assert browser.key_column_width() <= browser.viewport().width() - PROPERTY_VALUE_MIN_WIDTH
+        assert (
+            browser.key_column_width()
+            <= browser.viewport().width() - PROPERTY_VALUE_MIN_WIDTH
+        )
 
     def test_clamping_is_not_reentrant(self, browser: PropertyBrowser) -> None:
         browser._clamping_key_column = True
@@ -341,7 +390,9 @@ class TestPropertyValueLabel:
 
 
 class TestPropertyGridOverlay:
-    def test_overlay_is_attached_to_the_viewport(self, browser: PropertyBrowser) -> None:
+    def test_overlay_is_attached_to_the_viewport(
+        self, browser: PropertyBrowser
+    ) -> None:
         overlay = browser._grid_overlay
 
         assert isinstance(overlay, PropertyGridOverlay)

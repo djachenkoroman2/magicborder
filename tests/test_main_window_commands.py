@@ -28,7 +28,9 @@ from magicborder.models import (
 CONTOUR = [Point(4, 4), Point(36, 4), Point(36, 26), Point(4, 26)]
 
 
-def _make_image(path: Path, size: tuple[int, int] = (40, 30), color=(120, 80, 40)) -> Path:
+def _make_image(
+    path: Path, size: tuple[int, int] = (40, 30), color=(120, 80, 40)
+) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     Image.new("RGB", size, color).save(path)
     return path
@@ -54,12 +56,16 @@ def dialogs(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(
         main_window_module.QMessageBox,
         "warning",
-        staticmethod(lambda _p, title, text, *a, **k: record["warning"].append((title, text))),
+        staticmethod(
+            lambda _p, title, text, *a, **k: record["warning"].append((title, text))
+        ),
     )
     monkeypatch.setattr(
         main_window_module.QMessageBox,
         "critical",
-        staticmethod(lambda _p, title, text, *a, **k: record["critical"].append((title, text))),
+        staticmethod(
+            lambda _p, title, text, *a, **k: record["critical"].append((title, text))
+        ),
     )
     monkeypatch.setattr(
         main_window_module.QMessageBox,
@@ -71,7 +77,9 @@ def dialogs(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         record["question"].append((title, text))
         return record["question_answer"]
 
-    monkeypatch.setattr(main_window_module.QMessageBox, "question", staticmethod(fake_question))
+    monkeypatch.setattr(
+        main_window_module.QMessageBox, "question", staticmethod(fake_question)
+    )
     monkeypatch.setattr(
         main_window_module.QInputDialog,
         "getText",
@@ -245,7 +253,9 @@ class TestCloseProject:
     def test_annotation_and_measurements_are_saved(self, project_window) -> None:
         window = project_window()
         window.canvas.set_contour(CONTOUR)
-        window.canvas.set_angle_measurements([[Point(5, 5), Point(5, 15), Point(15, 15)]])
+        window.canvas.set_angle_measurements(
+            [[Point(5, 5), Point(5, 15), Point(15, 15)]]
+        )
         project_path = window.project_path
         assert project_path is not None
 
@@ -298,9 +308,10 @@ class TestNewProject:
 
         window.new_project()
 
-        assert ("Папка уже существует", "Выберите другое имя проекта или пустую папку.") in dialogs[
-            "warning"
-        ]
+        assert (
+            "Папка уже существует",
+            "Выберите другое имя проекта или пустую папку.",
+        ) in dialogs["warning"]
 
     def test_blank_name_is_rejected(
         self,
@@ -819,7 +830,9 @@ class TestDetectContour:
 
 
 class TestSaveAnnotationFile:
-    def test_without_contour_warns(self, project_window, dialogs: dict[str, Any]) -> None:
+    def test_without_contour_warns(
+        self, project_window, dialogs: dict[str, Any]
+    ) -> None:
         window = project_window()
 
         window.save_annotation_file()
@@ -895,7 +908,9 @@ class TestSaveAnnotationFile:
         monkeypatch.setattr(
             main_window_module.QFileDialog,
             "getSaveFileName",
-            staticmethod(lambda _p, _t, initial, _f: offered.append(initial) or ("", "")),
+            staticmethod(
+                lambda _p, _t, initial, _f: offered.append(initial) or ("", "")
+            ),
         )
 
         window.save_annotation_file()
@@ -1023,7 +1038,10 @@ class TestOpenAnnotationFile:
             points=CONTOUR,
         )
 
-        assert window._prepare_image_for_annotation(annotation, tmp_path / "а.json") is True
+        assert (
+            window._prepare_image_for_annotation(annotation, tmp_path / "а.json")
+            is True
+        )
 
     def test_prepare_image_rejects_other_sizes(
         self,
@@ -1039,7 +1057,10 @@ class TestOpenAnnotationFile:
             points=CONTOUR,
         )
 
-        assert window._prepare_image_for_annotation(annotation, tmp_path / "а.json") is False
+        assert (
+            window._prepare_image_for_annotation(annotation, tmp_path / "а.json")
+            is False
+        )
         assert dialogs["warning"][-1][0] == "Аннотация не подходит"
 
 
@@ -1099,7 +1120,9 @@ class TestMiscCommands:
         assert window.canvas._angle_capture_active is True
         assert window.canvas._calibration_capture_active is False
 
-    def test_start_segment_measurement_cancels_other_modes(self, project_window) -> None:
+    def test_start_segment_measurement_cancels_other_modes(
+        self, project_window
+    ) -> None:
         window = project_window()
         window.canvas.begin_angle_measurement()
 
@@ -1110,7 +1133,11 @@ class TestMiscCommands:
 
     @pytest.mark.parametrize(
         "command",
-        ["start_scale_calibration", "start_angle_measurement", "start_segment_measurement"],
+        [
+            "start_scale_calibration",
+            "start_angle_measurement",
+            "start_segment_measurement",
+        ],
     )
     def test_measurement_commands_require_an_image(
         self,
@@ -1236,7 +1263,10 @@ class TestHistograms:
 
         for panel in self._panels(window):
             assert panel.canvas.has_plot_data() is False
-            assert panel.canvas._empty_message == "Создайте основной контур, чтобы увидеть гистограмму."
+            assert (
+                panel.canvas._empty_message
+                == "Создайте основной контур, чтобы увидеть гистограмму."
+            )
 
     def test_message_without_image(self, qapp, dialogs: dict[str, Any]) -> None:
         window = MainWindow()
@@ -1261,7 +1291,9 @@ class TestHistograms:
             assert panel.canvas.has_plot_data() is False
             assert panel.canvas._empty_message == "Ошибка расчёта гистограмм."
 
-    def test_analysis_failure_with_empty_message_uses_fallback(self, project_window) -> None:
+    def test_analysis_failure_with_empty_message_uses_fallback(
+        self, project_window
+    ) -> None:
         window = project_window()
         window._pending_contour_analysis_request_id = 7
 

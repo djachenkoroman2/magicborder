@@ -252,7 +252,9 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertEqual(loaded_segment.note, "измерить повторно")
         self.assertEqual(loaded_measurements.extra_groups, {"future": [{"kept": True}]})
 
-    def test_line_colors_default_and_invalid_values_are_backward_compatible(self) -> None:
+    def test_line_colors_default_and_invalid_values_are_backward_compatible(
+        self,
+    ) -> None:
         annotation_payload = {
             "image_path": "images/leaf.png",
             "image_size": {"width": 10, "height": 8},
@@ -415,7 +417,9 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertEqual(loaded_measurements.angles[0].assessment.code, "OIV 607")
         self.assertEqual(loaded_measurements.segments[0].assessment.code, "OIV 601")
 
-    def test_project_loads_legacy_segment_measurement_without_name_and_note(self) -> None:
+    def test_project_loads_legacy_segment_measurement_without_name_and_note(
+        self,
+    ) -> None:
         project = ProjectDocument.from_dict(
             {
                 "version": PROJECT_FORMAT_VERSION,
@@ -530,7 +534,9 @@ class ProjectModelsTest(unittest.TestCase):
         self.assertEqual(angle.note, "старый угол")
         self.assertNotIn("name", angle.to_dict())
 
-    def test_project_keeps_corrupt_calibration_payload_without_breaking_load(self) -> None:
+    def test_project_keeps_corrupt_calibration_payload_without_breaking_load(
+        self,
+    ) -> None:
         project = ProjectDocument.from_dict(
             {
                 "version": PROJECT_FORMAT_VERSION,
@@ -568,7 +574,9 @@ class ProjectModelsTest(unittest.TestCase):
             },
         )
 
-    def test_project_loads_images_without_measurements_as_empty_collection(self) -> None:
+    def test_project_loads_images_without_measurements_as_empty_collection(
+        self,
+    ) -> None:
         project = ProjectDocument.from_dict(
             {
                 "version": PROJECT_FORMAT_VERSION,
@@ -608,8 +616,12 @@ class ProjectModelsTest(unittest.TestCase):
 
             loaded_project = load_project(project_path)
 
-        self.assertEqual(payload["project_info"], {"general_info": "Полевой эксперимент"})
-        self.assertEqual(loaded_project.project_info.general_info, "Полевой эксперимент")
+        self.assertEqual(
+            payload["project_info"], {"general_info": "Полевой эксперимент"}
+        )
+        self.assertEqual(
+            loaded_project.project_info.general_info, "Полевой эксперимент"
+        )
 
     def test_project_info_defaults_for_old_json(self) -> None:
         project = ProjectDocument.from_dict(
@@ -674,8 +686,12 @@ class ProjectModelsTest(unittest.TestCase):
             loaded_project = load_project(project_path)
 
         record_payload = payload["images"][0]
-        self.assertEqual(record_payload["file"]["added_at"], "2026-05-03T10:20:30+03:00")
-        self.assertEqual(record_payload["file"]["captured_at"], "2026-05-04T08:00:00+03:00")
+        self.assertEqual(
+            record_payload["file"]["added_at"], "2026-05-03T10:20:30+03:00"
+        )
+        self.assertEqual(
+            record_payload["file"]["captured_at"], "2026-05-04T08:00:00+03:00"
+        )
         self.assertEqual(record_payload["location"]["humidity"], "55")
         self.assertEqual(record_payload["details"]["diagnosis"], "leaf_blight")
         self.assertNotIn("metadata", record_payload)

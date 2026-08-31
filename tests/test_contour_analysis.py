@@ -103,7 +103,9 @@ class ContourAnalysisTests(unittest.TestCase):
             window.canvas.set_contour(first_points)
 
             self.assertEqual(fake_pool.workers, [])
-            self.assertEqual(window.property_contour_pixels.text(), CONTOUR_ANALYSIS_PENDING_TEXT)
+            self.assertEqual(
+                window.property_contour_pixels.text(), CONTOUR_ANALYSIS_PENDING_TEXT
+            )
 
             window._refresh_histograms()
             self.assertEqual(len(fake_pool.workers), 1)

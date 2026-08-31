@@ -53,7 +53,9 @@ class Point:
     @classmethod
     def from_dict(cls, data: Any) -> Point:
         if not isinstance(data, dict):
-            raise ValueError("Каждая точка контура должна быть объектом с полями 'x' и 'y'.")
+            raise ValueError(
+                "Каждая точка контура должна быть объектом с полями 'x' и 'y'."
+            )
         return cls(
             x=_require_number(data.get("x"), "x"),
             y=_require_number(data.get("y"), "y"),
@@ -199,7 +201,9 @@ class ProjectAngleMeasurement:
             second=Point.from_dict(data.get("second")),
             name=str(data.get("name") or ""),
             line_color=normalize_line_color(data.get("line_color"), ANGLE_LINE_COLOR),
-            label_color=normalize_line_color(data.get("label_color"), ANGLE_LABEL_COLOR),
+            label_color=normalize_line_color(
+                data.get("label_color"), ANGLE_LABEL_COLOR
+            ),
             note=str(data.get("note", "")),
             assessment=ProjectMeasurementAssessment.from_dict(data.get("assessment")),
         )
@@ -264,7 +268,9 @@ class ProjectSegmentMeasurement:
             end=Point.from_dict(data.get("end")),
             name=str(data.get("name") or ""),
             line_color=normalize_line_color(data.get("line_color"), SEGMENT_LINE_COLOR),
-            label_color=normalize_line_color(data.get("label_color"), SEGMENT_LABEL_COLOR),
+            label_color=normalize_line_color(
+                data.get("label_color"), SEGMENT_LABEL_COLOR
+            ),
             start_label=str(data.get("start_label") or ""),
             end_label=str(data.get("end_label") or ""),
             note=str(data.get("note", "")),
@@ -309,7 +315,12 @@ class ProjectImageMeasurements:
                     segment = ProjectSegmentMeasurement.from_dict(item)
                 except ValueError:
                     continue
-                if math.hypot(segment.end.x - segment.start.x, segment.end.y - segment.start.y) <= 1e-6:
+                if (
+                    math.hypot(
+                        segment.end.x - segment.start.x, segment.end.y - segment.start.y
+                    )
+                    <= 1e-6
+                ):
                     continue
                 segments.append(segment)
 
@@ -317,7 +328,9 @@ class ProjectImageMeasurements:
             angles=angles,
             segments=segments,
             extra_groups={
-                key: value for key, value in data.items() if key not in {"angles", "segments"}
+                key: value
+                for key, value in data.items()
+                if key not in {"angles", "segments"}
             },
         )
 
@@ -525,7 +538,9 @@ class ProjectImageContourInfo:
     @classmethod
     def from_dict(cls, data: Any) -> ProjectImageContourInfo:
         if not isinstance(data, dict):
-            raise ValueError("Группа 'contour' в записи изображения должна быть объектом.")
+            raise ValueError(
+                "Группа 'contour' в записи изображения должна быть объектом."
+            )
 
         annotation_payload = data.get("annotation")
         annotation = None
@@ -566,7 +581,9 @@ class ProjectImageLocationInfo:
     def from_dict(cls, data: Any) -> ProjectImageLocationInfo:
         if not isinstance(data, dict):
             data = {}
-        return cls(**{key: str(data.get(key, "")) for key in PROJECT_IMAGE_LOCATION_KEYS})
+        return cls(
+            **{key: str(data.get(key, "")) for key in PROJECT_IMAGE_LOCATION_KEYS}
+        )
 
 
 @dataclass(slots=True)
@@ -747,7 +764,9 @@ class ProjectImageRecord:
         if not isinstance(value, dict):
             value = {}
         for key in PROJECT_IMAGE_METADATA_DEFAULTS:
-            self.set_metadata_value(key, value.get(key, PROJECT_IMAGE_METADATA_DEFAULTS[key]))
+            self.set_metadata_value(
+                key, value.get(key, PROJECT_IMAGE_METADATA_DEFAULTS[key])
+            )
         extra_metadata = {
             key: field_value
             for key, field_value in value.items()
@@ -821,7 +840,14 @@ class ProjectImageRecord:
 
         measurements = ProjectImageMeasurements.from_dict(data.get("measurements", {}))
 
-        known_groups = {"file", "contour", "location", "details", "calibration", "measurements"}
+        known_groups = {
+            "file",
+            "contour",
+            "location",
+            "details",
+            "calibration",
+            "measurements",
+        }
         return cls(
             file=ProjectImageFileInfo.from_dict(data.get("file")),
             contour=ProjectImageContourInfo.from_dict(data.get("contour", {})),
@@ -831,7 +857,9 @@ class ProjectImageRecord:
             calibration_error=calibration_error,
             raw_calibration=raw_calibration,
             measurements=measurements,
-            extra_groups={key: value for key, value in data.items() if key not in known_groups},
+            extra_groups={
+                key: value for key, value in data.items() if key not in known_groups
+            },
         )
 
 
@@ -846,7 +874,9 @@ class ProjectDocument:
     def __post_init__(self) -> None:
         self.name = str(self.name or "project").strip() or "project"
         self.version = _optional_positive_int(self.version) or PROJECT_FORMAT_VERSION
-        self.images_dir = _normalize_project_path(self.images_dir or "images") or "images"
+        self.images_dir = (
+            _normalize_project_path(self.images_dir or "images") or "images"
+        )
         if not isinstance(self.project_info, ProjectInfo):
             self.project_info = ProjectInfo.from_dict(self.project_info)
 
@@ -877,7 +907,8 @@ class ProjectDocument:
 
         return cls(
             name=str(data.get("name") or data.get("project_name") or "project"),
-            version=_optional_positive_int(data.get("version")) or PROJECT_FORMAT_VERSION,
+            version=_optional_positive_int(data.get("version"))
+            or PROJECT_FORMAT_VERSION,
             images_dir=str(data.get("images_dir") or "images"),
             project_info=ProjectInfo.from_dict(data.get("project_info", {})),
             images=images,

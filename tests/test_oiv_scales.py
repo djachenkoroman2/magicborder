@@ -47,7 +47,9 @@ def _trait_payload(**overrides: Any) -> dict[str, Any]:
 
 
 def _catalog(*traits: dict[str, Any]) -> OivScaleCatalog:
-    return OivScaleCatalog([OivTrait.from_dict(item) for item in (traits or (_trait_payload(),))])
+    return OivScaleCatalog(
+        [OivTrait.from_dict(item) for item in (traits or (_trait_payload(),))]
+    )
 
 
 def _write_catalog(path: Path, payload: Any) -> Path:
@@ -101,7 +103,10 @@ class TestLoadOivCatalog:
 
 class TestOivScaleCatalog:
     def test_duplicate_codes_are_rejected(self) -> None:
-        traits = [OivTrait.from_dict(_trait_payload()), OivTrait.from_dict(_trait_payload())]
+        traits = [
+            OivTrait.from_dict(_trait_payload()),
+            OivTrait.from_dict(_trait_payload()),
+        ]
 
         with pytest.raises(OivScaleError, match="уникальными"):
             OivScaleCatalog(traits)
@@ -194,7 +199,9 @@ class TestOivTraitValidation:
             OivTrait.from_dict(payload)
 
     def test_valid_trait_is_normalised(self) -> None:
-        trait = OivTrait.from_dict(_trait_payload(code="oiv-601", tool_kinds=[" segment ", ""]))
+        trait = OivTrait.from_dict(
+            _trait_payload(code="oiv-601", tool_kinds=[" segment ", ""])
+        )
 
         assert trait.code == "OIV 601"
         assert trait.tool_kinds == ("segment",)
@@ -363,8 +370,20 @@ class TestClassify:
 
     def test_value_outside_every_interval(self) -> None:
         scale = [
-            {"score": 1, "label": "низкий", "min": None, "max": 10.0, "include_max": False},
-            {"score": 3, "label": "высокий", "min": 10.0, "max": None, "include_min": False},
+            {
+                "score": 1,
+                "label": "низкий",
+                "min": None,
+                "max": 10.0,
+                "include_max": False,
+            },
+            {
+                "score": 3,
+                "label": "высокий",
+                "min": 10.0,
+                "max": None,
+                "include_min": False,
+            },
         ]
         catalog = _catalog(_trait_payload(scale=scale))
 

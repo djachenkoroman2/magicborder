@@ -30,13 +30,19 @@ class PathUtilsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             annotation_path = Path(temp_dir) / "annotation.json"
 
-            candidates = annotation_image_candidates("images\\leaf.png", annotation_path)
+            candidates = annotation_image_candidates(
+                "images\\leaf.png", annotation_path
+            )
 
-            self.assertIn((annotation_path.parent / "images" / "leaf.png").resolve(), candidates)
+            self.assertIn(
+                (annotation_path.parent / "images" / "leaf.png").resolve(), candidates
+            )
             self.assertIn((annotation_path.parent / "leaf.png").resolve(), candidates)
 
     def test_annotation_image_candidates_ignore_blank_references(self) -> None:
-        self.assertEqual(annotation_image_candidates("   ", Path("annotation.json")), [])
+        self.assertEqual(
+            annotation_image_candidates("   ", Path("annotation.json")), []
+        )
 
 
 class PortablePathReferenceTest(unittest.TestCase):
@@ -46,7 +52,9 @@ class PortablePathReferenceTest(unittest.TestCase):
         self.assertEqual(portable_path_reference(base_dir, base_dir), ".")
 
     def test_path_above_base_dir_uses_parent_references(self) -> None:
-        reference = portable_path_reference(Path("/projects"), Path("/projects/leaf/images"))
+        reference = portable_path_reference(
+            Path("/projects"), Path("/projects/leaf/images")
+        )
 
         self.assertEqual(reference, "../..")
 
@@ -66,7 +74,9 @@ class AnnotationImageCandidatesTest(unittest.TestCase):
 
             candidates = annotation_image_candidates("leaf.png", annotation_path)
 
-            self.assertEqual(candidates, [(annotation_path.parent / "leaf.png").resolve()])
+            self.assertEqual(
+                candidates, [(annotation_path.parent / "leaf.png").resolve()]
+            )
 
     def test_relative_path_comes_before_name_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -95,7 +105,9 @@ class AnnotationImageCandidatesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             annotation_path = Path(temp_dir) / "annotation.json"
 
-            candidates = annotation_image_candidates("images\\leaf.png", annotation_path)
+            candidates = annotation_image_candidates(
+                "images\\leaf.png", annotation_path
+            )
 
             self.assertEqual(len(candidates), len(set(candidates)))
 

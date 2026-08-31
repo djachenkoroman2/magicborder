@@ -78,7 +78,9 @@ class TestImageCalibration:
             ImageCalibration(start=Point(0, 0), end=Point(10, 0), length_mm="десять")
 
     def test_scale_arithmetic(self) -> None:
-        calibration = ImageCalibration(start=Point(0, 0), end=Point(3, 4), length_mm=2.5)
+        calibration = ImageCalibration(
+            start=Point(0, 0), end=Point(3, 4), length_mm=2.5
+        )
 
         assert calibration.pixel_length() == pytest.approx(5.0)
         assert calibration.pixels_per_mm() == pytest.approx(2.0)
@@ -113,12 +115,19 @@ class TestAnnotation:
     @pytest.mark.parametrize("width", [0, -3, "широкое", None])
     def test_invalid_image_width(self, width: Any) -> None:
         with pytest.raises(ValueError, match="'image_width'"):
-            Annotation(image_path="a.png", image_width=width, image_height=10, points=_points())
+            Annotation(
+                image_path="a.png", image_width=width, image_height=10, points=_points()
+            )
 
     @pytest.mark.parametrize("height", [0, -3, "высокое", None])
     def test_invalid_image_height(self, height: Any) -> None:
         with pytest.raises(ValueError, match="'image_height'"):
-            Annotation(image_path="a.png", image_width=10, image_height=height, points=_points())
+            Annotation(
+                image_path="a.png",
+                image_width=10,
+                image_height=height,
+                points=_points(),
+            )
 
     def test_legacy_flat_image_dimensions(self) -> None:
         annotation = Annotation.from_dict(
@@ -351,12 +360,21 @@ class TestProjectDocument:
 
     @pytest.mark.parametrize("version", [0, -1, "abc", None])
     def test_non_positive_version_uses_format_version(self, version: Any) -> None:
-        assert ProjectDocument(name="p", images=[], version=version).version == PROJECT_FORMAT_VERSION
-        assert ProjectDocument.from_dict({"version": version}).version == PROJECT_FORMAT_VERSION
+        assert (
+            ProjectDocument(name="p", images=[], version=version).version
+            == PROJECT_FORMAT_VERSION
+        )
+        assert (
+            ProjectDocument.from_dict({"version": version}).version
+            == PROJECT_FORMAT_VERSION
+        )
 
     @pytest.mark.parametrize("images_dir", ["", "/", "//", None])
     def test_blank_images_dir_falls_back(self, images_dir: Any) -> None:
-        assert ProjectDocument(name="p", images=[], images_dir=images_dir).images_dir == "images"
+        assert (
+            ProjectDocument(name="p", images=[], images_dir=images_dir).images_dir
+            == "images"
+        )
 
     def test_broken_image_records_are_skipped(self) -> None:
         document = ProjectDocument.from_dict(
@@ -381,11 +399,18 @@ class TestProjectMeasurementAssessment:
         assert ProjectMeasurementAssessment.from_dict({"code": code}) is None
 
     def test_system_defaults_to_oiv(self) -> None:
-        assert ProjectMeasurementAssessment.from_dict({"code": "OIV 601", "system": ""}).system == "OIV"
+        assert (
+            ProjectMeasurementAssessment.from_dict(
+                {"code": "OIV 601", "system": ""}
+            ).system
+            == "OIV"
+        )
         assert ProjectMeasurementAssessment(system="  ", code="OIV 601").system == "OIV"
 
     def test_values_are_trimmed(self) -> None:
-        assessment = ProjectMeasurementAssessment.from_dict({"code": "  OIV 601  ", "system": " OIV "})
+        assessment = ProjectMeasurementAssessment.from_dict(
+            {"code": "  OIV 601  ", "system": " OIV "}
+        )
 
         assert assessment is not None
         assert assessment.code == "OIV 601"

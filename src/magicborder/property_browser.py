@@ -156,7 +156,9 @@ class PropertyBrowser(QTreeWidget):
         header.sectionResized.connect(self._handle_section_resized)
         self.itemExpanded.connect(lambda _item: self._sync_grid_overlay())
         self.itemCollapsed.connect(lambda _item: self._sync_grid_overlay())
-        self.verticalScrollBar().valueChanged.connect(lambda _value: self._sync_grid_overlay())
+        self.verticalScrollBar().valueChanged.connect(
+            lambda _value: self._sync_grid_overlay()
+        )
 
     def key_column_width(self) -> int:
         return self.columnWidth(0)
@@ -343,7 +345,9 @@ class PropertyBrowser(QTreeWidget):
         if isinstance(editor, PropertyValueLabel):
             editor.text_changed.connect(self._schedule_refresh_layout)
 
-    def _append_items(self, item: QTreeWidgetItem, items: list[QTreeWidgetItem]) -> None:
+    def _append_items(
+        self, item: QTreeWidgetItem, items: list[QTreeWidgetItem]
+    ) -> None:
         items.append(item)
         for child_index in range(item.childCount()):
             self._append_items(item.child(child_index), items)
@@ -382,7 +386,9 @@ class PropertyBrowser(QTreeWidget):
             if property_item is not item
         ]
 
-    def _handle_section_resized(self, index: int, _old_size: int, _new_size: int) -> None:
+    def _handle_section_resized(
+        self, index: int, _old_size: int, _new_size: int
+    ) -> None:
         if index == 0:
             self._clamp_current_key_column_width()
         self._sync_grid_overlay()

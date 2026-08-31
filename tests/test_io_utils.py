@@ -82,7 +82,9 @@ class TestLoadRasterImage:
         path = tmp_path / "broken.png"
         path.write_bytes(b"not really a png")
 
-        with pytest.raises(ValueError, match="не удалось распознать|Не удалось распознать"):
+        with pytest.raises(
+            ValueError, match="не удалось распознать|Не удалось распознать"
+        ):
             load_raster_image(path)
 
     def test_os_error_is_wrapped_into_value_error(
@@ -237,7 +239,9 @@ class TestAnnotationPersistence:
         assert loaded.image_path == "изображения/лист.png"
         assert len(loaded.points) == 3
 
-    def test_missing_annotation_file_raises_file_not_found(self, tmp_path: Path) -> None:
+    def test_missing_annotation_file_raises_file_not_found(
+        self, tmp_path: Path
+    ) -> None:
         with pytest.raises(FileNotFoundError, match="Файл аннотации не найден"):
             load_annotation(tmp_path / "нет.json")
 
@@ -321,7 +325,15 @@ class TestParseExifDatetime:
 class TestXlsxColumnName:
     @pytest.mark.parametrize(
         ("index", "expected"),
-        [(1, "A"), (26, "Z"), (27, "AA"), (52, "AZ"), (53, "BA"), (702, "ZZ"), (703, "AAA")],
+        [
+            (1, "A"),
+            (26, "Z"),
+            (27, "AA"),
+            (52, "AZ"),
+            (53, "BA"),
+            (702, "ZZ"),
+            (703, "AAA"),
+        ],
     )
     def test_column_names(self, index: int, expected: str) -> None:
         assert _xlsx_column_name(index) == expected

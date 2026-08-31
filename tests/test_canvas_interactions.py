@@ -73,7 +73,9 @@ def _double_click(canvas: ImageCanvas, scene_point: QPointF) -> QMouseEvent:
     return event
 
 
-def _wheel(canvas: ImageCanvas, delta_y: int, modifiers=Qt.ControlModifier) -> QWheelEvent:
+def _wheel(
+    canvas: ImageCanvas, delta_y: int, modifiers=Qt.ControlModifier
+) -> QWheelEvent:
     position = QPointF(canvas.viewport().rect().center())
     event = QWheelEvent(
         position,
@@ -94,7 +96,9 @@ def _scale(canvas: ImageCanvas) -> float:
 
 
 class TestKeyPressEscape:
-    def test_escape_cancels_angle_capture(self, view: ImageCanvas, messages: list[str]) -> None:
+    def test_escape_cancels_angle_capture(
+        self, view: ImageCanvas, messages: list[str]
+    ) -> None:
         view.begin_angle_measurement()
 
         event = _key_press(view, Qt.Key_Escape)
@@ -103,7 +107,9 @@ class TestKeyPressEscape:
         assert event.isAccepted() is True
         assert "Измерение угла отменено." in messages
 
-    def test_escape_cancels_segment_capture(self, view: ImageCanvas, messages: list[str]) -> None:
+    def test_escape_cancels_segment_capture(
+        self, view: ImageCanvas, messages: list[str]
+    ) -> None:
         view.begin_segment_measurement()
 
         event = _key_press(view, Qt.Key_Escape)
@@ -173,7 +179,9 @@ class TestKeyPressDeletePriority:
         assert view.has_segment_measurements() is True
         assert len(view.contour_points()) == 3
 
-    def test_delete_without_selection_is_passed_through(self, view: ImageCanvas) -> None:
+    def test_delete_without_selection_is_passed_through(
+        self, view: ImageCanvas
+    ) -> None:
         view.set_contour(SQUARE)
 
         event = _key_press(view, Qt.Key_Delete)
@@ -183,7 +191,9 @@ class TestKeyPressDeletePriority:
 
 class TestKeyPressZoom:
     @pytest.mark.parametrize("key", [Qt.Key_Plus, Qt.Key_Equal])
-    def test_zoom_in_keys(self, view: ImageCanvas, messages: list[str], key: int) -> None:
+    def test_zoom_in_keys(
+        self, view: ImageCanvas, messages: list[str], key: int
+    ) -> None:
         event = _key_press(view, key)
 
         assert _scale(view) == pytest.approx(1.2)
@@ -208,20 +218,26 @@ class TestKeyPressZoom:
 
 
 class TestWheelEvent:
-    def test_ctrl_wheel_up_zooms_in(self, view: ImageCanvas, messages: list[str]) -> None:
+    def test_ctrl_wheel_up_zooms_in(
+        self, view: ImageCanvas, messages: list[str]
+    ) -> None:
         event = _wheel(view, 120)
 
         assert _scale(view) == pytest.approx(1.2)
         assert event.isAccepted() is True
         assert messages == ["Масштаб увеличен."]
 
-    def test_ctrl_wheel_down_zooms_out(self, view: ImageCanvas, messages: list[str]) -> None:
+    def test_ctrl_wheel_down_zooms_out(
+        self, view: ImageCanvas, messages: list[str]
+    ) -> None:
         event = _wheel(view, -120)
 
         assert _scale(view) == pytest.approx(1 / 1.2)
         assert messages == ["Масштаб уменьшен."]
 
-    def test_wheel_without_ctrl_scrolls(self, view: ImageCanvas, messages: list[str]) -> None:
+    def test_wheel_without_ctrl_scrolls(
+        self, view: ImageCanvas, messages: list[str]
+    ) -> None:
         _wheel(view, 120, modifiers=Qt.NoModifier)
 
         assert _scale(view) == pytest.approx(1.0)
@@ -229,7 +245,9 @@ class TestWheelEvent:
 
 
 class TestMouseDoubleClick:
-    def test_node_is_inserted_near_segment(self, view: ImageCanvas, messages: list[str]) -> None:
+    def test_node_is_inserted_near_segment(
+        self, view: ImageCanvas, messages: list[str]
+    ) -> None:
         view.set_contour(SQUARE)
 
         event = _double_click(view, QPointF(50, 12))
@@ -242,7 +260,9 @@ class TestMouseDoubleClick:
         "start_capture",
         ["begin_angle_measurement", "begin_segment_measurement", "begin_calibration"],
     )
-    def test_ignored_during_capture(self, view: ImageCanvas, start_capture: str) -> None:
+    def test_ignored_during_capture(
+        self, view: ImageCanvas, start_capture: str
+    ) -> None:
         view.set_contour(SQUARE)
         getattr(view, start_capture)()
 
@@ -296,7 +316,9 @@ class TestRemoveNode:
         assert view.remove_node(index) is False
         assert len(view.contour_points()) == 4
 
-    def test_valid_index_removes_node(self, view: ImageCanvas, messages: list[str]) -> None:
+    def test_valid_index_removes_node(
+        self, view: ImageCanvas, messages: list[str]
+    ) -> None:
         view.set_contour(SQUARE)
         messages.clear()
 
@@ -317,7 +339,9 @@ class TestDeleteSelectedNodes:
         messages.clear()
 
         assert view.delete_selected_nodes() is False
-        assert messages == ["Нельзя удалить больше узлов: контур должен остаться замкнутым."]
+        assert messages == [
+            "Нельзя удалить больше узлов: контур должен остаться замкнутым."
+        ]
 
     def test_removes_only_what_keeps_contour_closed(
         self,
@@ -435,7 +459,9 @@ class TestZoom:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         centered: list[object] = []
-        monkeypatch.setattr(type(view), "centerOn", lambda _self, item: centered.append(item))
+        monkeypatch.setattr(
+            type(view), "centerOn", lambda _self, item: centered.append(item)
+        )
         view.scale(4.0, 4.0)
 
         view.reset_zoom()
@@ -501,9 +527,21 @@ class TestMousePressGuards:
     @pytest.mark.parametrize(
         ("start_capture", "flag", "expected_message"),
         [
-            ("begin_segment_measurement", "_segment_capture_active", "Измерение отрезка отменено."),
-            ("begin_angle_measurement", "_angle_capture_active", "Измерение угла отменено."),
-            ("begin_calibration", "_calibration_capture_active", "Калибровка отменена."),
+            (
+                "begin_segment_measurement",
+                "_segment_capture_active",
+                "Измерение отрезка отменено.",
+            ),
+            (
+                "begin_angle_measurement",
+                "_angle_capture_active",
+                "Измерение угла отменено.",
+            ),
+            (
+                "begin_calibration",
+                "_calibration_capture_active",
+                "Калибровка отменена.",
+            ),
         ],
     )
     def test_right_button_cancels_capture(
@@ -536,7 +574,9 @@ class TestMousePressGuards:
 
         event = _mouse_press(view, QPointF(20, 40))
 
-        assert messages == ["Угол некорректен: точки лучей должны отличаться от вершины."]
+        assert messages == [
+            "Угол некорректен: точки лучей должны отличаться от вершины."
+        ]
         assert event.isAccepted() is True
         assert len(view._angle_capture_points) == 2
         assert view.has_angle_measurements() is False
@@ -561,7 +601,9 @@ class TestCanvasState:
         assert view.has_segment_measurements() is True
         assert view.has_calibration() is True
 
-    def test_replace_current_rgb_array_requires_image(self, canvas: ImageCanvas) -> None:
+    def test_replace_current_rgb_array_requires_image(
+        self, canvas: ImageCanvas
+    ) -> None:
         with pytest.raises(ValueError, match="Сначала загрузите изображение"):
             canvas.replace_current_rgb_array(np.zeros((4, 4, 3), dtype=np.uint8))
 
@@ -581,7 +623,9 @@ class TestCanvasState:
         with pytest.raises(ValueError, match="Сначала загрузите изображение"):
             canvas._contour_mask()
 
-    def test_flatten_background_to_white(self, view: ImageCanvas, messages: list[str]) -> None:
+    def test_flatten_background_to_white(
+        self, view: ImageCanvas, messages: list[str]
+    ) -> None:
         view.replace_current_rgb_array(np.full((80, 100, 3), 60, dtype=np.uint8))
         view.set_contour(SQUARE)
         messages.clear()
@@ -668,10 +712,20 @@ class TestMeasurementLookupsWithUnknownId:
         assert measured.set_segment_labels("нет-такого", "A", "B") is False
 
     def test_set_colors_with_unknown_id(self, measured: ImageCanvas) -> None:
-        assert measured.set_angle_measurement_line_color("нет-такого", "#123456") is False
-        assert measured.set_angle_measurement_label_color("нет-такого", "#123456") is False
-        assert measured.set_segment_measurement_line_color("нет-такого", "#123456") is False
-        assert measured.set_segment_measurement_label_color("нет-такого", "#123456") is False
+        assert (
+            measured.set_angle_measurement_line_color("нет-такого", "#123456") is False
+        )
+        assert (
+            measured.set_angle_measurement_label_color("нет-такого", "#123456") is False
+        )
+        assert (
+            measured.set_segment_measurement_line_color("нет-такого", "#123456")
+            is False
+        )
+        assert (
+            measured.set_segment_measurement_label_color("нет-такого", "#123456")
+            is False
+        )
 
     def test_read_colors_with_unknown_id(self, measured: ImageCanvas) -> None:
         assert measured.angle_measurement_line_color("нет-такого") is None
@@ -690,7 +744,9 @@ class TestMeasurementLookupsWithUnknownId:
         assert measured.angle_measurement_line_color(angle_id) == ANGLE_LINE_COLOR
 
         assert measured.set_segment_measurement_label_color(segment_id, "#xyz") is False
-        assert measured.segment_measurement_label_color(segment_id) == SEGMENT_LABEL_COLOR
+        assert (
+            measured.segment_measurement_label_color(segment_id) == SEGMENT_LABEL_COLOR
+        )
 
     def test_visibility_toggles_with_unknown_id(self, measured: ImageCanvas) -> None:
         assert measured.set_angle_measurement_visible("нет-такого", False) is False
@@ -698,7 +754,9 @@ class TestMeasurementLookupsWithUnknownId:
         assert measured.is_angle_measurement_visible("нет-такого") is False
         assert measured.is_segment_measurement_visible("нет-такого") is False
 
-    def test_setting_the_same_value_reports_no_change(self, measured: ImageCanvas) -> None:
+    def test_setting_the_same_value_reports_no_change(
+        self, measured: ImageCanvas
+    ) -> None:
         angle_id = measured.angle_measurement_records()[0][0]
 
         assert measured.set_angle_measurement_name(angle_id, "Первый") is True
@@ -745,7 +803,9 @@ class TestCalibrationLengthFromText:
     def test_accepted_values(self, text: str, expected: float) -> None:
         assert _calibration_length_mm_from_text(text) == pytest.approx(expected)
 
-    @pytest.mark.parametrize("text", ["", "около десяти", "-5", "0", "-0.001", "мм", None])
+    @pytest.mark.parametrize(
+        "text", ["", "около десяти", "-5", "0", "-0.001", "мм", None]
+    )
     def test_rejected_values(self, text: str | None) -> None:
         assert _calibration_length_mm_from_text(text) is None
 
@@ -835,7 +895,9 @@ def test_set_loaded_image_resets_previous_state(view: ImageCanvas) -> None:
     view.set_angle_measurements([[Point(20, 20), Point(20, 40), Point(40, 40)]])
 
     view.set_loaded_image(
-        loaded_image_from_rgb_array(Path("другой.png"), np.zeros((40, 50, 3), dtype=np.uint8))
+        loaded_image_from_rgb_array(
+            Path("другой.png"), np.zeros((40, 50, 3), dtype=np.uint8)
+        )
     )
 
     assert view.image_size() == (50, 40)

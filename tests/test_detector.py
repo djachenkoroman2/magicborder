@@ -68,7 +68,9 @@ class TestDetectLeafContourInput:
         assert len(points) >= 3
         assert all(0 <= point.x <= 200 and 0 <= point.y <= 160 for point in points)
 
-    def test_missing_contour_raises_value_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_missing_contour_raises_value_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         empty_mask = np.zeros((60, 60), dtype=np.uint8)
         monkeypatch.setattr(detector, "_grabcut_mask", lambda _image: empty_mask)
         monkeypatch.setattr(detector, "_fallback_color_mask", lambda _image: empty_mask)
@@ -154,7 +156,9 @@ class TestMaskIsReasonable:
             (9501, False),
         ],
     )
-    def test_foreground_ratio_boundaries(self, foreground_pixels: int, expected: bool) -> None:
+    def test_foreground_ratio_boundaries(
+        self, foreground_pixels: int, expected: bool
+    ) -> None:
         mask = np.zeros(10_000, dtype=np.uint8)
         mask[:foreground_pixels] = 255
 
@@ -177,7 +181,9 @@ class TestGrabCutMask:
 
         assert not mask.any()
 
-    def test_opencv_error_returns_empty_mask(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_opencv_error_returns_empty_mask(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         def raise_cv_error(*_args, **_kwargs):
             raise cv2.error("grabCut failed")
 

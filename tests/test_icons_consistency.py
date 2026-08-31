@@ -77,7 +77,10 @@ class TestActionVisualsConsistency:
         assert orphaned == ALIAS_ACTION_VISUALS
 
     def test_alias_visual_matches_its_target(self) -> None:
-        assert ACTION_VISUALS["export_project_csv"] == ACTION_VISUALS["export_project_excel"]
+        assert (
+            ACTION_VISUALS["export_project_csv"]
+            == ACTION_VISUALS["export_project_excel"]
+        )
 
     def test_window_actions_receive_their_visuals(self, qapp) -> None:
         from magicborder.main_window import MainWindow
@@ -87,7 +90,8 @@ class TestActionVisualsConsistency:
             actions = {
                 name: getattr(window, name)
                 for name in dir(window)
-                if name.endswith("_action") and isinstance(getattr(window, name), QAction)
+                if name.endswith("_action")
+                and isinstance(getattr(window, name), QAction)
             }
 
             assert actions
